@@ -10,7 +10,7 @@ export function registerRoutes(app: Express): Server {
   // Set up authentication and create admin user if needed
   setupAuth(app);
 
-  // Roles endpoint - admin only
+  // Roles endpoints - admin only
   app.get("/api/roles", requireRole(['admin']), async (req, res) => {
     try {
       const allRoles = await db.query.roles.findMany();
@@ -18,6 +18,128 @@ export function registerRoutes(app: Express): Server {
     } catch (error) {
       console.error('Error fetching roles:', error);
       res.status(500).send("Failed to fetch roles");
+    }
+  });
+
+  app.post("/api/roles", requireRole(['admin']), async (req, res) => {
+    try {
+      const { name, description } = req.body;
+
+      if (!name) {
+        return res.status(400).send("Role name is required");
+      }
+
+      // Check if role exists
+      const existingRole = await db.query.roles.findFirst({
+        where: eq(roles.name, name),
+      });
+
+      if (existingRole) {
+        return res.status(400).send("Role name already exists");
+      }
+
+      const [newRole] = await db
+        .insert(roles)
+        .values({
+          name,
+          description,
+        })
+        .returning();
+
+      res.json({
+        message: "Role created successfully",
+        role: newRole,
+      });
+    } catch (error) {
+      console.error('Error creating role:', error);
+      res.status(500).send("Failed to create role");
+    }
+  });
+
+  app.put("/api/roles/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, description } = req.body;
+
+      if (!name) {
+        return res.status(400).send("Role name is required");
+      }
+
+      // Check if role exists
+      const existingRole = await db.query.roles.findFirst({
+        where: and(
+          eq(roles.name, name),
+          sql`id != ${id}`
+        ),
+      });
+
+      if (existingRole) {
+        return res.status(400).send("Role name already exists");
+      }
+
+      // Prevent updating admin role name
+      const roleToUpdate = await db.query.roles.findFirst({
+        where: eq(roles.id, parseInt(id)),
+      });
+
+      if (roleToUpdate?.name === 'admin' && name !== 'admin') {
+        return res.status(400).send("Cannot modify admin role name");
+      }
+
+      const [updatedRole] = await db
+        .update(roles)
+        .set({
+          name,
+          description,
+          updatedAt: new Date(),
+        })
+        .where(eq(roles.id, parseInt(id)))
+        .returning();
+
+      res.json({
+        message: "Role updated successfully",
+        role: updatedRole,
+      });
+    } catch (error) {
+      console.error('Error updating role:', error);
+      res.status(500).send("Failed to update role");
+    }
+  });
+
+  app.delete("/api/roles/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if role exists and is not admin
+      const roleToDelete = await db.query.roles.findFirst({
+        where: eq(roles.id, parseInt(id)),
+      });
+
+      if (!roleToDelete) {
+        return res.status(404).send("Role not found");
+      }
+
+      if (roleToDelete.name === 'admin') {
+        return res.status(400).send("Cannot delete admin role");
+      }
+
+      // Check if role is assigned to any users
+      const usersWithRole = await db.query.users.findMany({
+        where: eq(users.roleId, parseInt(id)),
+      });
+
+      if (usersWithRole.length > 0) {
+        return res.status(400).send("Cannot delete role that is assigned to users");
+      }
+
+      await db
+        .delete(roles)
+        .where(eq(roles.id, parseInt(id)));
+
+      res.json({ message: "Role deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting role:', error);
+      res.status(500).send("Failed to delete role");
     }
   });
 
@@ -41,7 +163,7 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/users", requireRole(['admin']), async (req, res) => {
     try {
-      const result = insertUserSchema.safeParse(req.body);
+      const result = insertUserSchema.parse(req.body);
       if (!result.success) {
         return res
           .status(400)

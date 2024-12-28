@@ -8,6 +8,7 @@ import {
   ShoppingCart,
   PackageSearch,
   Users,
+  Settings,
   LogOut,
 } from "lucide-react";
 
@@ -22,6 +23,7 @@ function Sidebar() {
     { name: "Orders", href: "/orders", icon: ShoppingCart, roles: ['admin'] },
     { name: "Inventory", href: "/inventory", icon: PackageSearch, roles: ['admin'] },
     { name: "Users", href: "/users", icon: Users, roles: ['admin'] },
+    { name: "Roles", href: "/roles", icon: Settings, roles: ['admin'] },
   ];
 
   // Filter navigation items based on user role
