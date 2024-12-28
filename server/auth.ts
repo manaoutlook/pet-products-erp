@@ -5,7 +5,7 @@ import session from "express-session";
 import createMemoryStore from "memorystore";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
-import { users, roles, insertUserSchema } from "@db/schema";
+import { users, roles } from "@db/schema";
 import { db } from "@db";
 import { eq } from "drizzle-orm";
 
@@ -16,10 +16,10 @@ const crypto = {
   hash: async (password: string) => {
     try {
       const salt = randomBytes(16).toString("hex");
-      console.log(`Generated salt: ${salt}`);
+      console.log(`Generated salt for password hashing`);
       const buf = (await scryptAsync(password, salt, 64)) as Buffer;
       const hashedPassword = `${buf.toString("hex")}.${salt}`;
-      console.log(`Successfully hashed password with salt`);
+      console.log(`Successfully hashed password`);
       return hashedPassword;
     } catch (error) {
       console.error('Error hashing password:', error);
@@ -30,7 +30,6 @@ const crypto = {
     try {
       console.log('Comparing passwords...');
       const [hashedPassword, salt] = storedPassword.split(".");
-      console.log(`Using salt: ${salt}`);
       const hashedPasswordBuf = Buffer.from(hashedPassword, "hex");
       const suppliedPasswordBuf = (await scryptAsync(
         suppliedPassword,
@@ -87,6 +86,55 @@ function getAuthErrorMessage(error: string): { message: string; suggestion: stri
         message: "Authentication failed",
         suggestion: "Please try again. If the problem persists, contact support"
       };
+  }
+}
+
+export async function setupAdmin() {
+  try {
+    // Create admin role if it doesn't exist
+    const [adminRole] = await db
+      .insert(roles)
+      .values({
+        name: 'admin',
+        description: 'Administrator role with full access'
+      })
+      .onConflictDoNothing()
+      .returning();
+
+    // Get admin role ID
+    const [role] = await db
+      .select()
+      .from(roles)
+      .where(eq(roles.name, 'admin'))
+      .limit(1);
+
+    if (!role) {
+      throw new Error('Failed to create or find admin role');
+    }
+
+    // Create admin user if it doesn't exist
+    const [existingAdmin] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, 'admin'))
+      .limit(1);
+
+    if (!existingAdmin) {
+      const hashedPassword = await crypto.hash('admin123'); // Default password
+      await db
+        .insert(users)
+        .values({
+          username: 'admin',
+          password: hashedPassword,
+          roleId: role.id
+        })
+        .onConflictDoNothing();
+
+      console.log('Admin user created successfully');
+    }
+  } catch (error) {
+    console.error('Error setting up admin user:', error);
+    throw error;
   }
 }
 
@@ -151,6 +199,7 @@ export function setupAuth(app: Express) {
 
         // Don't include password in the user object
         const { password: _, ...userWithoutPassword } = user;
+        console.log('Login successful:', userWithoutPassword);
         return done(null, userWithoutPassword);
       } catch (err) {
         console.error('Login error:', err);
@@ -161,11 +210,13 @@ export function setupAuth(app: Express) {
   );
 
   passport.serializeUser((user, done) => {
+    console.log('Serializing user:', { id: user.id, username: user.username });
     done(null, { id: user.id, username: user.username, role: user.role });
   });
 
   passport.deserializeUser(async (serializedUser: Express.User, done) => {
     try {
+      console.log('Deserializing user:', serializedUser);
       const [user] = await db
         .select({
           id: users.id,
@@ -183,8 +234,10 @@ export function setupAuth(app: Express) {
         return done(new Error("User not found"));
       }
 
+      console.log('User deserialized:', user);
       done(null, user);
     } catch (err) {
+      console.error('Deserialization error:', err);
       done(err);
     }
   });
@@ -245,4 +298,7 @@ export function setupAuth(app: Express) {
     }
     res.status(401).json(getAuthErrorMessage('not authenticated'));
   });
+
+  // Setup admin user
+  setupAdmin().catch(console.error);
 }

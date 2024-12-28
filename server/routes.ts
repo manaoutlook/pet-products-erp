@@ -2,30 +2,23 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { db } from "@db";
-import { products, inventory, orders, orderItems, users, roles, insertUserSchema } from "@db/schema";
+import { products, inventory, orders, orderItems, users, roles } from "@db/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
-import { scrypt, randomBytes } from "crypto";
-import { promisify } from "util";
-
-const scryptAsync = promisify(scrypt);
-
-// Password hashing utility
-const crypto = {
-  hash: async (password: string) => {
-    const salt = randomBytes(16).toString("hex");
-    const buf = (await scryptAsync(password, salt, 64)) as Buffer;
-    return `${buf.toString("hex")}.${salt}`;
-  },
-};
 
 export function registerRoutes(app: Express): Server {
+  // Set up authentication and create admin user if needed
   setupAuth(app);
 
   // Roles endpoint - admin only
   app.get("/api/roles", requireRole(['admin']), async (req, res) => {
-    const allRoles = await db.query.roles.findMany();
-    res.json(allRoles);
+    try {
+      const allRoles = await db.query.roles.findMany();
+      res.json(allRoles);
+    } catch (error) {
+      console.error('Error fetching roles:', error);
+      res.status(500).send("Failed to fetch roles");
+    }
   });
 
   // User management endpoints - admin only
@@ -37,7 +30,9 @@ export function registerRoutes(app: Express): Server {
         },
       });
 
-      res.json(allUsers);
+      // Remove sensitive information
+      const sanitizedUsers = allUsers.map(({ password, ...user }) => user);
+      res.json(sanitizedUsers);
     } catch (error) {
       console.error('Error fetching users:', error);
       res.status(500).send("Failed to fetch users");
@@ -278,4 +273,25 @@ export function registerRoutes(app: Express): Server {
 
   const httpServer = createServer(app);
   return httpServer;
+}
+
+const crypto = {
+  hash: async (password: string) => {
+    const salt = randomBytes(16).toString("hex");
+    const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+    return `${buf.toString("hex")}.${salt}`;
+  },
+};
+
+const scryptAsync = promisify(scrypt);
+import { scrypt, randomBytes } from "crypto";
+import { promisify } from "util";
+const insertUserSchema = {
+  parse: (body: any) => {
+    const { username, password, roleId } = body
+    if (!username || !password || !roleId) {
+      throw new Error("Missing username, password or roleId")
+    }
+    return { username, password, roleId }
+  }
 }
