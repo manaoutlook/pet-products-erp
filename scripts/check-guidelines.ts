@@ -1,6 +1,9 @@
 import { readFileSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 const GUIDELINES_FILE = join(__dirname, '..', 'GUIDELINES.md');
 
 interface CheckResult {
@@ -63,6 +66,39 @@ function checkPriceHandling(filePath: string): CheckResult {
   };
 }
 
-// Usage example:
-// const result = checkCRUDImplementation('path/to/component.tsx');
-// console.log(result.pass ? 'Passed!' : `Failed:\n${result.issues.join('\n')}`);
+// Add main function to run checks
+async function main() {
+  if (process.argv.length < 3) {
+    console.error('Please provide a file path to check');
+    process.exit(1);
+  }
+
+  const filePath = process.argv[2];
+  console.log(`Checking file: ${filePath}\n`);
+
+  const crudResult = checkCRUDImplementation(filePath);
+  console.log('CRUD Implementation Check:');
+  if (crudResult.pass) {
+    console.log('✅ All CRUD implementation checks passed');
+  } else {
+    console.log('❌ CRUD implementation issues found:');
+    crudResult.issues.forEach(issue => console.log(`  - ${issue}`));
+  }
+
+  console.log('\nPrice Handling Check:');
+  const priceResult = checkPriceHandling(filePath);
+  if (priceResult.pass) {
+    console.log('✅ All price handling checks passed');
+  } else {
+    console.log('❌ Price handling issues found:');
+    priceResult.issues.forEach(issue => console.log(`  - ${issue}`));
+  }
+}
+
+// Run if called directly
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch(console.error);
+}
+
+// Export the functions for use in test scripts
+export { checkCRUDImplementation, checkPriceHandling };

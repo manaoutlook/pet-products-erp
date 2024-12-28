@@ -159,12 +159,12 @@ function ProductsPage() {
           id: editingProduct.id, 
           data: data
         });
-        setEditingProduct(null);
       } else {
         await createMutation.mutateAsync(data);
       }
+
       form.reset();
-      // Close the dialog after successful operation
+      // Close dialog using our standard implementation
       const dialogCloseButton = document.querySelector('[data-state="open"] button[type="button"]');
       if (dialogCloseButton instanceof HTMLElement) {
         dialogCloseButton.click();
