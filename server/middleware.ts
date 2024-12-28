@@ -7,7 +7,7 @@ export function requireRole(allowedRoles: string[]) {
       return res.status(401).send('Not authenticated');
     }
 
-    if (!req.user || !req.user.role || !allowedRoles.includes(req.user.role)) {
+    if (!req.user || !req.user.role || !allowedRoles.includes(req.user.role.name)) {
       return res.status(403).send('Access denied: Insufficient permissions');
     }
 

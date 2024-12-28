@@ -40,23 +40,28 @@ import {
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertUserSchema, type InsertUser } from "@db/schema";
+import type { InsertUser, SelectUser, Role } from "@db/schema";
+import { insertUserSchema } from "@db/schema";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
 
-interface User {
-  id: number;
-  username: string;
-  role: string;
+interface UserWithRole extends Omit<SelectUser, 'roleId'> {
+  role: {
+    name: string;
+  };
 }
 
 function UsersPage() {
   const [search, setSearch] = useState("");
-  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [editingUser, setEditingUser] = useState<UserWithRole | null>(null);
   const { toast } = useToast();
-  
-  const { data: users, isLoading, refetch } = useQuery<User[]>({
+
+  const { data: users, isLoading, refetch } = useQuery<UserWithRole[]>({
     queryKey: ['/api/users'],
+  });
+
+  const { data: roles } = useQuery<Role[]>({
+    queryKey: ['/api/roles'],
   });
 
   const createMutation = useMutation({
@@ -134,7 +139,7 @@ function UsersPage() {
     defaultValues: {
       username: "",
       password: "",
-      role: "user",
+      roleId: undefined,
     },
   });
 
@@ -143,16 +148,21 @@ function UsersPage() {
   );
 
   const onSubmit = async (data: InsertUser) => {
-    if (editingUser) {
-      await updateMutation.mutateAsync({ 
-        id: editingUser.id, 
-        data: { username: data.username, role: data.role } 
-      });
-      setEditingUser(null);
-    } else {
-      await createMutation.mutateAsync(data);
+    try {
+      if (editingUser) {
+        const { password, ...updateData } = data;
+        await updateMutation.mutateAsync({ 
+          id: editingUser.id, 
+          data: updateData
+        });
+        setEditingUser(null);
+      } else {
+        await createMutation.mutateAsync(data);
+      }
+      form.reset();
+    } catch (error) {
+      // Error is handled by the mutation
     }
-    form.reset();
   };
 
   return (
@@ -205,13 +215,13 @@ function UsersPage() {
                 )}
                 <FormField
                   control={form.control}
-                  name="role"
+                  name="roleId"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Role</FormLabel>
                       <Select
-                        onValueChange={field.onChange}
-                        defaultValue={field.value}
+                        onValueChange={(value) => field.onChange(parseInt(value))}
+                        value={field.value?.toString()}
                       >
                         <FormControl>
                           <SelectTrigger>
@@ -219,8 +229,11 @@ function UsersPage() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="user">User</SelectItem>
-                          <SelectItem value="admin">Admin</SelectItem>
+                          {roles?.map(role => (
+                            <SelectItem key={role.id} value={role.id.toString()}>
+                              {role.name}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -276,7 +289,7 @@ function UsersPage() {
                 {filteredUsers?.map((user) => (
                   <TableRow key={user.id}>
                     <TableCell>{user.username}</TableCell>
-                    <TableCell className="capitalize">{user.role}</TableCell>
+                    <TableCell className="capitalize">{user.role.name}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Dialog>
@@ -286,10 +299,11 @@ function UsersPage() {
                               size="icon"
                               onClick={() => {
                                 setEditingUser(user);
+                                const currentRole = roles?.find(r => r.name === user.role.name);
                                 form.reset({
                                   username: user.username,
                                   password: "",
-                                  role: user.role,
+                                  roleId: currentRole?.id,
                                 });
                               }}
                             >
@@ -317,13 +331,13 @@ function UsersPage() {
                                 />
                                 <FormField
                                   control={form.control}
-                                  name="role"
+                                  name="roleId"
                                   render={({ field }) => (
                                     <FormItem>
                                       <FormLabel>Role</FormLabel>
                                       <Select
-                                        onValueChange={field.onChange}
-                                        defaultValue={field.value}
+                                        onValueChange={(value) => field.onChange(parseInt(value))}
+                                        value={field.value?.toString()}
                                       >
                                         <FormControl>
                                           <SelectTrigger>
@@ -331,8 +345,11 @@ function UsersPage() {
                                           </SelectTrigger>
                                         </FormControl>
                                         <SelectContent>
-                                          <SelectItem value="user">User</SelectItem>
-                                          <SelectItem value="admin">Admin</SelectItem>
+                                          {roles?.map(role => (
+                                            <SelectItem key={role.id} value={role.id.toString()}>
+                                              {role.name}
+                                            </SelectItem>
+                                          ))}
                                         </SelectContent>
                                       </Select>
                                       <FormMessage />

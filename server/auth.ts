@@ -52,7 +52,9 @@ declare global {
     interface User {
       id: number;
       username: string;
-      role: string;
+      role: {
+        name: string;
+      };
     }
   }
 }
@@ -91,8 +93,16 @@ export function setupAuth(app: Express) {
       try {
         console.log(`Attempting login for user: ${username}`);
         const [user] = await db
-          .select()
+          .select({
+            id: users.id,
+            username: users.username,
+            password: users.password,
+            role: {
+              name: sql<string>`roles.name`
+            }
+          })
           .from(users)
+          .innerJoin('roles', eq(users.roleId, sql`roles.id`))
           .where(eq(users.username, username))
           .limit(1);
 
@@ -113,7 +123,6 @@ export function setupAuth(app: Express) {
     })
   );
 
-  // Simplified serialization to avoid potential issues
   passport.serializeUser((user, done) => {
     done(null, { id: user.id, username: user.username, role: user.role });
   });
@@ -121,8 +130,15 @@ export function setupAuth(app: Express) {
   passport.deserializeUser(async (user: Express.User, done) => {
     try {
       const [dbUser] = await db
-        .select()
+        .select({
+          id: users.id,
+          username: users.username,
+          role: {
+            name: sql<string>`roles.name`
+          }
+        })
         .from(users)
+        .innerJoin('roles', eq(users.roleId, sql`roles.id`))
         .where(eq(users.id, user.id))
         .limit(1);
 
@@ -164,16 +180,27 @@ export function setupAuth(app: Express) {
         .select({ count: sql<number>`count(*)` })
         .from(users);
 
-      const role = count === 0 ? 'admin' : 'user';
+      // Get role ID
+      const [role] = await db
+        .select()
+        .from('roles')
+        .where(eq(sql`roles.name`, count === 0 ? 'admin' : 'user'))
+        .limit(1);
 
       const [newUser] = await db
         .insert(users)
         .values({
           username,
           password: hashedPassword,
-          role,
+          roleId: role.id,
         })
-        .returning();
+        .returning({
+          id: users.id,
+          username: users.username,
+          role: {
+            name: sql<string>`roles.name`
+          }
+        });
 
       req.login(newUser, (err) => {
         if (err) {
@@ -189,7 +216,6 @@ export function setupAuth(app: Express) {
     }
   });
 
-  // Update login response to include role
   app.post("/api/login", (req, res, next) => {
     passport.authenticate("local", (err: any, user: Express.User, info: any) => {
       if (err) {

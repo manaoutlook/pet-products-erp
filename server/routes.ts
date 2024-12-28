@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { db } from "@db";
-import { products, inventory, orders, orderItems, users, insertUserSchema } from "@db/schema";
+import { products, inventory, orders, orderItems, users, roles, insertUserSchema } from "@db/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
 import { scrypt, randomBytes } from "crypto";
@@ -22,15 +22,30 @@ const crypto = {
 export function registerRoutes(app: Express): Server {
   setupAuth(app);
 
+  // Roles endpoint - admin only
+  app.get("/api/roles", requireRole(['admin']), async (req, res) => {
+    const allRoles = await db
+      .select({
+        id: roles.id,
+        name: roles.name,
+        description: roles.description,
+      })
+      .from(roles);
+    res.json(allRoles);
+  });
+
   // User management endpoints - admin only
   app.get("/api/users", requireRole(['admin']), async (req, res) => {
     const allUsers = await db
       .select({
         id: users.id,
         username: users.username,
-        role: users.role,
+        role: {
+          name: sql<string>`roles.name`,
+        },
       })
-      .from(users);
+      .from(users)
+      .innerJoin('roles', eq(users.roleId, sql`roles.id`));
     res.json(allUsers);
   });
 
@@ -43,7 +58,7 @@ export function registerRoutes(app: Express): Server {
           .send("Invalid input: " + result.error.issues.map(i => i.message).join(", "));
       }
 
-      const { username, password, role } = result.data;
+      const { username, password, roleId } = result.data;
 
       // Check if user exists
       const [existingUser] = await db
@@ -63,13 +78,19 @@ export function registerRoutes(app: Express): Server {
         .values({
           username,
           password: hashedPassword,
-          role,
+          roleId,
         })
-        .returning();
+        .returning({
+          id: users.id,
+          username: users.username,
+          role: {
+            name: sql<string>`roles.name`,
+          },
+        });
 
       res.json({
         message: "User created successfully",
-        user: { id: newUser.id, username: newUser.username, role: newUser.role },
+        user: newUser,
       });
     } catch (error) {
       res.status(500).send("Failed to create user");
@@ -79,9 +100,9 @@ export function registerRoutes(app: Express): Server {
   app.put("/api/users/:id", requireRole(['admin']), async (req, res) => {
     try {
       const { id } = req.params;
-      const { username, role } = req.body;
+      const { username, roleId } = req.body;
 
-      if (!username && !role) {
+      if (!username && !roleId) {
         return res.status(400).send("No updates provided");
       }
 
@@ -105,18 +126,20 @@ export function registerRoutes(app: Express): Server {
         .update(users)
         .set({
           ...(username && { username }),
-          ...(role && { role }),
+          ...(roleId && { roleId }),
         })
         .where(eq(users.id, parseInt(id)))
-        .returning();
+        .returning({
+          id: users.id,
+          username: users.username,
+          role: {
+            name: sql<string>`roles.name`,
+          },
+        });
 
       res.json({
         message: "User updated successfully",
-        user: { 
-          id: updatedUser.id, 
-          username: updatedUser.username, 
-          role: updatedUser.role 
-        },
+        user: updatedUser,
       });
     } catch (error) {
       res.status(500).send("Failed to update user");
@@ -131,16 +154,23 @@ export function registerRoutes(app: Express): Server {
       const [{ count: adminCount }] = await db
         .select({ count: sql<number>`count(*)` })
         .from(users)
-        .where(eq(users.role, 'admin'));
+        .innerJoin('roles', eq(users.roleId, sql`roles.id`))
+        .where(eq(sql`roles.name`, 'admin'));
 
       if (adminCount <= 1) {
         const [userToDelete] = await db
-          .select()
+          .select({
+            id: users.id,
+            role: {
+              name: sql<string>`roles.name`,
+            },
+          })
           .from(users)
+          .innerJoin('roles', eq(users.roleId, sql`roles.id`))
           .where(eq(users.id, parseInt(id)))
           .limit(1);
 
-        if (userToDelete?.role === 'admin') {
+        if (userToDelete?.role.name === 'admin') {
           return res.status(400).send("Cannot delete the last admin user");
         }
       }

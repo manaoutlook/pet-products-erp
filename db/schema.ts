@@ -17,19 +17,50 @@
 import { pgTable, text, serial, integer, timestamp, decimal, boolean, pgEnum } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
+import { z } from "zod";
+
+// Roles master table
+export const roles = pgTable("roles", {
+  id: serial("id").primaryKey(),
+  name: text("name").unique().notNull(),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
 
 // Users and Auth
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").unique().notNull(),
   password: text("password").notNull(),
-  role: text("role").notNull().default('user'),
+  roleId: integer("role_id").references(() => roles.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const insertUserSchema = createInsertSchema(users);
+export const usersRelations = relations(users, ({ one }) => ({
+  role: one(roles, {
+    fields: [users.roleId],
+    references: [roles.id],
+  }),
+}));
+
+export const rolesRelations = relations(roles, ({ many }) => ({
+  users: many(users),
+}));
+
+// Define the Zod schemas for validation
+export const insertUserSchema = createInsertSchema(users, {
+  username: z.string().min(1, "Username is required"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  roleId: z.number().int().positive("Role is required"),
+});
+
 export const selectUserSchema = createSelectSchema(users);
-export type InsertUser = typeof users.$inferInsert;
+
+export type InsertUser = z.infer<typeof insertUserSchema>;
 export type SelectUser = typeof users.$inferSelect;
+export type Role = typeof roles.$inferSelect;
 
 // Products - Core entity for pet products
 export const products = pgTable("products", {
@@ -103,3 +134,8 @@ export const orderItemsRelations = relations(orderItems, ({ one }) => ({
     references: [products.id],
   }),
 }));
+
+export const insertRoleSchema = createInsertSchema(roles);
+export const selectRoleSchema = createSelectSchema(roles);
+export type InsertRole = typeof roles.$inferInsert;
+export type SelectRole = typeof roles.$inferSelect;
