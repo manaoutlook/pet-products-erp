@@ -1,2 +1,2 @@
-git clone https://github.com/[your-username]/pet-products-erp.git
+git clone https://github.com/manaoutlook/pet-products-erp.git
 cd pet-products-erp
