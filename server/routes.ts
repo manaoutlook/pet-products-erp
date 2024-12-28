@@ -2,14 +2,27 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { db } from "@db";
-import { products, inventory, orders, orderItems } from "@db/schema";
+import { products, inventory, orders, orderItems, users } from "@db/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
+import { requireRole, requireAuth } from "./middleware";
 
 export function registerRoutes(app: Express): Server {
   setupAuth(app);
 
-  // Stats API
-  app.get("/api/stats", async (req, res) => {
+  // Protected route - only for admins
+  app.get("/api/users", requireRole(['admin']), async (req, res) => {
+    const allUsers = await db
+      .select({
+        id: users.id,
+        username: users.username,
+        role: users.role,
+      })
+      .from(users);
+    res.json(allUsers);
+  });
+
+  // Stats API - admin only
+  app.get("/api/stats", requireRole(['admin']), async (req, res) => {
     const [orderStats] = await db
       .select({
         totalOrders: sql<number>`count(*)`,
@@ -39,7 +52,6 @@ export function registerRoutes(app: Express): Server {
       .where(sql`${inventory.quantity} <= ${products.minStock}`)
       .limit(5);
 
-    // Calculate growth (simplified)
     const growth = 5.2; // In a real app, calculate this
 
     res.json({
@@ -51,8 +63,8 @@ export function registerRoutes(app: Express): Server {
     });
   });
 
-  // Orders trend for chart
-  app.get("/api/stats/orders-trend", async (req, res) => {
+  // Orders trend for chart - admin only
+  app.get("/api/stats/orders-trend", requireRole(['admin']), async (req, res) => {
     const trend = await db
       .select({
         date: sql<string>`date_trunc('day', created_at)::date`,
@@ -66,8 +78,8 @@ export function registerRoutes(app: Express): Server {
     res.json(trend);
   });
 
-  // Products API
-  app.get("/api/products", async (req, res) => {
+  // Products API - available to all authenticated users
+  app.get("/api/products", requireAuth, async (req, res) => {
     const allProducts = await db.query.products.findMany({
       with: {
         inventory: true,
@@ -77,8 +89,8 @@ export function registerRoutes(app: Express): Server {
     res.json(allProducts);
   });
 
-  // Orders API
-  app.get("/api/orders", async (req, res) => {
+  // Orders API - admin only
+  app.get("/api/orders", requireRole(['admin']), async (req, res) => {
     const allOrders = await db.query.orders.findMany({
       with: {
         items: {

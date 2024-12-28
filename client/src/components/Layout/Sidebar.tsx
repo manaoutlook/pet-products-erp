@@ -7,6 +7,7 @@ import {
   Package,
   ShoppingCart,
   PackageSearch,
+  Users,
   LogOut,
 } from "lucide-react";
 
@@ -14,12 +15,19 @@ function Sidebar() {
   const [location] = useLocation();
   const { logout, user } = useUser();
 
-  const navigation = [
-    { name: "Dashboard", href: "/", icon: LayoutDashboard },
-    { name: "Products", href: "/products", icon: Package },
-    { name: "Orders", href: "/orders", icon: ShoppingCart },
-    { name: "Inventory", href: "/inventory", icon: PackageSearch },
+  // Define navigation items with role-based access
+  const navigationItems = [
+    { name: "Dashboard", href: "/", icon: LayoutDashboard, roles: ['admin'] },
+    { name: "Products", href: "/products", icon: Package, roles: ['admin', 'user'] },
+    { name: "Orders", href: "/orders", icon: ShoppingCart, roles: ['admin'] },
+    { name: "Inventory", href: "/inventory", icon: PackageSearch, roles: ['admin'] },
+    { name: "Users", href: "/users", icon: Users, roles: ['admin'] },
   ];
+
+  // Filter navigation items based on user role
+  const authorizedNavItems = navigationItems.filter(
+    item => user?.role && item.roles.includes(user.role)
+  );
 
   return (
     <div className="flex flex-col w-64 bg-sidebar border-r">
@@ -28,7 +36,7 @@ function Sidebar() {
       </div>
 
       <nav className="flex-1 px-2 py-4 space-y-1">
-        {navigation.map((item) => (
+        {authorizedNavItems.map((item) => (
           <Link key={item.name} href={item.href}>
             <a
               className={cn(
@@ -49,7 +57,7 @@ function Sidebar() {
         <div className="flex items-center mb-4">
           <div className="ml-3">
             <p className="text-sm font-medium">{user?.username}</p>
-            <p className="text-xs text-muted-foreground">{user?.role}</p>
+            <p className="text-xs text-muted-foreground capitalize">{user?.role}</p>
           </div>
         </div>
         <Button
