@@ -58,37 +58,6 @@ declare global {
   }
 }
 
-// Helper function to generate user-friendly error messages
-function getAuthErrorMessage(error: string): { message: string; suggestion: string } {
-  switch (error.toLowerCase()) {
-    case 'incorrect username':
-      return {
-        message: "Username not found",
-        suggestion: "Double-check your username or click 'Register' to create a new account"
-      };
-    case 'incorrect password':
-      return {
-        message: "Incorrect password",
-        suggestion: "Verify your password is correct. Remember passwords are case-sensitive"
-      };
-    case 'user locked':
-      return {
-        message: "Account temporarily locked",
-        suggestion: "Too many failed attempts. Please try again in 15 minutes"
-      };
-    case 'not authenticated':
-      return {
-        message: "Not logged in",
-        suggestion: "Please log in to access this resource"
-      };
-    default:
-      return {
-        message: "Authentication failed",
-        suggestion: "Please try again. If the problem persists, contact support"
-      };
-  }
-}
-
 export async function setupAdmin() {
   try {
     // Create admin role if it doesn't exist
@@ -169,6 +138,7 @@ export function setupAuth(app: Express) {
     new LocalStrategy(async (username, password, done) => {
       try {
         console.log(`Attempting login for user: ${username}`);
+        // Include role information in the login query
         const [user] = await db
           .select({
             id: users.id,
@@ -185,16 +155,13 @@ export function setupAuth(app: Express) {
 
         if (!user) {
           console.log('User not found');
-          const error = getAuthErrorMessage('incorrect username');
-          return done(null, false, error);
+          return done(null, false, { message: "Username not found" });
         }
 
         const isMatch = await crypto.compare(password, user.password);
-        console.log(`Password match result: ${isMatch}`);
 
         if (!isMatch) {
-          const error = getAuthErrorMessage('incorrect password');
-          return done(null, false, error);
+          return done(null, false, { message: "Incorrect password" });
         }
 
         // Don't include password in the user object
@@ -203,8 +170,7 @@ export function setupAuth(app: Express) {
         return done(null, userWithoutPassword);
       } catch (err) {
         console.error('Login error:', err);
-        const error = getAuthErrorMessage('system error');
-        return done(null, false, error);
+        return done(err);
       }
     })
   );
@@ -217,6 +183,7 @@ export function setupAuth(app: Express) {
   passport.deserializeUser(async (serializedUser: Express.User, done) => {
     try {
       console.log('Deserializing user:', serializedUser);
+      // Include role information in deserialization query
       const [user] = await db
         .select({
           id: users.id,
@@ -253,15 +220,17 @@ export function setupAuth(app: Express) {
       if (!user) {
         console.log('Login failed:', info);
         return res.status(400).json({
-          message: info.message,
-          suggestion: info.suggestion
+          message: info.message || "Login failed",
+          suggestion: "Please check your credentials and try again"
         });
       }
       req.logIn(user, (err) => {
         if (err) {
           console.error('Login session error:', err);
-          const error = getAuthErrorMessage('system error');
-          return res.status(500).json(error);
+          return res.status(500).json({
+            message: "Internal server error",
+            suggestion: "Please try again later"
+          });
         }
         console.log('Login successful for user:', user.username);
         return res.json({
@@ -275,11 +244,17 @@ export function setupAuth(app: Express) {
   app.post("/api/logout", (req, res) => {
     req.logout((err) => {
       if (err) {
-        return res.status(500).json(getAuthErrorMessage('system error'));
+        return res.status(500).json({
+          message: "Error during logout",
+          suggestion: "Please try again"
+        });
       }
       req.session.destroy((err) => {
         if (err) {
-          return res.status(500).json(getAuthErrorMessage('system error'));
+          return res.status(500).json({
+            message: "Error clearing session",
+            suggestion: "Please try again"
+          });
         }
         res.json({ message: "Logout successful" });
       });
@@ -296,7 +271,10 @@ export function setupAuth(app: Express) {
       const { id, username, role } = req.user;
       return res.json({ id, username, role });
     }
-    res.status(401).json(getAuthErrorMessage('not authenticated'));
+    res.status(401).json({
+      message: "Not logged in",
+      suggestion: "Please log in to access this resource"
+    });
   });
 
   // Setup admin user
