@@ -30,13 +30,18 @@ export function registerRoutes(app: Express): Server {
 
   // User management endpoints - admin only
   app.get("/api/users", requireRole(['admin']), async (req, res) => {
-    const allUsers = await db.query.users.findMany({
-      with: {
-        role: true,
-      },
-    });
+    try {
+      const allUsers = await db.query.users.findMany({
+        with: {
+          role: true,
+        },
+      });
 
-    res.json(allUsers);
+      res.json(allUsers);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      res.status(500).send("Failed to fetch users");
+    }
   });
 
   app.post("/api/users", requireRole(['admin']), async (req, res) => {
@@ -68,11 +73,7 @@ export function registerRoutes(app: Express): Server {
           password: hashedPassword,
           roleId,
         })
-        .returning({
-          id: users.id,
-          username: users.username,
-          roleId: users.roleId,
-        });
+        .returning();
 
       // Fetch the complete user with role
       const userWithRole = await db.query.users.findFirst({
@@ -122,11 +123,7 @@ export function registerRoutes(app: Express): Server {
           ...(roleId && { roleId }),
         })
         .where(eq(users.id, parseInt(id)))
-        .returning({
-          id: users.id,
-          username: users.username,
-          roleId: users.roleId,
-        });
+        .returning();
 
       // Fetch the complete user with role
       const userWithRole = await db.query.users.findFirst({
