@@ -37,6 +37,13 @@ import type { Role, InsertRole } from "@db/schema";
 import { insertRoleSchema } from "@db/schema";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 function RolesPage() {
   const [search, setSearch] = useState("");
@@ -125,6 +132,7 @@ function RolesPage() {
     defaultValues: {
       name: "",
       description: "",
+      type: "pet_store",
     },
   });
 
@@ -149,22 +157,22 @@ function RolesPage() {
     }
   };
 
-  // Function to handle opening the dialog for creating a new role
   const handleAddRole = () => {
     setEditingRole(null);
     form.reset({
       name: "",
       description: "",
+      type: "pet_store", // default value
     });
     setDialogOpen(true);
   };
 
-  // Function to handle opening the dialog for editing a role
   const handleEditRole = (role: Role) => {
     setEditingRole(role);
     form.reset({
       name: role.name,
       description: role.description || "",
+      type: role.type,
     });
     setDialogOpen(true);
   };
@@ -212,6 +220,30 @@ function RolesPage() {
                     </FormItem>
                   )}
                 />
+                <FormField
+                  control={form.control}
+                  name="type"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Role Type</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        defaultValue={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select role type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="distribution_center">Distribution Center</SelectItem>
+                          <SelectItem value="pet_store">Pet Store</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <Button
                   type="submit"
                   className="w-full"
@@ -254,6 +286,7 @@ function RolesPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Description</TableHead>
+                  <TableHead>Type</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -262,6 +295,9 @@ function RolesPage() {
                   <TableRow key={role.id}>
                     <TableCell className="font-medium">{role.name}</TableCell>
                     <TableCell>{role.description}</TableCell>
+                    <TableCell className="capitalize">
+                      {role.type.replace('_', ' ')}
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Button

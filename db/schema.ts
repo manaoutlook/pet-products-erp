@@ -19,11 +19,15 @@ import { relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Role type enum
+export const roleTypeEnum = pgEnum('role_type', ['distribution_center', 'pet_store']);
+
 // Roles master table
 export const roles = pgTable("roles", {
   id: serial("id").primaryKey(),
   name: text("name").unique().notNull(),
   description: text("description"),
+  type: roleTypeEnum("type").notNull().default('pet_store'),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
