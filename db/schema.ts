@@ -14,7 +14,7 @@
  * - No row-level security or database-level access controls
  */
 
-import { pgTable, text, serial, integer, timestamp, decimal, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, decimal } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -23,8 +23,6 @@ import { z } from "zod";
 export const roleTypes = pgTable("role_types", {
   id: serial("id").primaryKey(),
   description: text("description").notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 // Create schemas for roleTypes
@@ -33,16 +31,17 @@ export const selectRoleTypeSchema = createSelectSchema(roleTypes);
 export type InsertRoleType = typeof roleTypes.$inferInsert;
 export type SelectRoleType = typeof roleTypes.$inferSelect;
 
-// Roles master table
+// Roles table with relationship to role types
 export const roles = pgTable("roles", {
   id: serial("id").primaryKey(),
   name: text("name").unique().notNull(),
   description: text("description"),
+  roleTypeId: integer("role_type_id").references(() => roleTypes.id).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Users and Auth
+// Users table
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").unique().notNull(),
@@ -52,6 +51,19 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Define relationships between tables
+export const roleTypesRelations = relations(roleTypes, ({ many }) => ({
+  roles: many(roles),
+}));
+
+export const rolesRelations = relations(roles, ({ many, one }) => ({
+  users: many(users),
+  roleType: one(roleTypes, {
+    fields: [roles.roleTypeId],
+    references: [roleTypes.id],
+  }),
+}));
+
 export const usersRelations = relations(users, ({ one }) => ({
   role: one(roles, {
     fields: [users.roleId],
@@ -59,33 +71,20 @@ export const usersRelations = relations(users, ({ one }) => ({
   }),
 }));
 
-export const rolesRelations = relations(roles, ({ many }) => ({
-  users: many(users),
-}));
-
-// Define the base Zod schemas
-export const insertUserSchema = createInsertSchema(users);
-export const selectUserSchema = createSelectSchema(users);
-
-// Create custom types that include relations
-export type InsertUser = z.infer<typeof insertUserSchema>;
-export type Role = typeof roles.$inferSelect;
-export type SelectUser = typeof users.$inferSelect & {
-  role?: Role | null;
+// Create Zod schemas
+export const insertRoleSchema = createInsertSchema(roles);
+export const selectRoleSchema = createSelectSchema(roles);
+export type InsertRole = typeof roles.$inferInsert;
+export type SelectRole = typeof roles.$inferSelect & {
+  roleType?: SelectRoleType | null;
 };
 
-// Stores - Manages physical store locations
-export const stores = pgTable("stores", {
-  id: serial("id").primaryKey(),
-  name: text("name").notNull(),
-  location: text("location").notNull(),
-  contactInfo: text("contact_info").notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
-
-// Order status enum for basic order state tracking
-export const orderStatusEnum = pgEnum('order_status', ['pending', 'processing', 'shipped', 'delivered', 'cancelled']);
+export const insertUserSchema = createInsertSchema(users);
+export const selectUserSchema = createSelectSchema(users);
+export type InsertUser = typeof users.$inferInsert;
+export type SelectUser = typeof users.$inferSelect & {
+  role?: SelectRole | null;
+};
 
 // Products - Core entity for pet products
 export const products = pgTable("products", {
@@ -96,6 +95,16 @@ export const products = pgTable("products", {
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   category: text("category").notNull(),
   minStock: integer("min_stock").notNull().default(10),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Stores - Manages physical store locations
+export const stores = pgTable("stores", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  location: text("location").notNull(),
+  contactInfo: text("contact_info").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -115,7 +124,7 @@ export const orders = pgTable("orders", {
   id: serial("id").primaryKey(),
   customerName: text("customer_name").notNull(),
   customerEmail: text("customer_email").notNull(),
-  status: orderStatusEnum("status").notNull().default('pending'),
+  status: text("status").notNull().default('pending'),
   storeId: integer("store_id").references(() => stores.id),
   total: decimal("total", { precision: 10, scale: 2 }).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -171,20 +180,3 @@ export const orderItemsRelations = relations(orderItems, ({ one }) => ({
     references: [products.id],
   }),
 }));
-
-// Create Zod schemas for the new stores table
-export const insertStoreSchema = createInsertSchema(stores, {
-  name: z.string().min(1, "Store name is required"),
-  location: z.string().min(1, "Location is required"),
-  contactInfo: z.string().min(1, "Contact information is required"),
-});
-
-export const selectStoreSchema = createSelectSchema(stores);
-
-export type InsertStore = z.infer<typeof insertStoreSchema>;
-export type SelectStore = typeof stores.$inferSelect;
-
-export const insertRoleSchema = createInsertSchema(roles);
-export const selectRoleSchema = createSelectSchema(roles);
-export type InsertRole = typeof roles.$inferInsert;
-export type SelectRole = typeof roles.$inferSelect;

@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { db } from "@db";
-import { products, inventory, orders, orderItems, users, roles, stores } from "@db/schema";
+import { products, inventory, orders, orderItems, users, roles, roleTypes } from "@db/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
 import { z } from "zod";
@@ -24,10 +24,25 @@ export function registerRoutes(app: Express): Server {
   // Set up authentication and create admin user if needed
   setupAuth(app);
 
+  // Role Types endpoints - admin only
+  app.get("/api/role-types", requireRole(['admin']), async (req, res) => {
+    try {
+      const roleTypes = await db.query.roleTypes.findMany();
+      res.json(roleTypes);
+    } catch (error) {
+      console.error('Error fetching role types:', error);
+      res.status(500).send("Failed to fetch role types");
+    }
+  });
+
   // Roles endpoints - admin only
   app.get("/api/roles", requireRole(['admin']), async (req, res) => {
     try {
-      const allRoles = await db.query.roles.findMany();
+      const allRoles = await db.query.roles.findMany({
+        with: {
+          roleType: true,
+        },
+      });
       res.json(allRoles);
     } catch (error) {
       console.error('Error fetching roles:', error);
@@ -37,10 +52,10 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/roles", requireRole(['admin']), async (req, res) => {
     try {
-      const { name, description } = req.body;
+      const { name, description, roleTypeId } = req.body;
 
-      if (!name) {
-        return res.status(400).send("Role name is required");
+      if (!name || !roleTypeId) {
+        return res.status(400).send("Role name and role type are required");
       }
 
       // Check if role exists
@@ -52,17 +67,35 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).send("Role name already exists");
       }
 
+      // Check if role type exists
+      const roleType = await db.query.roleTypes.findFirst({
+        where: eq(roleTypes.id, roleTypeId),
+      });
+
+      if (!roleType) {
+        return res.status(400).send("Invalid role type");
+      }
+
       const [newRole] = await db
         .insert(roles)
         .values({
           name,
           description,
+          roleTypeId,
         })
         .returning();
 
+      // Fetch the complete role with role type
+      const roleWithType = await db.query.roles.findFirst({
+        where: eq(roles.id, newRole.id),
+        with: {
+          roleType: true,
+        },
+      });
+
       res.json({
         message: "Role created successfully",
-        role: newRole,
+        role: roleWithType,
       });
     } catch (error) {
       console.error('Error creating role:', error);
@@ -73,10 +106,10 @@ export function registerRoutes(app: Express): Server {
   app.put("/api/roles/:id", requireRole(['admin']), async (req, res) => {
     try {
       const { id } = req.params;
-      const { name, description } = req.body;
+      const { name, description, roleTypeId } = req.body;
 
-      if (!name) {
-        return res.status(400).send("Role name is required");
+      if (!name || !roleTypeId) {
+        return res.status(400).send("Role name and role type are required");
       }
 
       // Check if role exists
@@ -89,6 +122,15 @@ export function registerRoutes(app: Express): Server {
 
       if (existingRole) {
         return res.status(400).send("Role name already exists");
+      }
+
+      // Check if role type exists
+      const roleType = await db.query.roleTypes.findFirst({
+        where: eq(roleTypes.id, roleTypeId),
+      });
+
+      if (!roleType) {
+        return res.status(400).send("Invalid role type");
       }
 
       // Prevent updating admin role name
@@ -105,14 +147,23 @@ export function registerRoutes(app: Express): Server {
         .set({
           name,
           description,
+          roleTypeId,
           updatedAt: new Date(),
         })
         .where(eq(roles.id, parseInt(id)))
         .returning();
 
+      // Fetch the complete role with role type
+      const roleWithType = await db.query.roles.findFirst({
+        where: eq(roles.id, updatedRole.id),
+        with: {
+          roleType: true,
+        },
+      });
+
       res.json({
         message: "Role updated successfully",
-        role: updatedRole,
+        role: roleWithType,
       });
     } catch (error) {
       console.error('Error updating role:', error);

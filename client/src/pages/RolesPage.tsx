@@ -20,6 +20,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,19 +40,23 @@ import {
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { Role, InsertRole } from "@db/schema";
+import type { InsertRole, SelectRole, SelectRoleType } from "@db/schema";
 import { insertRoleSchema } from "@db/schema";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
 
 function RolesPage() {
   const [search, setSearch] = useState("");
-  const [editingRole, setEditingRole] = useState<Role | null>(null);
+  const [editingRole, setEditingRole] = useState<SelectRole | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const { toast } = useToast();
 
-  const { data: roles, isLoading, refetch } = useQuery<Role[]>({
+  const { data: roles, isLoading, refetch } = useQuery<SelectRole[]>({
     queryKey: ['/api/roles'],
+  });
+
+  const { data: roleTypes } = useQuery<SelectRoleType[]>({
+    queryKey: ['/api/role-types'],
   });
 
   const createMutation = useMutation({
@@ -125,6 +136,7 @@ function RolesPage() {
     defaultValues: {
       name: "",
       description: "",
+      roleTypeId: undefined,
     },
   });
 
@@ -138,16 +150,10 @@ function RolesPage() {
       if (editingRole) {
         await updateMutation.mutateAsync({ 
           id: editingRole.id, 
-          data: {
-            name: data.name,
-            description: data.description,
-          }
+          data
         });
       } else {
-        await createMutation.mutateAsync({
-          name: data.name,
-          description: data.description,
-        });
+        await createMutation.mutateAsync(data);
       }
     } catch (error) {
       // Error is handled by the mutation
@@ -159,15 +165,17 @@ function RolesPage() {
     form.reset({
       name: "",
       description: "",
+      roleTypeId: undefined,
     });
     setDialogOpen(true);
   };
 
-  const handleEditRole = (role: Role) => {
+  const handleEditRole = (role: SelectRole) => {
     setEditingRole(role);
     form.reset({
       name: role.name,
       description: role.description || "",
+      roleTypeId: role.roleTypeId,
     });
     setDialogOpen(true);
   };
@@ -215,6 +223,33 @@ function RolesPage() {
                     </FormItem>
                   )}
                 />
+                <FormField
+                  control={form.control}
+                  name="roleTypeId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Role Type</FormLabel>
+                      <Select 
+                        onValueChange={(value) => field.onChange(parseInt(value))}
+                        value={field.value?.toString()}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select role type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {roleTypes?.map(type => (
+                            <SelectItem key={type.id} value={type.id.toString()}>
+                              {type.description}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <Button
                   type="submit"
                   className="w-full"
@@ -257,6 +292,7 @@ function RolesPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Description</TableHead>
+                  <TableHead>Role Type</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -265,6 +301,7 @@ function RolesPage() {
                   <TableRow key={role.id}>
                     <TableCell className="font-medium">{role.name}</TableCell>
                     <TableCell>{role.description}</TableCell>
+                    <TableCell>{role.roleType?.description}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Button

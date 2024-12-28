@@ -5,7 +5,7 @@ import session from "express-session";
 import createMemoryStore from "memorystore";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
-import { users, roles } from "@db/schema";
+import { users, roles, roleTypes } from "@db/schema";
 import { db } from "@db";
 import { eq } from "drizzle-orm";
 
@@ -60,12 +60,37 @@ declare global {
 
 export async function setupAdmin() {
   try {
+    console.log('Setting up admin user...');
+
+    // Get or create System Administrator role type
+    let adminRoleType = await db.query.roleTypes.findFirst({
+      where: eq(roleTypes.description, 'System Administrator'),
+    });
+
+    if (!adminRoleType) {
+      console.log('System Administrator role type not found, creating it...');
+      const [newRoleType] = await db
+        .insert(roleTypes)
+        .values({
+          description: 'System Administrator',
+        })
+        .returning();
+      adminRoleType = newRoleType;
+    }
+
+    if (!adminRoleType) {
+      throw new Error('Failed to create or find System Administrator role type');
+    }
+
+    console.log('Using role type:', adminRoleType);
+
     // Create admin role if it doesn't exist
     const [adminRole] = await db
       .insert(roles)
       .values({
         name: 'admin',
-        description: 'Administrator role with full access'
+        description: 'Administrator role with full access',
+        roleTypeId: adminRoleType.id,
       })
       .onConflictDoNothing()
       .returning();
@@ -80,6 +105,8 @@ export async function setupAdmin() {
     if (!role) {
       throw new Error('Failed to create or find admin role');
     }
+
+    console.log('Admin role:', role);
 
     // Create admin user if it doesn't exist
     const [existingAdmin] = await db
