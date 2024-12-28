@@ -493,6 +493,102 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Products API - Create product (admin only)
+  app.post("/api/products", requireRole(['admin']), async (req, res) => {
+    try {
+      const { name, description, sku, price, category, minStock } = req.body;
+
+      if (!name || !sku || !price || !category) {
+        return res.status(400).send("Name, SKU, price, and category are required");
+      }
+
+      // Check if product with same SKU exists
+      const [existingProduct] = await db
+        .select()
+        .from(products)
+        .where(eq(products.sku, sku))
+        .limit(1);
+
+      if (existingProduct) {
+        return res.status(400).send("Product with this SKU already exists");
+      }
+
+      const [newProduct] = await db
+        .insert(products)
+        .values({
+          name,
+          description,
+          sku,
+          price,
+          category,
+          minStock: minStock || 10,
+        })
+        .returning();
+
+      res.json({
+        message: "Product created successfully",
+        product: newProduct,
+      });
+    } catch (error) {
+      console.error('Error creating product:', error);
+      res.status(500).send("Failed to create product");
+    }
+  });
+
+  // Products API - Update product (admin only)
+  app.put("/api/products/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, description, sku, price, category, minStock } = req.body;
+
+      if (!name || !sku || !price || !category) {
+        return res.status(400).send("Name, SKU, price, and category are required");
+      }
+
+      // Check if another product has the same SKU
+      const [existingProduct] = await db
+        .select()
+        .from(products)
+        .where(
+          and(
+            eq(products.sku, sku),
+            sql`id != ${id}`
+          )
+        )
+        .limit(1);
+
+      if (existingProduct) {
+        return res.status(400).send("Another product with this SKU already exists");
+      }
+
+      const [updatedProduct] = await db
+        .update(products)
+        .set({
+          name,
+          description,
+          sku,
+          price,
+          category,
+          minStock,
+          updatedAt: new Date(),
+        })
+        .where(eq(products.id, parseInt(id)))
+        .returning();
+
+      if (!updatedProduct) {
+        return res.status(404).send("Product not found");
+      }
+
+      res.json({
+        message: "Product updated successfully",
+        product: updatedProduct,
+      });
+    } catch (error) {
+      console.error('Error updating product:', error);
+      res.status(500).send("Failed to update product");
+    }
+  });
+
   // Orders API - admin only
   app.get("/api/orders", requireRole(['admin']), async (req, res) => {
     try {
