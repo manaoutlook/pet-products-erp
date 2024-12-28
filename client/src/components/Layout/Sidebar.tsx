@@ -11,27 +11,93 @@ import {
   Settings,
   Store,
   LogOut,
+  UserCog,
 } from "lucide-react";
+
+interface NavItem {
+  name: string;
+  href?: string;
+  icon: any;
+  roles: string[];
+  children?: NavItem[];
+}
 
 function Sidebar() {
   const [location] = useLocation();
   const { logout, user } = useUser();
 
-  // Define navigation items with role-based access
-  const navigationItems = [
+  // Define navigation items with role-based access and nested structure
+  const navigationItems: NavItem[] = [
     { name: "Dashboard", href: "/", icon: LayoutDashboard, roles: ['admin'] },
     { name: "Products", href: "/products", icon: Package, roles: ['admin', 'user'] },
     { name: "Orders", href: "/orders", icon: ShoppingCart, roles: ['admin'] },
     { name: "Inventory", href: "/inventory", icon: PackageSearch, roles: ['admin'] },
     { name: "Stores", href: "/stores", icon: Store, roles: ['admin'] },
-    { name: "Users", href: "/users", icon: Users, roles: ['admin'] },
-    { name: "Roles", href: "/roles", icon: Settings, roles: ['admin'] },
+    {
+      name: "User Management",
+      icon: UserCog,
+      roles: ['admin'],
+      children: [
+        { name: "Users", href: "/users", icon: Users, roles: ['admin'] },
+        { name: "Roles", href: "/roles", icon: Settings, roles: ['admin'] },
+      ],
+    },
   ];
 
   // Filter navigation items based on user role
-  const authorizedNavItems = navigationItems.filter(
-    item => user?.role?.name && item.roles.includes(user.role.name)
-  );
+  const hasAccess = (item: NavItem) => {
+    return user?.role?.name && item.roles.includes(user.role.name);
+  };
+
+  const renderNavItem = (item: NavItem) => {
+    if (item.children) {
+      return (
+        <div key={item.name} className="space-y-1">
+          <div className={cn(
+            "flex items-center px-2 py-2 text-sm font-medium rounded-md text-sidebar-foreground",
+          )}>
+            <item.icon className="mr-3 h-5 w-5" />
+            {item.name}
+          </div>
+          <div className="pl-4 space-y-1">
+            {item.children.map(child => 
+              hasAccess(child) && (
+                <Link key={child.name} href={child.href!}>
+                  <a
+                    className={cn(
+                      "flex items-center px-2 py-2 text-sm font-medium rounded-md",
+                      location === child.href
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent/50"
+                    )}
+                  >
+                    <child.icon className="mr-3 h-5 w-5" />
+                    {child.name}
+                  </a>
+                </Link>
+              )
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    return item.href && (
+      <Link key={item.name} href={item.href}>
+        <a
+          className={cn(
+            "flex items-center px-2 py-2 text-sm font-medium rounded-md",
+            location === item.href
+              ? "bg-sidebar-accent text-sidebar-accent-foreground"
+              : "text-sidebar-foreground hover:bg-sidebar-accent/50"
+          )}
+        >
+          <item.icon className="mr-3 h-5 w-5" />
+          {item.name}
+        </a>
+      </Link>
+    );
+  };
 
   return (
     <div className="flex flex-col w-64 bg-sidebar border-r">
@@ -40,21 +106,7 @@ function Sidebar() {
       </div>
 
       <nav className="flex-1 px-2 py-4 space-y-1">
-        {authorizedNavItems.map((item) => (
-          <Link key={item.name} href={item.href}>
-            <a
-              className={cn(
-                "flex items-center px-2 py-2 text-sm font-medium rounded-md",
-                location === item.href
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent/50"
-              )}
-            >
-              <item.icon className="mr-3 h-5 w-5" />
-              {item.name}
-            </a>
-          </Link>
-        ))}
+        {navigationItems.map(item => hasAccess(item) && renderNavItem(item))}
       </nav>
 
       <div className="p-4 border-t">
