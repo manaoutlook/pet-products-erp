@@ -62,6 +62,16 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type SelectUser = typeof users.$inferSelect;
 export type Role = typeof roles.$inferSelect;
 
+// Stores - Manages physical store locations
+export const stores = pgTable("stores", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  location: text("location").notNull(),
+  contactInfo: text("contact_info").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Products - Core entity for pet products
 export const products = pgTable("products", {
   id: serial("id").primaryKey(),
@@ -79,6 +89,7 @@ export const products = pgTable("products", {
 export const inventory = pgTable("inventory", {
   id: serial("id").primaryKey(),
   productId: integer("product_id").references(() => products.id),
+  storeId: integer("store_id").references(() => stores.id),
   quantity: integer("quantity").notNull().default(0),
   location: text("location"),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -93,6 +104,7 @@ export const orders = pgTable("orders", {
   customerName: text("customer_name").notNull(),
   customerEmail: text("customer_email").notNull(),
   status: orderStatusEnum("status").notNull().default('pending'),
+  storeId: integer("store_id").references(() => stores.id),
   total: decimal("total", { precision: 10, scale: 2 }).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -113,14 +125,27 @@ export const productsRelations = relations(products, ({ many }) => ({
   orderItems: many(orderItems),
 }));
 
-export const ordersRelations = relations(orders, ({ many }) => ({
+export const storesRelations = relations(stores, ({ many }) => ({
+  inventory: many(inventory),
+  orders: many(orders),
+}));
+
+export const ordersRelations = relations(orders, ({ many, one }) => ({
   items: many(orderItems),
+  store: one(stores, {
+    fields: [orders.storeId],
+    references: [stores.id],
+  }),
 }));
 
 export const inventoryRelations = relations(inventory, ({ one }) => ({
   product: one(products, {
     fields: [inventory.productId],
     references: [products.id],
+  }),
+  store: one(stores, {
+    fields: [inventory.storeId],
+    references: [stores.id],
   }),
 }));
 
@@ -134,6 +159,18 @@ export const orderItemsRelations = relations(orderItems, ({ one }) => ({
     references: [products.id],
   }),
 }));
+
+// Create Zod schemas for the new stores table
+export const insertStoreSchema = createInsertSchema(stores, {
+  name: z.string().min(1, "Store name is required"),
+  location: z.string().min(1, "Location is required"),
+  contactInfo: z.string().min(1, "Contact information is required"),
+});
+
+export const selectStoreSchema = createSelectSchema(stores);
+
+export type InsertStore = z.infer<typeof insertStoreSchema>;
+export type SelectStore = typeof stores.$inferSelect;
 
 export const insertRoleSchema = createInsertSchema(roles);
 export const selectRoleSchema = createSelectSchema(roles);

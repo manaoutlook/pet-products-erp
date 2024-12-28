@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { db } from "@db";
-import { products, inventory, orders, orderItems, users, roles } from "@db/schema";
+import { products, inventory, orders, orderItems, users, roles, stores } from "@db/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
 
@@ -296,6 +296,126 @@ export function registerRoutes(app: Express): Server {
     } catch (error) {
       console.error('Error deleting user:', error);
       res.status(500).send("Failed to delete user");
+    }
+  });
+
+  // Stores endpoints - admin only
+  app.get("/api/stores", requireRole(['admin']), async (req, res) => {
+    try {
+      const allStores = await db.query.stores.findMany({
+        orderBy: [desc(stores.updatedAt)],
+      });
+      res.json(allStores);
+    } catch (error) {
+      console.error('Error fetching stores:', error);
+      res.status(500).send("Failed to fetch stores");
+    }
+  });
+
+  app.post("/api/stores", requireRole(['admin']), async (req, res) => {
+    try {
+      const { name, location, contactInfo } = req.body;
+
+      if (!name || !location || !contactInfo) {
+        return res.status(400).send("Name, location, and contact information are required");
+      }
+
+      const [newStore] = await db
+        .insert(stores)
+        .values({
+          name,
+          location,
+          contactInfo,
+        })
+        .returning();
+
+      res.json({
+        message: "Store created successfully",
+        store: newStore,
+      });
+    } catch (error) {
+      console.error('Error creating store:', error);
+      res.status(500).send("Failed to create store");
+    }
+  });
+
+  app.put("/api/stores/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, location, contactInfo } = req.body;
+
+      if (!name || !location || !contactInfo) {
+        return res.status(400).send("Name, location, and contact information are required");
+      }
+
+      const [updatedStore] = await db
+        .update(stores)
+        .set({
+          name,
+          location,
+          contactInfo,
+          updatedAt: new Date(),
+        })
+        .where(eq(stores.id, parseInt(id)))
+        .returning();
+
+      if (!updatedStore) {
+        return res.status(404).send("Store not found");
+      }
+
+      res.json({
+        message: "Store updated successfully",
+        store: updatedStore,
+      });
+    } catch (error) {
+      console.error('Error updating store:', error);
+      res.status(500).send("Failed to update store");
+    }
+  });
+
+  app.delete("/api/stores/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if store exists
+      const [store] = await db
+        .select()
+        .from(stores)
+        .where(eq(stores.id, parseInt(id)))
+        .limit(1);
+
+      if (!store) {
+        return res.status(404).send("Store not found");
+      }
+
+      // Check if store has any inventory
+      const [inventoryCount] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(inventory)
+        .where(eq(inventory.storeId, parseInt(id)));
+
+      if (inventoryCount.count > 0) {
+        return res.status(400).send("Cannot delete store with existing inventory");
+      }
+
+      // Check if store has any orders
+      const [orderCount] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(orders)
+        .where(eq(orders.storeId, parseInt(id)));
+
+      if (orderCount.count > 0) {
+        return res.status(400).send("Cannot delete store with existing orders");
+      }
+
+      await db
+        .delete(stores)
+        .where(eq(stores.id, parseInt(id)));
+
+      res.json({ message: "Store deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting store:', error);
+      res.status(500).send("Failed to delete store");
     }
   });
 
