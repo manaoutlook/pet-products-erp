@@ -7,7 +7,7 @@ import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { users, roles, insertUserSchema } from "@db/schema";
 import { db } from "@db";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 const scryptAsync = promisify(scrypt);
 
@@ -155,59 +155,9 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/register", async (req, res, next) => {
-    try {
-      const result = insertUserSchema.safeParse(req.body);
-      if (!result.success) {
-        return res
-          .status(400)
-          .send("Invalid input: " + result.error.issues.map(i => i.message).join(", "));
-      }
-
-      const { username, password, roleId } = result.data;
-
-      const [existingUser] = await db
-        .select()
-        .from(users)
-        .where(eq(users.username, username))
-        .limit(1);
-
-      if (existingUser) {
-        return res.status(400).send("Username already exists");
-      }
-
-      const hashedPassword = await crypto.hash(password);
-
-      const [newUser] = await db
-        .insert(users)
-        .values({
-          username,
-          password: hashedPassword,
-          roleId,
-        })
-        .returning({
-          id: users.id,
-          username: users.username,
-          role: {
-            name: roles.name
-          }
-        });
-
-      req.login(newUser, (err) => {
-        if (err) {
-          return next(err);
-        }
-        return res.json({
-          message: "Registration successful",
-          user: newUser,
-        });
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
   app.post("/api/login", (req, res, next) => {
+    console.log('Login request received:', { username: req.body.username });
+
     passport.authenticate("local", (err: any, user: Express.User | false, info: any) => {
       if (err) {
         console.error('Login authentication error:', err);
@@ -246,6 +196,11 @@ export function setupAuth(app: Express) {
   });
 
   app.get("/api/user", (req, res) => {
+    console.log('User info request:', { 
+      isAuthenticated: req.isAuthenticated(),
+      user: req.user 
+    });
+
     if (req.isAuthenticated()) {
       const { id, username, role } = req.user;
       return res.json({ id, username, role });

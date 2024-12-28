@@ -33,11 +33,13 @@ function AuthPage() {
     defaultValues: {
       username: "",
       password: "",
+      roleId: 1, // Default role for login (not used)
     },
   });
 
   const onSubmit = async (data: InsertUser) => {
     try {
+      console.log('Attempting authentication...', { username: data.username });
       if (isLogin) {
         await login(data);
         toast({
@@ -52,9 +54,10 @@ function AuthPage() {
         });
       }
     } catch (error: any) {
+      console.error('Authentication error:', error);
       toast({
         title: "Error",
-        description: error.message,
+        description: error.message || "Authentication failed",
         variant: "destructive",
       });
     }
@@ -115,7 +118,10 @@ function AuthPage() {
           <div className="mt-4 text-center text-sm">
             <button
               type="button"
-              onClick={() => setIsLogin(!isLogin)}
+              onClick={() => {
+                setIsLogin(!isLogin);
+                form.reset();
+              }}
               className="text-primary hover:underline"
             >
               {isLogin
