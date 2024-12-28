@@ -6,7 +6,9 @@ type RequestResult = {
   user?: {
     id: number;
     username: string;
-    role: string;
+    role: {
+      name: string;
+    };
   };
 };
 
@@ -24,17 +26,13 @@ async function handleRequest(
     });
 
     if (!response.ok) {
-      if (response.status >= 500) {
-        throw new Error(response.statusText);
-      }
-
-      const message = await response.text();
-      throw new Error(message);
+      const text = await response.text();
+      throw new Error(text || response.statusText);
     }
 
     return response.json();
   } catch (e: any) {
-    throw new Error(e.message);
+    throw new Error(e.message || 'An error occurred');
   }
 }
 
@@ -47,7 +45,8 @@ async function fetchUser(): Promise<SelectUser | null> {
     if (response.status === 401) {
       return null;
     }
-    throw new Error(`${response.status}: ${await response.text()}`);
+    const text = await response.text();
+    throw new Error(text || response.statusText);
   }
 
   return response.json();

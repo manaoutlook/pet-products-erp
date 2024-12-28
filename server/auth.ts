@@ -5,7 +5,7 @@ import session from "express-session";
 import createMemoryStore from "memorystore";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
-import { users, insertUserSchema } from "@db/schema";
+import { users, roles, insertUserSchema } from "@db/schema";
 import { db } from "@db";
 import { eq, sql } from "drizzle-orm";
 
@@ -61,8 +61,6 @@ declare global {
 
 export function setupAuth(app: Express) {
   const MemoryStore = createMemoryStore(session);
-
-  // Configure session middleware with more robust settings
   const sessionSettings: session.SessionOptions = {
     secret: process.env.REPL_ID || "pet-products-erp-secret",
     name: 'sid',
@@ -98,11 +96,11 @@ export function setupAuth(app: Express) {
             username: users.username,
             password: users.password,
             role: {
-              name: sql<string>`roles.name`
+              name: roles.name
             }
           })
           .from(users)
-          .innerJoin('roles', eq(users.roleId, sql`roles.id`))
+          .innerJoin(roles, eq(users.roleId, roles.id))
           .where(eq(users.username, username))
           .limit(1);
 
@@ -110,12 +108,17 @@ export function setupAuth(app: Express) {
           console.log('User not found');
           return done(null, false, { message: "Incorrect username." });
         }
+
         const isMatch = await crypto.compare(password, user.password);
         console.log(`Password match result: ${isMatch}`);
+
         if (!isMatch) {
           return done(null, false, { message: "Incorrect password." });
         }
-        return done(null, user);
+
+        // Don't include password in the user object
+        const { password: _, ...userWithoutPassword } = user;
+        return done(null, userWithoutPassword);
       } catch (err) {
         console.error('Login error:', err);
         return done(err);
@@ -127,26 +130,26 @@ export function setupAuth(app: Express) {
     done(null, { id: user.id, username: user.username, role: user.role });
   });
 
-  passport.deserializeUser(async (user: Express.User, done) => {
+  passport.deserializeUser(async (serializedUser: Express.User, done) => {
     try {
-      const [dbUser] = await db
+      const [user] = await db
         .select({
           id: users.id,
           username: users.username,
           role: {
-            name: sql<string>`roles.name`
+            name: roles.name
           }
         })
         .from(users)
-        .innerJoin('roles', eq(users.roleId, sql`roles.id`))
-        .where(eq(users.id, user.id))
+        .innerJoin(roles, eq(users.roleId, roles.id))
+        .where(eq(users.id, serializedUser.id))
         .limit(1);
 
-      if (!dbUser) {
+      if (!user) {
         return done(new Error("User not found"));
       }
 
-      done(null, dbUser);
+      done(null, user);
     } catch (err) {
       done(err);
     }
@@ -161,7 +164,7 @@ export function setupAuth(app: Express) {
           .send("Invalid input: " + result.error.issues.map(i => i.message).join(", "));
       }
 
-      const { username, password } = result.data;
+      const { username, password, roleId } = result.data;
 
       const [existingUser] = await db
         .select()
@@ -175,30 +178,18 @@ export function setupAuth(app: Express) {
 
       const hashedPassword = await crypto.hash(password);
 
-      // Check if this is the first user (make them admin)
-      const [{ count }] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(users);
-
-      // Get role ID
-      const [role] = await db
-        .select()
-        .from('roles')
-        .where(eq(sql`roles.name`, count === 0 ? 'admin' : 'user'))
-        .limit(1);
-
       const [newUser] = await db
         .insert(users)
         .values({
           username,
           password: hashedPassword,
-          roleId: role.id,
+          roleId,
         })
         .returning({
           id: users.id,
           username: users.username,
           role: {
-            name: sql<string>`roles.name`
+            name: roles.name
           }
         });
 
@@ -208,7 +199,7 @@ export function setupAuth(app: Express) {
         }
         return res.json({
           message: "Registration successful",
-          user: { id: newUser.id, username: newUser.username, role: newUser.role },
+          user: newUser,
         });
       });
     } catch (error) {
@@ -217,17 +208,21 @@ export function setupAuth(app: Express) {
   });
 
   app.post("/api/login", (req, res, next) => {
-    passport.authenticate("local", (err: any, user: Express.User, info: any) => {
+    passport.authenticate("local", (err: any, user: Express.User | false, info: any) => {
       if (err) {
+        console.error('Login authentication error:', err);
         return next(err);
       }
       if (!user) {
+        console.log('Login failed:', info?.message);
         return res.status(400).send(info?.message ?? "Login failed");
       }
       req.logIn(user, (err) => {
         if (err) {
+          console.error('Login session error:', err);
           return next(err);
         }
+        console.log('Login successful for user:', user.username);
         return res.json({
           message: "Login successful",
           user: { id: user.id, username: user.username, role: user.role },
