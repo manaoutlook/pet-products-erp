@@ -14,6 +14,12 @@ const insertUserSchema = z.object({
   roleId: z.number().positive("Role ID must be positive")
 });
 
+// Add update user schema for validation
+const updateUserSchema = z.object({
+  username: z.string().min(3, "Username must be at least 3 characters").optional(),
+  roleId: z.number().positive("Role ID must be positive").optional(),
+});
+
 export function registerRoutes(app: Express): Server {
   // Set up authentication and create admin user if needed
   setupAuth(app);
@@ -175,7 +181,7 @@ export function registerRoutes(app: Express): Server {
       if (!result.success) {
         return res
           .status(400)
-          .json({ 
+          .json({
             message: "Invalid input",
             errors: result.error.errors.map(err => ({
               field: err.path.join('.'),
@@ -227,36 +233,86 @@ export function registerRoutes(app: Express): Server {
   app.put("/api/users/:id", requireRole(['admin']), async (req, res) => {
     try {
       const { id } = req.params;
-      const { username, roleId } = req.body;
 
-      if (!username && !roleId) {
-        return res.status(400).send("No updates provided");
+      // Validate input
+      const result = updateUserSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({
+          message: "Invalid input",
+          errors: result.error.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message
+          }))
+        });
       }
 
-      // Check if username is taken
+      const { username, roleId } = result.data;
+
+      if (!username && !roleId) {
+        return res.status(400).json({
+          message: "No updates provided",
+          suggestion: "Provide either username or roleId to update"
+        });
+      }
+
+      // Verify user exists
+      const existingUser = await db.query.users.findFirst({
+        where: eq(users.id, parseInt(id)),
+        with: {
+          role: true,
+        },
+      });
+
+      if (!existingUser) {
+        return res.status(404).json({
+          message: "User not found",
+          suggestion: "Please verify the user ID"
+        });
+      }
+
+      // Check if new username is already taken by another user
       if (username) {
-        const existingUser = await db.query.users.findFirst({
+        const duplicateUser = await db.query.users.findFirst({
           where: and(
             eq(users.username, username),
             sql`id != ${id}`
           ),
         });
 
-        if (existingUser) {
-          return res.status(400).send("Username already exists");
+        if (duplicateUser) {
+          return res.status(400).json({
+            message: "Username already exists",
+            suggestion: "Please choose a different username"
+          });
         }
       }
 
+      // If roleId provided, verify it exists
+      if (roleId) {
+        const role = await db.query.roles.findFirst({
+          where: eq(roles.id, roleId),
+        });
+
+        if (!role) {
+          return res.status(400).json({
+            message: "Invalid role ID",
+            suggestion: "Please provide a valid role ID"
+          });
+        }
+      }
+
+      // Update user
       const [updatedUser] = await db
         .update(users)
         .set({
           ...(username && { username }),
           ...(roleId && { roleId }),
+          updatedAt: new Date(),
         })
         .where(eq(users.id, parseInt(id)))
         .returning();
 
-      // Fetch the complete user with role
+      // Fetch updated user with role information
       const userWithRole = await db.query.users.findFirst({
         where: eq(users.id, updatedUser.id),
         with: {
@@ -270,7 +326,10 @@ export function registerRoutes(app: Express): Server {
       });
     } catch (error) {
       console.error('Error updating user:', error);
-      res.status(500).send("Failed to update user");
+      res.status(500).json({
+        message: "Failed to update user",
+        suggestion: "Please try again later"
+      });
     }
   });
 
