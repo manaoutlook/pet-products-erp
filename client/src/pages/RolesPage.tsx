@@ -146,12 +146,11 @@ function RolesPage() {
       if (editingRole) {
         await updateMutation.mutateAsync({ 
           id: editingRole.id, 
-          data: data
+          data
         });
       } else {
         await createMutation.mutateAsync(data);
       }
-      form.reset();
     } catch (error) {
       // Error is handled by the mutation
     }
@@ -162,7 +161,7 @@ function RolesPage() {
     form.reset({
       name: "",
       description: "",
-      type: "pet_store", // default value
+      type: "pet_store",
     });
     setDialogOpen(true);
   };
@@ -172,7 +171,7 @@ function RolesPage() {
     form.reset({
       name: role.name,
       description: role.description || "",
-      type: role.type,
+      type: role.type || "pet_store",
     });
     setDialogOpen(true);
   };
@@ -214,7 +213,7 @@ function RolesPage() {
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Input {...field} />
+                        <Input {...field} value={field.value || ""} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -228,7 +227,7 @@ function RolesPage() {
                       <FormLabel>Role Type</FormLabel>
                       <Select
                         onValueChange={field.onChange}
-                        defaultValue={field.value}
+                        value={field.value}
                       >
                         <FormControl>
                           <SelectTrigger>

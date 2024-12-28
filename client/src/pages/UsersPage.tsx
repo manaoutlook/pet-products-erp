@@ -159,13 +159,11 @@ function UsersPage() {
       } else {
         await createMutation.mutateAsync(data);
       }
-      form.reset();
     } catch (error) {
       // Error is handled by the mutation
     }
   };
 
-  // Function to handle opening the dialog for creating a new user
   const handleAddUser = () => {
     setEditingUser(null);
     form.reset({
@@ -176,7 +174,6 @@ function UsersPage() {
     setDialogOpen(true);
   };
 
-  // Function to handle opening the dialog for editing a user
   const handleEditUser = (user: UserWithRole) => {
     setEditingUser(user);
     form.reset({
