@@ -41,6 +41,7 @@ import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
 function RolesPage() {
   const [search, setSearch] = useState("");
   const [editingRole, setEditingRole] = useState<Role | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const { toast } = useToast();
 
   const { data: roles, isLoading, refetch } = useQuery<Role[]>({
@@ -60,6 +61,7 @@ function RolesPage() {
     },
     onSuccess: () => {
       refetch();
+      setDialogOpen(false);
       toast({ title: "Success", description: "Role created successfully" });
     },
     onError: (error: Error) => {
@@ -84,6 +86,7 @@ function RolesPage() {
     },
     onSuccess: () => {
       refetch();
+      setDialogOpen(false);
       toast({ title: "Success", description: "Role updated successfully" });
     },
     onError: (error: Error) => {
@@ -137,7 +140,6 @@ function RolesPage() {
           id: editingRole.id, 
           data: data
         });
-        setEditingRole(null);
       } else {
         await createMutation.mutateAsync(data);
       }
@@ -147,16 +149,33 @@ function RolesPage() {
     }
   };
 
+  // Function to handle opening the dialog for creating a new role
+  const handleAddRole = () => {
+    setEditingRole(null);
+    form.reset({
+      name: "",
+      description: "",
+    });
+    setDialogOpen(true);
+  };
+
+  // Function to handle opening the dialog for editing a role
+  const handleEditRole = (role: Role) => {
+    setEditingRole(role);
+    form.reset({
+      name: role.name,
+      description: role.description || "",
+    });
+    setDialogOpen(true);
+  };
+
   return (
     <div className="space-y-6 p-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Roles</h1>
-        <Dialog>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button onClick={() => {
-              setEditingRole(null);
-              form.reset();
-            }}>
+            <Button onClick={handleAddRole}>
               <Plus className="mr-2 h-4 w-4" />
               Add Role
             </Button>
@@ -245,68 +264,13 @@ function RolesPage() {
                     <TableCell>{role.description}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              onClick={() => {
-                                setEditingRole(role);
-                                form.reset({
-                                  name: role.name,
-                                  description: role.description || "",
-                                });
-                              }}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent>
-                            <DialogHeader>
-                              <DialogTitle>Edit Role</DialogTitle>
-                            </DialogHeader>
-                            <Form {...form}>
-                              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                                <FormField
-                                  control={form.control}
-                                  name="name"
-                                  render={({ field }) => (
-                                    <FormItem>
-                                      <FormLabel>Name</FormLabel>
-                                      <FormControl>
-                                        <Input {...field} />
-                                      </FormControl>
-                                      <FormMessage />
-                                    </FormItem>
-                                  )}
-                                />
-                                <FormField
-                                  control={form.control}
-                                  name="description"
-                                  render={({ field }) => (
-                                    <FormItem>
-                                      <FormLabel>Description</FormLabel>
-                                      <FormControl>
-                                        <Input {...field} />
-                                      </FormControl>
-                                      <FormMessage />
-                                    </FormItem>
-                                  )}
-                                />
-                                <Button
-                                  type="submit"
-                                  className="w-full"
-                                  disabled={form.formState.isSubmitting}
-                                >
-                                  {form.formState.isSubmitting && (
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                  )}
-                                  Update Role
-                                </Button>
-                              </form>
-                            </Form>
-                          </DialogContent>
-                        </Dialog>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => handleEditRole(role)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
                         <Button
                           variant="outline"
                           size="icon"
