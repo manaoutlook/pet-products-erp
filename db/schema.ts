@@ -86,6 +86,22 @@ export type SelectUser = typeof users.$inferSelect & {
   role?: SelectRole | null;
 };
 
+// Stores - Manages physical store locations
+export const stores = pgTable("stores", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  location: text("location").notNull(),
+  contactInfo: text("contact_info").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Create schemas for stores
+export const insertStoreSchema = createInsertSchema(stores);
+export const selectStoreSchema = createSelectSchema(stores);
+export type InsertStore = typeof stores.$inferInsert;
+export type SelectStore = typeof stores.$inferSelect;
+
 // Products - Core entity for pet products
 export const products = pgTable("products", {
   id: serial("id").primaryKey(),
@@ -95,16 +111,6 @@ export const products = pgTable("products", {
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   category: text("category").notNull(),
   minStock: integer("min_stock").notNull().default(10),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
-
-// Stores - Manages physical store locations
-export const stores = pgTable("stores", {
-  id: serial("id").primaryKey(),
-  name: text("name").notNull(),
-  location: text("location").notNull(),
-  contactInfo: text("contact_info").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
