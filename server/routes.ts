@@ -5,6 +5,14 @@ import { db } from "@db";
 import { products, inventory, orders, orderItems, users, roles, stores } from "@db/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
+import { z } from "zod";
+
+// Create proper Zod schema for user validation
+const insertUserSchema = z.object({
+  username: z.string().min(3, "Username must be at least 3 characters"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  roleId: z.number().positive("Role ID must be positive")
+});
 
 export function registerRoutes(app: Express): Server {
   // Set up authentication and create admin user if needed
@@ -163,11 +171,17 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/users", requireRole(['admin']), async (req, res) => {
     try {
-      const result = insertUserSchema.parse(req.body);
+      const result = insertUserSchema.safeParse(req.body);
       if (!result.success) {
         return res
           .status(400)
-          .send("Invalid input: " + result.error.issues.map(i => i.message).join(", "));
+          .json({ 
+            message: "Invalid input",
+            errors: result.error.errors.map(err => ({
+              field: err.path.join('.'),
+              message: err.message
+            }))
+          });
       }
 
       const { username, password, roleId } = result.data;
@@ -621,15 +635,6 @@ const crypto = {
   },
 };
 
-const scryptAsync = promisify(scrypt);
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
-const insertUserSchema = {
-  parse: (body: any) => {
-    const { username, password, roleId } = body
-    if (!username || !password || !roleId) {
-      throw new Error("Missing username, password or roleId")
-    }
-    return { username, password, roleId }
-  }
-}
+const scryptAsync = promisify(scrypt);
