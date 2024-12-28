@@ -132,7 +132,7 @@ function RolesPage() {
     defaultValues: {
       name: "",
       description: "",
-      type: "pet_store",
+      type: undefined, // Remove default value to ensure user must select
     },
   });
 
@@ -146,10 +146,18 @@ function RolesPage() {
       if (editingRole) {
         await updateMutation.mutateAsync({ 
           id: editingRole.id, 
-          data
+          data: {
+            name: data.name,
+            description: data.description,
+            type: data.type,
+          }
         });
       } else {
-        await createMutation.mutateAsync(data);
+        await createMutation.mutateAsync({
+          name: data.name,
+          description: data.description,
+          type: data.type,
+        });
       }
     } catch (error) {
       // Error is handled by the mutation
@@ -161,7 +169,7 @@ function RolesPage() {
     form.reset({
       name: "",
       description: "",
-      type: "pet_store",
+      type: undefined, // Clear the type when adding new role
     });
     setDialogOpen(true);
   };
@@ -171,7 +179,7 @@ function RolesPage() {
     form.reset({
       name: role.name,
       description: role.description || "",
-      type: role.type || "pet_store",
+      type: role.type, // Set the current role's type
     });
     setDialogOpen(true);
   };
@@ -225,7 +233,7 @@ function RolesPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Role Type</FormLabel>
-                      <Select
+                      <Select 
                         onValueChange={field.onChange}
                         value={field.value}
                       >
@@ -295,7 +303,7 @@ function RolesPage() {
                     <TableCell className="font-medium">{role.name}</TableCell>
                     <TableCell>{role.description}</TableCell>
                     <TableCell className="capitalize">
-                      {role.type ? role.type.replace('_', ' ') : 'pet store'}
+                      {role.type ? role.type.replace('_', ' ') : 'Not set'}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
