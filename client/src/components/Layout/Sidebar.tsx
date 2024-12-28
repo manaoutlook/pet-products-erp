@@ -26,7 +26,7 @@ function Sidebar() {
 
   // Filter navigation items based on user role
   const authorizedNavItems = navigationItems.filter(
-    item => user?.role && item.roles.includes(user.role)
+    item => user?.role?.name && item.roles.includes(user.role.name)
   );
 
   return (
@@ -57,7 +57,7 @@ function Sidebar() {
         <div className="flex items-center mb-4">
           <div className="ml-3">
             <p className="text-sm font-medium">{user?.username}</p>
-            <p className="text-xs text-muted-foreground capitalize">{user?.role}</p>
+            <p className="text-xs text-muted-foreground capitalize">{user?.role?.name}</p>
           </div>
         </div>
         <Button
