@@ -213,7 +213,11 @@ export function registerRoutes(app: Express): Server {
     try {
       const allUsers = await db.query.users.findMany({
         with: {
-          role: true,
+          role: {
+            with: {
+              roleType: true,
+            }
+          },
         },
       });
 
