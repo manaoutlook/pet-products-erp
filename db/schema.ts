@@ -49,18 +49,16 @@ export const rolesRelations = relations(roles, ({ many }) => ({
   users: many(users),
 }));
 
-// Define the Zod schemas for validation
-export const insertUserSchema = createInsertSchema(users, {
-  username: z.string().min(1, "Username is required"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  roleId: z.number().int().positive("Role is required"),
-});
-
+// Define the base Zod schemas
+export const insertUserSchema = createInsertSchema(users);
 export const selectUserSchema = createSelectSchema(users);
 
+// Create custom types that include relations
 export type InsertUser = z.infer<typeof insertUserSchema>;
-export type SelectUser = typeof users.$inferSelect;
 export type Role = typeof roles.$inferSelect;
+export type SelectUser = typeof users.$inferSelect & {
+  role?: Role | null;
+};
 
 // Stores - Manages physical store locations
 export const stores = pgTable("stores", {
