@@ -2,14 +2,27 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { db } from "@db";
-import { products, inventory, orders, orderItems, users } from "@db/schema";
+import { products, inventory, orders, orderItems, users, insertUserSchema } from "@db/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
+import { scrypt, randomBytes } from "crypto";
+import { promisify } from "util";
+
+const scryptAsync = promisify(scrypt);
+
+// Password hashing utility
+const crypto = {
+  hash: async (password: string) => {
+    const salt = randomBytes(16).toString("hex");
+    const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+    return `${buf.toString("hex")}.${salt}`;
+  },
+};
 
 export function registerRoutes(app: Express): Server {
   setupAuth(app);
 
-  // Protected route - only for admins
+  // User management endpoints - admin only
   app.get("/api/users", requireRole(['admin']), async (req, res) => {
     const allUsers = await db
       .select({
@@ -19,6 +32,127 @@ export function registerRoutes(app: Express): Server {
       })
       .from(users);
     res.json(allUsers);
+  });
+
+  app.post("/api/users", requireRole(['admin']), async (req, res) => {
+    try {
+      const result = insertUserSchema.safeParse(req.body);
+      if (!result.success) {
+        return res
+          .status(400)
+          .send("Invalid input: " + result.error.issues.map(i => i.message).join(", "));
+      }
+
+      const { username, password, role } = result.data;
+
+      // Check if user exists
+      const [existingUser] = await db
+        .select()
+        .from(users)
+        .where(eq(users.username, username))
+        .limit(1);
+
+      if (existingUser) {
+        return res.status(400).send("Username already exists");
+      }
+
+      const hashedPassword = await crypto.hash(password);
+
+      const [newUser] = await db
+        .insert(users)
+        .values({
+          username,
+          password: hashedPassword,
+          role,
+        })
+        .returning();
+
+      res.json({
+        message: "User created successfully",
+        user: { id: newUser.id, username: newUser.username, role: newUser.role },
+      });
+    } catch (error) {
+      res.status(500).send("Failed to create user");
+    }
+  });
+
+  app.put("/api/users/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { username, role } = req.body;
+
+      if (!username && !role) {
+        return res.status(400).send("No updates provided");
+      }
+
+      // Check if username is taken
+      if (username) {
+        const [existingUser] = await db
+          .select()
+          .from(users)
+          .where(and(
+            eq(users.username, username),
+            sql`id != ${id}`
+          ))
+          .limit(1);
+
+        if (existingUser) {
+          return res.status(400).send("Username already exists");
+        }
+      }
+
+      const [updatedUser] = await db
+        .update(users)
+        .set({
+          ...(username && { username }),
+          ...(role && { role }),
+        })
+        .where(eq(users.id, parseInt(id)))
+        .returning();
+
+      res.json({
+        message: "User updated successfully",
+        user: { 
+          id: updatedUser.id, 
+          username: updatedUser.username, 
+          role: updatedUser.role 
+        },
+      });
+    } catch (error) {
+      res.status(500).send("Failed to update user");
+    }
+  });
+
+  app.delete("/api/users/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Prevent deleting the last admin
+      const [{ count: adminCount }] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(users)
+        .where(eq(users.role, 'admin'));
+
+      if (adminCount <= 1) {
+        const [userToDelete] = await db
+          .select()
+          .from(users)
+          .where(eq(users.id, parseInt(id)))
+          .limit(1);
+
+        if (userToDelete?.role === 'admin') {
+          return res.status(400).send("Cannot delete the last admin user");
+        }
+      }
+
+      await db
+        .delete(users)
+        .where(eq(users.id, parseInt(id)));
+
+      res.json({ message: "User deleted successfully" });
+    } catch (error) {
+      res.status(500).send("Failed to delete user");
+    }
   });
 
   // Stats API - admin only

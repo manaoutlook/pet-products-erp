@@ -6,6 +6,7 @@ import DashboardPage from "./pages/DashboardPage";
 import InventoryPage from "./pages/InventoryPage";
 import OrdersPage from "./pages/OrdersPage";
 import ProductsPage from "./pages/ProductsPage";
+import UsersPage from "./pages/UsersPage";
 import MainLayout from "./components/Layout/MainLayout";
 
 function App() {
@@ -30,6 +31,7 @@ function App() {
         <Route path="/inventory" component={InventoryPage} />
         <Route path="/orders" component={OrdersPage} />
         <Route path="/products" component={ProductsPage} />
+        <Route path="/users" component={UsersPage} />
         <Route>
           <div className="flex items-center justify-center h-full">
             <h1 className="text-2xl font-bold">404 - Page Not Found</h1>
