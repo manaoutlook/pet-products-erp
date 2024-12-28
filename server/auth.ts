@@ -11,7 +11,7 @@ import { eq } from "drizzle-orm";
 
 const scryptAsync = promisify(scrypt);
 
-// Improved crypto functions with better logging
+// Improved crypto functions with better logging and error handling
 const crypto = {
   hash: async (password: string) => {
     try {
@@ -23,7 +23,7 @@ const crypto = {
       return hashedPassword;
     } catch (error) {
       console.error('Error hashing password:', error);
-      throw error;
+      throw new Error('Error securing password. Please try again.');
     }
   },
   compare: async (suppliedPassword: string, storedPassword: string) => {
@@ -42,7 +42,7 @@ const crypto = {
       return isMatch;
     } catch (error) {
       console.error('Error comparing passwords:', error);
-      throw error;
+      throw new Error('Error verifying password. Please try again.');
     }
   },
 };
@@ -56,6 +56,37 @@ declare global {
         name: string;
       };
     }
+  }
+}
+
+// Helper function to generate user-friendly error messages
+function getAuthErrorMessage(error: string): { message: string; suggestion: string } {
+  switch (error.toLowerCase()) {
+    case 'incorrect username':
+      return {
+        message: "Username not found",
+        suggestion: "Double-check your username or click 'Register' to create a new account"
+      };
+    case 'incorrect password':
+      return {
+        message: "Incorrect password",
+        suggestion: "Verify your password is correct. Remember passwords are case-sensitive"
+      };
+    case 'user locked':
+      return {
+        message: "Account temporarily locked",
+        suggestion: "Too many failed attempts. Please try again in 15 minutes"
+      };
+    case 'not authenticated':
+      return {
+        message: "Not logged in",
+        suggestion: "Please log in to access this resource"
+      };
+    default:
+      return {
+        message: "Authentication failed",
+        suggestion: "Please try again. If the problem persists, contact support"
+      };
   }
 }
 
@@ -106,14 +137,16 @@ export function setupAuth(app: Express) {
 
         if (!user) {
           console.log('User not found');
-          return done(null, false, { message: "Incorrect username." });
+          const error = getAuthErrorMessage('incorrect username');
+          return done(null, false, error);
         }
 
         const isMatch = await crypto.compare(password, user.password);
         console.log(`Password match result: ${isMatch}`);
 
         if (!isMatch) {
-          return done(null, false, { message: "Incorrect password." });
+          const error = getAuthErrorMessage('incorrect password');
+          return done(null, false, error);
         }
 
         // Don't include password in the user object
@@ -121,7 +154,8 @@ export function setupAuth(app: Express) {
         return done(null, userWithoutPassword);
       } catch (err) {
         console.error('Login error:', err);
-        return done(err);
+        const error = getAuthErrorMessage('system error');
+        return done(null, false, error);
       }
     })
   );
@@ -164,13 +198,17 @@ export function setupAuth(app: Express) {
         return next(err);
       }
       if (!user) {
-        console.log('Login failed:', info?.message);
-        return res.status(400).send(info?.message ?? "Login failed");
+        console.log('Login failed:', info);
+        return res.status(400).json({
+          message: info.message,
+          suggestion: info.suggestion
+        });
       }
       req.logIn(user, (err) => {
         if (err) {
           console.error('Login session error:', err);
-          return next(err);
+          const error = getAuthErrorMessage('system error');
+          return res.status(500).json(error);
         }
         console.log('Login successful for user:', user.username);
         return res.json({
@@ -184,11 +222,11 @@ export function setupAuth(app: Express) {
   app.post("/api/logout", (req, res) => {
     req.logout((err) => {
       if (err) {
-        return res.status(500).send("Logout failed");
+        return res.status(500).json(getAuthErrorMessage('system error'));
       }
       req.session.destroy((err) => {
         if (err) {
-          return res.status(500).send("Session destruction failed");
+          return res.status(500).json(getAuthErrorMessage('system error'));
         }
         res.json({ message: "Logout successful" });
       });
@@ -205,6 +243,6 @@ export function setupAuth(app: Express) {
       const { id, username, role } = req.user;
       return res.json({ id, username, role });
     }
-    res.status(401).send("Not logged in");
+    res.status(401).json(getAuthErrorMessage('not authenticated'));
   });
 }

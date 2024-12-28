@@ -11,6 +11,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,10 +26,16 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertCircle } from "lucide-react";
+
+interface AuthError {
+  message: string;
+  suggestion: string;
+}
 
 function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
+  const [authError, setAuthError] = useState<AuthError | null>(null);
   const { login, register } = useUser();
   const { toast } = useToast();
 
@@ -39,15 +50,25 @@ function AuthPage() {
 
   const onSubmit = async (data: InsertUser) => {
     try {
+      setAuthError(null);
       console.log('Attempting authentication...', { username: data.username });
+
       if (isLogin) {
-        await login(data);
+        const result = await login(data);
+        if ('suggestion' in result) {
+          setAuthError(result as AuthError);
+          return;
+        }
         toast({
           title: "Success",
           description: "Logged in successfully",
         });
       } else {
-        await register(data);
+        const result = await register(data);
+        if ('suggestion' in result) {
+          setAuthError(result as AuthError);
+          return;
+        }
         toast({
           title: "Success",
           description: "Registered successfully",
@@ -55,10 +76,9 @@ function AuthPage() {
       }
     } catch (error: any) {
       console.error('Authentication error:', error);
-      toast({
-        title: "Error",
-        description: error.message || "Authentication failed",
-        variant: "destructive",
+      setAuthError({
+        message: error.message || "Authentication failed",
+        suggestion: "Please try again later. If the problem persists, contact support."
       });
     }
   };
@@ -75,6 +95,15 @@ function AuthPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {authError && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>{authError.message}</AlertTitle>
+              <AlertDescription>
+                {authError.suggestion}
+              </AlertDescription>
+            </Alert>
+          )}
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <FormField
@@ -84,7 +113,10 @@ function AuthPage() {
                   <FormItem>
                     <FormLabel>Username</FormLabel>
                     <FormControl>
-                      <Input {...field} />
+                      <Input 
+                        {...field} 
+                        autoComplete={isLogin ? "username" : "new-username"}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -97,7 +129,11 @@ function AuthPage() {
                   <FormItem>
                     <FormLabel>Password</FormLabel>
                     <FormControl>
-                      <Input type="password" {...field} />
+                      <Input 
+                        type="password" 
+                        {...field} 
+                        autoComplete={isLogin ? "current-password" : "new-password"}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -120,6 +156,7 @@ function AuthPage() {
               type="button"
               onClick={() => {
                 setIsLogin(!isLogin);
+                setAuthError(null);
                 form.reset();
               }}
               className="text-primary hover:underline"
