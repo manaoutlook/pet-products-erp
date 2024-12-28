@@ -10,21 +10,40 @@ import { db } from "@db";
 import { eq } from "drizzle-orm";
 
 const scryptAsync = promisify(scrypt);
+
+// Improved crypto functions with better logging
 const crypto = {
   hash: async (password: string) => {
-    const salt = randomBytes(16).toString("hex");
-    const buf = (await scryptAsync(password, salt, 64)) as Buffer;
-    return `${buf.toString("hex")}.${salt}`;
+    try {
+      const salt = randomBytes(16).toString("hex");
+      console.log(`Generated salt: ${salt}`);
+      const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+      const hashedPassword = `${buf.toString("hex")}.${salt}`;
+      console.log(`Successfully hashed password with salt`);
+      return hashedPassword;
+    } catch (error) {
+      console.error('Error hashing password:', error);
+      throw error;
+    }
   },
   compare: async (suppliedPassword: string, storedPassword: string) => {
-    const [hashedPassword, salt] = storedPassword.split(".");
-    const hashedPasswordBuf = Buffer.from(hashedPassword, "hex");
-    const suppliedPasswordBuf = (await scryptAsync(
-      suppliedPassword,
-      salt,
-      64
-    )) as Buffer;
-    return timingSafeEqual(hashedPasswordBuf, suppliedPasswordBuf);
+    try {
+      console.log('Comparing passwords...');
+      const [hashedPassword, salt] = storedPassword.split(".");
+      console.log(`Using salt: ${salt}`);
+      const hashedPasswordBuf = Buffer.from(hashedPassword, "hex");
+      const suppliedPasswordBuf = (await scryptAsync(
+        suppliedPassword,
+        salt,
+        64
+      )) as Buffer;
+      const isMatch = timingSafeEqual(hashedPasswordBuf, suppliedPasswordBuf);
+      console.log(`Password comparison result: ${isMatch}`);
+      return isMatch;
+    } catch (error) {
+      console.error('Error comparing passwords:', error);
+      throw error;
+    }
   },
 };
 
