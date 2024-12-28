@@ -30,27 +30,37 @@ const crypto = {
 
 declare global {
   namespace Express {
-    interface User extends typeof users.$inferSelect { }
+    interface User {
+      id: number;
+      username: string;
+      role: string;
+    }
   }
 }
 
 export function setupAuth(app: Express) {
   const MemoryStore = createMemoryStore(session);
+
+  // Configure session middleware with more robust settings
   const sessionSettings: session.SessionOptions = {
-    secret: process.env.REPL_ID || "pet-products-erp",
+    secret: process.env.REPL_ID || "pet-products-erp-secret",
+    name: 'sid',
     resave: false,
     saveUninitialized: false,
-    cookie: {},
+    rolling: true,
+    cookie: {
+      httpOnly: true,
+      secure: app.get("env") === "production",
+      sameSite: 'lax',
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    },
     store: new MemoryStore({
-      checkPeriod: 86400000,
+      checkPeriod: 86400000, // prune expired entries every 24h
     }),
   };
 
   if (app.get("env") === "production") {
     app.set("trust proxy", 1);
-    sessionSettings.cookie = {
-      secure: true,
-    };
   }
 
   app.use(session(sessionSettings));
@@ -80,18 +90,24 @@ export function setupAuth(app: Express) {
     })
   );
 
+  // Simplified serialization to avoid potential issues
   passport.serializeUser((user, done) => {
-    done(null, user.id);
+    done(null, { id: user.id, username: user.username, role: user.role });
   });
 
-  passport.deserializeUser(async (id: number, done) => {
+  passport.deserializeUser(async (user: Express.User, done) => {
     try {
-      const [user] = await db
+      const [dbUser] = await db
         .select()
         .from(users)
-        .where(eq(users.id, id))
+        .where(eq(users.id, user.id))
         .limit(1);
-      done(null, user);
+
+      if (!dbUser) {
+        return done(new Error("User not found"));
+      }
+
+      done(null, dbUser);
     } catch (err) {
       done(err);
     }
@@ -168,13 +184,19 @@ export function setupAuth(app: Express) {
       if (err) {
         return res.status(500).send("Logout failed");
       }
-      res.json({ message: "Logout successful" });
+      req.session.destroy((err) => {
+        if (err) {
+          return res.status(500).send("Session destruction failed");
+        }
+        res.json({ message: "Logout successful" });
+      });
     });
   });
 
   app.get("/api/user", (req, res) => {
     if (req.isAuthenticated()) {
-      return res.json(req.user);
+      const { id, username, role } = req.user;
+      return res.json({ id, username, role });
     }
     res.status(401).send("Not logged in");
   });
