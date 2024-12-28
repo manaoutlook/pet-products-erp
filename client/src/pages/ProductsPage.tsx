@@ -36,13 +36,20 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
 import { z } from "zod";
+import { validatePrice, formatPrice, normalizePrice } from "@/utils/price";
 
 // Product schema for form validation
 const productSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
   sku: z.string().min(1, "SKU is required"),
-  price: z.number().min(0, "Price must be positive"),
+  price: z.number()
+    .min(0, "Price must be positive")
+    .transform((val) => normalizePrice(val))
+    .refine(
+      (val) => validatePrice(val).isValid,
+      (val) => ({ message: validatePrice(val).error || "Invalid price" })
+    ),
   category: z.string().min(1, "Category is required"),
   minStock: z.number().int().min(0, "Minimum stock must be positive"),
 });
@@ -335,7 +342,7 @@ function ProductsPage() {
                       </TableCell>
                       <TableCell>{product.sku}</TableCell>
                       <TableCell>{product.category}</TableCell>
-                      <TableCell>${Number(product.price).toFixed(2)}</TableCell>
+                      <TableCell>{formatPrice(product.price)}</TableCell>
                       <TableCell>{product.inventory[0]?.quantity ?? 0}</TableCell>
                       <TableCell>
                         <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${stockStatus.class}`}>
