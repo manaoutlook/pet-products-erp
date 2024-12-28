@@ -49,12 +49,13 @@ const productSchema = z.object({
 
 type ProductFormData = z.infer<typeof productSchema>;
 
+// Update the Product interface to specify price type
 interface Product {
   id: number;
   name: string;
   description: string;
   sku: string;
-  price: number;
+  price: string | number; // Update to handle both string and number
   category: string;
   minStock: number;
   inventory: {
@@ -329,7 +330,7 @@ function ProductsPage() {
                       </TableCell>
                       <TableCell>{product.sku}</TableCell>
                       <TableCell>{product.category}</TableCell>
-                      <TableCell>${product.price.toFixed(2)}</TableCell>
+                      <TableCell>${Number(product.price).toFixed(2)}</TableCell>
                       <TableCell>{product.inventory[0]?.quantity ?? 0}</TableCell>
                       <TableCell>
                         <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${stockStatus.class}`}>
@@ -349,7 +350,7 @@ function ProductsPage() {
                                     name: product.name,
                                     description: product.description,
                                     sku: product.sku,
-                                    price: product.price,
+                                    price: Number(product.price), // Parse price as number
                                     category: product.category,
                                     minStock: product.minStock,
                                   });
