@@ -46,14 +46,13 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
 
 interface UserWithRole extends Omit<SelectUser, 'roleId'> {
-  role: {
-    name: string;
-  };
+  role: Role;
 }
 
 function UsersPage() {
   const [search, setSearch] = useState("");
   const [editingUser, setEditingUser] = useState<UserWithRole | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const { toast } = useToast();
 
   const { data: users, isLoading, refetch } = useQuery<UserWithRole[]>({
@@ -77,6 +76,7 @@ function UsersPage() {
     },
     onSuccess: () => {
       refetch();
+      setDialogOpen(false);
       toast({ title: "Success", description: "User created successfully" });
     },
     onError: (error: Error) => {
@@ -101,6 +101,7 @@ function UsersPage() {
     },
     onSuccess: () => {
       refetch();
+      setDialogOpen(false);
       toast({ title: "Success", description: "User updated successfully" });
     },
     onError: (error: Error) => {
@@ -155,7 +156,6 @@ function UsersPage() {
           id: editingUser.id, 
           data: updateData
         });
-        setEditingUser(null);
       } else {
         await createMutation.mutateAsync(data);
       }
@@ -169,7 +169,7 @@ function UsersPage() {
     <div className="space-y-6 p-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Users</h1>
-        <Dialog>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button onClick={() => {
               setEditingUser(null);
@@ -292,18 +292,17 @@ function UsersPage() {
                     <TableCell className="capitalize">{user.role.name}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <Dialog>
+                        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                           <DialogTrigger asChild>
                             <Button
                               variant="outline"
                               size="icon"
                               onClick={() => {
                                 setEditingUser(user);
-                                const currentRole = roles?.find(r => r.name === user.role.name);
                                 form.reset({
                                   username: user.username,
                                   password: "",
-                                  roleId: currentRole?.id,
+                                  roleId: user.role.id,
                                 });
                               }}
                             >
