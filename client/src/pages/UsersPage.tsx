@@ -165,16 +165,35 @@ function UsersPage() {
     }
   };
 
+  // Function to handle opening the dialog for creating a new user
+  const handleAddUser = () => {
+    setEditingUser(null);
+    form.reset({
+      username: "",
+      password: "",
+      roleId: undefined,
+    });
+    setDialogOpen(true);
+  };
+
+  // Function to handle opening the dialog for editing a user
+  const handleEditUser = (user: UserWithRole) => {
+    setEditingUser(user);
+    form.reset({
+      username: user.username,
+      password: "",
+      roleId: user.role.id,
+    });
+    setDialogOpen(true);
+  };
+
   return (
     <div className="space-y-6 p-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Users</h1>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button onClick={() => {
-              setEditingUser(null);
-              form.reset();
-            }}>
+            <Button onClick={handleAddUser}>
               <Plus className="mr-2 h-4 w-4" />
               Add User
             </Button>
@@ -292,83 +311,13 @@ function UsersPage() {
                     <TableCell className="capitalize">{user.role.name}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                          <DialogTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              onClick={() => {
-                                setEditingUser(user);
-                                form.reset({
-                                  username: user.username,
-                                  password: "",
-                                  roleId: user.role.id,
-                                });
-                              }}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent>
-                            <DialogHeader>
-                              <DialogTitle>Edit User</DialogTitle>
-                            </DialogHeader>
-                            <Form {...form}>
-                              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                                <FormField
-                                  control={form.control}
-                                  name="username"
-                                  render={({ field }) => (
-                                    <FormItem>
-                                      <FormLabel>Username</FormLabel>
-                                      <FormControl>
-                                        <Input {...field} />
-                                      </FormControl>
-                                      <FormMessage />
-                                    </FormItem>
-                                  )}
-                                />
-                                <FormField
-                                  control={form.control}
-                                  name="roleId"
-                                  render={({ field }) => (
-                                    <FormItem>
-                                      <FormLabel>Role</FormLabel>
-                                      <Select
-                                        onValueChange={(value) => field.onChange(parseInt(value))}
-                                        value={field.value?.toString()}
-                                      >
-                                        <FormControl>
-                                          <SelectTrigger>
-                                            <SelectValue placeholder="Select role" />
-                                          </SelectTrigger>
-                                        </FormControl>
-                                        <SelectContent>
-                                          {roles?.map(role => (
-                                            <SelectItem key={role.id} value={role.id.toString()}>
-                                              {role.name}
-                                            </SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                      <FormMessage />
-                                    </FormItem>
-                                  )}
-                                />
-                                <Button
-                                  type="submit"
-                                  className="w-full"
-                                  disabled={form.formState.isSubmitting}
-                                >
-                                  {form.formState.isSubmitting && (
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                  )}
-                                  Update User
-                                </Button>
-                              </form>
-                            </Form>
-                          </DialogContent>
-                        </Dialog>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => handleEditUser(user)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
                         <Button
                           variant="outline"
                           size="icon"
