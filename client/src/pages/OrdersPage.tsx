@@ -47,8 +47,8 @@ interface Order {
 
 function OrdersPage() {
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("");
-  
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+
   const { data: orders, isLoading } = useQuery<Order[]>({
     queryKey: ['/api/orders'],
   });
@@ -56,7 +56,7 @@ function OrdersPage() {
   const filteredOrders = orders?.filter(order => 
     (order.customerName.toLowerCase().includes(search.toLowerCase()) ||
      order.customerEmail.toLowerCase().includes(search.toLowerCase())) &&
-    (!statusFilter || order.status === statusFilter)
+    (statusFilter === "all" || order.status === statusFilter)
   );
 
   const getStatusColor = (status: Order['status']) => {
@@ -97,7 +97,7 @@ function OrdersPage() {
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Status</SelectItem>
+                <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="pending">Pending</SelectItem>
                 <SelectItem value="processing">Processing</SelectItem>
                 <SelectItem value="shipped">Shipped</SelectItem>
