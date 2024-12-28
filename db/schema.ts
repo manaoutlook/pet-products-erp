@@ -19,6 +19,20 @@ import { relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Role Types master table
+export const roleTypes = pgTable("role_types", {
+  id: serial("id").primaryKey(),
+  description: text("description").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Create schemas for roleTypes
+export const insertRoleTypeSchema = createInsertSchema(roleTypes);
+export const selectRoleTypeSchema = createSelectSchema(roleTypes);
+export type InsertRoleType = typeof roleTypes.$inferInsert;
+export type SelectRoleType = typeof roleTypes.$inferSelect;
+
 // Roles master table
 export const roles = pgTable("roles", {
   id: serial("id").primaryKey(),
