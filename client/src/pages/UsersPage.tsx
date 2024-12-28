@@ -40,14 +40,37 @@ import {
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { InsertUser, SelectUser, Role } from "@db/schema";
+import type { InsertUser, SelectUser, Role as SelectRole } from "@db/schema";
 import { insertUserSchema } from "@db/schema";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
+import { FC } from 'react';
 
 interface UserWithRole extends Omit<SelectUser, 'roleId'> {
-  role: Role;
+  role: SelectRole;
 }
+
+interface Props {
+  user: InsertUser | null;
+  onEdit?: () => void;
+}
+
+export const UserViewer: FC<Props> = ({ user, onEdit }) => {
+  return (
+    <div>
+      <h2>User Details</h2>
+      {user ? (
+        <div>
+          <p>Name: {user.name}</p>
+          <p>Email: {user.email}</p>
+          <p>Created At: {user.createdAt}</p>
+        </div>
+      ) : (
+        <p>No user selected.</p>
+      )}
+    </div>
+  );
+};
 
 function UsersPage() {
   const [search, setSearch] = useState("");
@@ -59,7 +82,7 @@ function UsersPage() {
     queryKey: ['/api/users'],
   });
 
-  const { data: roles } = useQuery<Role[]>({
+  const { data: roles } = useQuery<SelectRole[]>({
     queryKey: ['/api/roles'],
   });
 
@@ -190,7 +213,10 @@ function UsersPage() {
         <h1 className="text-3xl font-bold tracking-tight">Users</h1>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button onClick={handleAddUser}>
+            <Button onClick={() => {
+              setEditingUser(null);
+              form.reset();
+            }}>
               <Plus className="mr-2 h-4 w-4" />
               Add User
             </Button>
@@ -247,7 +273,7 @@ function UsersPage() {
                         <SelectContent>
                           {roles?.map(role => (
                             <SelectItem key={role.id} value={role.id.toString()}>
-                              {role.name}
+                              {role.name} ({role.roleType?.description})
                             </SelectItem>
                           ))}
                         </SelectContent>
