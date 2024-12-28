@@ -37,13 +37,6 @@ import type { Role, InsertRole } from "@db/schema";
 import { insertRoleSchema } from "@db/schema";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 function RolesPage() {
   const [search, setSearch] = useState("");
@@ -132,7 +125,6 @@ function RolesPage() {
     defaultValues: {
       name: "",
       description: "",
-      type: undefined, // Remove default value to ensure user must select
     },
   });
 
@@ -149,14 +141,12 @@ function RolesPage() {
           data: {
             name: data.name,
             description: data.description,
-            type: data.type,
           }
         });
       } else {
         await createMutation.mutateAsync({
           name: data.name,
           description: data.description,
-          type: data.type,
         });
       }
     } catch (error) {
@@ -169,7 +159,6 @@ function RolesPage() {
     form.reset({
       name: "",
       description: "",
-      type: undefined, // Clear the type when adding new role
     });
     setDialogOpen(true);
   };
@@ -179,7 +168,6 @@ function RolesPage() {
     form.reset({
       name: role.name,
       description: role.description || "",
-      type: role.type, // Set the current role's type
     });
     setDialogOpen(true);
   };
@@ -227,30 +215,6 @@ function RolesPage() {
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="type"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Role Type</FormLabel>
-                      <Select 
-                        onValueChange={field.onChange}
-                        value={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select role type" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="distribution_center">Distribution Center</SelectItem>
-                          <SelectItem value="pet_store">Pet Store</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
                 <Button
                   type="submit"
                   className="w-full"
@@ -293,7 +257,6 @@ function RolesPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Description</TableHead>
-                  <TableHead>Type</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -302,9 +265,6 @@ function RolesPage() {
                   <TableRow key={role.id}>
                     <TableCell className="font-medium">{role.name}</TableCell>
                     <TableCell>{role.description}</TableCell>
-                    <TableCell className="capitalize">
-                      {role.type ? role.type.replace('_', ' ') : 'Not set'}
-                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Button

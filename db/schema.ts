@@ -14,20 +14,16 @@
  * - No row-level security or database-level access controls
  */
 
-import { pgTable, text, serial, integer, timestamp, decimal, boolean, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, decimal, pgEnum } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
-
-// Role type enum
-export const roleTypeEnum = pgEnum('role_type', ['distribution_center', 'pet_store']);
 
 // Roles master table
 export const roles = pgTable("roles", {
   id: serial("id").primaryKey(),
   name: text("name").unique().notNull(),
   description: text("description"),
-  type: roleTypeEnum("type").notNull(), 
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -74,6 +70,9 @@ export const stores = pgTable("stores", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Order status enum for basic order state tracking
+export const orderStatusEnum = pgEnum('order_status', ['pending', 'processing', 'shipped', 'delivered', 'cancelled']);
+
 // Products - Core entity for pet products
 export const products = pgTable("products", {
   id: serial("id").primaryKey(),
@@ -96,9 +95,6 @@ export const inventory = pgTable("inventory", {
   location: text("location"),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
-
-// Order status enum for basic order state tracking
-export const orderStatusEnum = pgEnum('order_status', ['pending', 'processing', 'shipped', 'delivered', 'cancelled']);
 
 // Orders - Main order entity
 export const orders = pgTable("orders", {
