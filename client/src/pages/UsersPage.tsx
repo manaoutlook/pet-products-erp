@@ -40,37 +40,19 @@ import {
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { InsertUser, SelectUser, Role as SelectRole } from "@db/schema";
+import type { InsertUser, SelectUser, SelectRole } from "@db/schema";
 import { insertUserSchema } from "@db/schema";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
 import { FC } from 'react';
 
 interface UserWithRole extends Omit<SelectUser, 'roleId'> {
-  role: SelectRole;
+  role: SelectRole & {
+    roleType: {
+      description: string;
+    };
+  };
 }
-
-interface Props {
-  user: InsertUser | null;
-  onEdit?: () => void;
-}
-
-export const UserViewer: FC<Props> = ({ user, onEdit }) => {
-  return (
-    <div>
-      <h2>User Details</h2>
-      {user ? (
-        <div>
-          <p>Name: {user.name}</p>
-          <p>Email: {user.email}</p>
-          <p>Created At: {user.createdAt}</p>
-        </div>
-      ) : (
-        <p>No user selected.</p>
-      )}
-    </div>
-  );
-};
 
 function UsersPage() {
   const [search, setSearch] = useState("");
@@ -187,16 +169,6 @@ function UsersPage() {
     }
   };
 
-  const handleAddUser = () => {
-    setEditingUser(null);
-    form.reset({
-      username: "",
-      password: "",
-      roleId: undefined,
-    });
-    setDialogOpen(true);
-  };
-
   const handleEditUser = (user: UserWithRole) => {
     setEditingUser(user);
     form.reset({
@@ -215,7 +187,11 @@ function UsersPage() {
           <DialogTrigger asChild>
             <Button onClick={() => {
               setEditingUser(null);
-              form.reset();
+              form.reset({
+                username: "",
+                password: "",
+                roleId: undefined,
+              });
             }}>
               <Plus className="mr-2 h-4 w-4" />
               Add User
@@ -331,13 +307,23 @@ function UsersPage() {
                 {filteredUsers?.map((user) => (
                   <TableRow key={user.id}>
                     <TableCell>{user.username}</TableCell>
-                    <TableCell className="capitalize">{user.role.name}</TableCell>
+                    <TableCell>
+                      {user.role.name} ({user.role.roleType?.description})
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Button
                           variant="outline"
                           size="icon"
-                          onClick={() => handleEditUser(user)}
+                          onClick={() => {
+                            setEditingUser(user);
+                            form.reset({
+                              username: user.username,
+                              password: "",
+                              roleId: user.role.id,
+                            });
+                            setDialogOpen(true);
+                          }}
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
