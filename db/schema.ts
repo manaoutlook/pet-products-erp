@@ -1,3 +1,19 @@
+/**
+ * Database Schema Definition
+ * 
+ * IMPORTANT DATABASE PRINCIPLES:
+ * - PostgreSQL is used strictly for:
+ *   1. Data storage and retrieval
+ *   2. Table relationships and foreign key constraints
+ *   3. Indexing for performance optimization
+ * 
+ * - All business logic, access controls, and data validation are implemented
+ *   at the application level, not in the database
+ * 
+ * - No stored procedures, triggers, or complex database-level policies
+ * - No row-level security or database-level access controls
+ */
+
 import { pgTable, text, serial, integer, timestamp, decimal, boolean, pgEnum } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
@@ -15,7 +31,7 @@ export const selectUserSchema = createSelectSchema(users);
 export type InsertUser = typeof users.$inferInsert;
 export type SelectUser = typeof users.$inferSelect;
 
-// Products
+// Products - Core entity for pet products
 export const products = pgTable("products", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
@@ -28,7 +44,7 @@ export const products = pgTable("products", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Inventory
+// Inventory - Tracks product stock levels
 export const inventory = pgTable("inventory", {
   id: serial("id").primaryKey(),
   productId: integer("product_id").references(() => products.id),
@@ -37,9 +53,10 @@ export const inventory = pgTable("inventory", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Order status enum for basic order state tracking
 export const orderStatusEnum = pgEnum('order_status', ['pending', 'processing', 'shipped', 'delivered', 'cancelled']);
 
-// Orders
+// Orders - Main order entity
 export const orders = pgTable("orders", {
   id: serial("id").primaryKey(),
   customerName: text("customer_name").notNull(),
@@ -50,7 +67,7 @@ export const orders = pgTable("orders", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Order Items
+// Order Items - Links orders to products
 export const orderItems = pgTable("order_items", {
   id: serial("id").primaryKey(),
   orderId: integer("order_id").references(() => orders.id),
@@ -59,7 +76,7 @@ export const orderItems = pgTable("order_items", {
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
 });
 
-// Relations
+// Define relationships between tables
 export const productsRelations = relations(products, ({ many }) => ({
   inventory: many(inventory),
   orderItems: many(orderItems),
