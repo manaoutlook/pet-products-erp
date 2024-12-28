@@ -27,7 +27,7 @@ export const roles = pgTable("roles", {
   id: serial("id").primaryKey(),
   name: text("name").unique().notNull(),
   description: text("description"),
-  type: roleTypeEnum("type").notNull().default('pet_store'),
+  type: roleTypeEnum("type").notNull(), 
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
