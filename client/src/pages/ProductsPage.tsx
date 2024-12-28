@@ -157,6 +157,11 @@ function ProductsPage() {
         await createMutation.mutateAsync(data);
       }
       form.reset();
+      // Close the dialog after successful operation
+      const dialogCloseButton = document.querySelector('[data-state="open"] button[type="button"]');
+      if (dialogCloseButton instanceof HTMLElement) {
+        dialogCloseButton.click();
+      }
     } catch (error) {
       // Error is handled by the mutation
     }
