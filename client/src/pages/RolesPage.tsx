@@ -296,7 +296,7 @@ function RolesPage() {
                     <TableCell className="font-medium">{role.name}</TableCell>
                     <TableCell>{role.description}</TableCell>
                     <TableCell className="capitalize">
-                      {role.type.replace('_', ' ')}
+                      {role.type ? role.type.replace('_', ' ') : 'pet store'}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
