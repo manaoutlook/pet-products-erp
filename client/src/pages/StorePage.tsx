@@ -41,6 +41,7 @@ import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
 function StorePage() {
   const [search, setSearch] = useState("");
   const [editingStore, setEditingStore] = useState<SelectStore | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const { toast } = useToast();
 
   const { data: stores, isLoading, refetch } = useQuery<SelectStore[]>({
@@ -60,6 +61,7 @@ function StorePage() {
     },
     onSuccess: () => {
       refetch();
+      setDialogOpen(false);
       toast({ title: "Success", description: "Store created successfully" });
     },
     onError: (error: Error) => {
@@ -84,6 +86,7 @@ function StorePage() {
     },
     onSuccess: () => {
       refetch();
+      setDialogOpen(false);
       toast({ title: "Success", description: "Store updated successfully" });
     },
     onError: (error: Error) => {
@@ -139,7 +142,6 @@ function StorePage() {
           id: editingStore.id, 
           data: data
         });
-        setEditingStore(null);
       } else {
         await createMutation.mutateAsync(data);
       }
@@ -153,7 +155,7 @@ function StorePage() {
     <div className="space-y-6 p-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Stores</h1>
-        <Dialog>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button onClick={() => {
               setEditingStore(null);
@@ -262,7 +264,7 @@ function StorePage() {
                     <TableCell>{store.contactInfo}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <Dialog>
+                        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                           <DialogTrigger asChild>
                             <Button
                               variant="outline"
