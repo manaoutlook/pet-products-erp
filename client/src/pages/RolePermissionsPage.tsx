@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Table,
   TableBody,
@@ -113,6 +113,8 @@ type FormValues = z.infer<typeof formSchema>;
 function RolePermissionsPage() {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
+  const queryClient = useQueryClient();
+
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -154,6 +156,7 @@ function RolePermissionsPage() {
     },
     onSuccess: () => {
       toast({ title: "Success", description: "Role created successfully" });
+      queryClient.invalidateQueries({ queryKey: ['/api/roles'] });
       setOpen(false);
       form.reset();
     },
@@ -178,6 +181,7 @@ function RolePermissionsPage() {
       return res.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/roles'] });
       toast({ title: "Success", description: "Permissions updated successfully" });
     },
     onError: (error: Error) => {
@@ -198,6 +202,7 @@ function RolePermissionsPage() {
     const role = roles?.find(r => r.id === roleId);
     if (!role) return;
 
+    // Create a new permissions object with the updated value
     const newPermissions = {
       ...role.permissions,
       [module]: {
@@ -206,10 +211,15 @@ function RolePermissionsPage() {
       }
     };
 
-    await updatePermissionsMutation.mutateAsync({
-      roleId,
-      permissions: newPermissions
-    });
+    try {
+      await updatePermissionsMutation.mutateAsync({
+        roleId,
+        permissions: newPermissions
+      });
+    } catch (error) {
+      // Error handling is done in mutation's onError callback
+      console.error('Failed to update permissions:', error);
+    }
   };
 
   const onSubmit = async (data: FormValues) => {
