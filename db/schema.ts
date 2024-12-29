@@ -160,6 +160,7 @@ export const inventory = pgTable("inventory", {
   // New fields for inventory type and center identification
   inventoryType: text("inventory_type").notNull().default('STORE'), // Values: 'DC' or 'STORE'
   centerId: text("center_id").default('DC001'), // Default for Distribution Center
+  barcode: text("barcode").unique(), // New field for storing unique barcodes
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 

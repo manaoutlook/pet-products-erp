@@ -20,6 +20,17 @@ const updateUserSchema = z.object({
   roleId: z.number().positive("Role ID must be positive").optional(),
 });
 
+function generateInventoryBarcode(
+  inventoryType: 'DC' | 'STORE',
+  productSku: string,
+  storeId?: number | null
+): string {
+  const prefix = inventoryType === 'DC' ? 'DC' : 'ST';
+  const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+  const storePrefix = storeId ? storeId.toString().padStart(3, '0') : '000';
+  return `${prefix}${storePrefix}${productSku}${randomNum}`;
+}
+
 export function registerRoutes(app: Express): Server {
   // Set up authentication and create admin user if needed
   setupAuth(app);
@@ -926,6 +937,18 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).send("Product ID, quantity, and inventory type are required");
       }
 
+      // Get product SKU for barcode generation
+      const product = await db.query.products.findFirst({
+        where: eq(products.id, productId),
+      });
+
+      if (!product) {
+        return res.status(404).send("Product not found");
+      }
+
+      // Generate unique barcode
+      const barcode = generateInventoryBarcode(inventoryType as 'DC' | 'STORE', product.sku, storeId);
+
       // Set centerId to DC001 if it's a Distribution Center item
       const centerId = inventoryType === 'DC' ? 'DC001' : null;
 
@@ -938,6 +961,7 @@ export function registerRoutes(app: Express): Server {
           location,
           inventoryType,
           centerId,
+          barcode,
         })
         .returning();
 
@@ -1011,7 +1035,7 @@ export function registerRoutes(app: Express): Server {
 
   app.delete("/api/inventory/:id", requireRole(['admin']), async (req, res) => {
     try {
-      const { id } = req.params;
+      const { id }= req.params;
 
       // Check if inventory item exists
       const [inventoryItem] = await db

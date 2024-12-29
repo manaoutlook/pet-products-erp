@@ -43,6 +43,7 @@ import { Loader2, Plus, Search, Pencil, Trash2 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { Barcode } from "@/components/ui/barcode"; // Added import for Barcode component
 
 const inventorySchema = z.object({
   productId: z.string().min(1, "Product is required"),
@@ -74,6 +75,7 @@ interface InventoryItem {
   location: string | null;
   inventoryType: 'DC' | 'STORE';
   centerId: string | null;
+  barcode: string; // Updated interface to include barcode
   product: Product;
   store: Store | null;
 }
@@ -218,7 +220,7 @@ function InventoryPage() {
     }
   };
 
-  const filteredInventory = inventory?.filter(item => 
+  const filteredInventory = inventory?.filter(item =>
     item.product.name.toLowerCase().includes(search.toLowerCase()) ||
     item.product.sku.toLowerCase().includes(search.toLowerCase()) ||
     item.location?.toLowerCase().includes(search.toLowerCase()) ||
@@ -413,6 +415,7 @@ function InventoryPage() {
                   <TableHead>Quantity</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Actions</TableHead>
+                  <TableHead>Barcode</TableHead> {/* Added Barcode column */}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -450,6 +453,9 @@ function InventoryPage() {
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
+                    </TableCell>
+                    <TableCell className="min-w-[200px]">
+                      {item.barcode && <Barcode value={item.barcode} height={50} fontSize={12} margin={5} />}
                     </TableCell>
                   </TableRow>
                 ))}
