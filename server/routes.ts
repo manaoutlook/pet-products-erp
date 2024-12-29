@@ -576,21 +576,22 @@ export function registerRoutes(app: Express): Server {
             with: {
               roleType: true
             }
-          },
-          storeAssignments: {
-            with: {
-              store: true
-            }
           }
         },
         where: sql`roles.role_type_id = (
           SELECT id FROM role_types WHERE description = 'Pet Store'
         )`
       });
-      res.json(petStoreUsers);
+
+      // Return only necessary user information
+      const sanitizedUsers = petStoreUsers.map(({ password, ...user }) => user);
+      res.json(sanitizedUsers);
     } catch (error) {
       console.error('Error fetching pet store users:', error);
-      res.status(500).send("Failed to fetch pet store users");
+      res.status(500).json({
+        message: "Failed to fetch pet store users",
+        suggestion: "Please try again later"
+      });
     }
   });
 
