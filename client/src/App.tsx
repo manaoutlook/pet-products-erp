@@ -6,6 +6,7 @@ import DashboardPage from "./pages/DashboardPage";
 import InventoryPage from "./pages/InventoryPage";
 import OrdersPage from "./pages/OrdersPage";
 import ProductsPage from "./pages/ProductsPage";
+import CategoryPage from "./pages/CategoryPage";
 import UsersPage from "./pages/UsersPage";
 import RolesPage from "./pages/RolesPage";
 import RolePermissionsPage from "./pages/RolePermissionsPage";
@@ -37,6 +38,7 @@ function App() {
         <Route path="/inventory" component={InventoryPage} />
         <Route path="/orders" component={OrdersPage} />
         <Route path="/products" component={ProductsPage} />
+        <Route path="/categories" component={CategoryPage} />
         <Route path="/users" component={UsersPage} />
         <Route path="/roles" component={RolesPage} />
         <Route path="/role-permissions" component={RolePermissionsPage} />

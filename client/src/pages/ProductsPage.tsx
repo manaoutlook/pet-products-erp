@@ -38,8 +38,15 @@ import { Loader2, Search, Plus, Pencil, Trash2, AlertCircle } from "lucide-react
 import { z } from "zod";
 import { validatePrice, formatPrice, normalizePrice } from "@/utils/price";
 import { usePermissions } from "@/hooks/use-permissions";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-// Product schema for form validation
+// Update the product schema to use categoryId
 const productSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
@@ -51,23 +58,34 @@ const productSchema = z.object({
       (val) => validatePrice(val).isValid,
       (val) => ({ message: validatePrice(val).error || "Invalid price" })
     ),
-  category: z.string().min(1, "Category is required"),
+  categoryId: z.number().min(1, "Category is required"),
   minStock: z.number().int().min(0, "Minimum stock must be positive"),
 });
 
 type ProductFormData = z.infer<typeof productSchema>;
 
+// Update Product interface to include category
 interface Product {
   id: number;
   name: string;
   description: string;
   sku: string;
   price: string | number;
-  category: string;
+  categoryId: number;
+  category: {
+    id: number;
+    name: string;
+  };
   minStock: number;
   inventory: {
     quantity: number;
   }[];
+}
+
+interface Category {
+  id: number;
+  name: string;
+  description: string | null;
 }
 
 function ProductsPage() {
@@ -135,6 +153,12 @@ function ProductsPage() {
     },
   });
 
+  // Add categories query
+  const { data: categories } = useQuery<Category[]>({
+    queryKey: ['/api/categories'],
+    enabled: hasPermission('products', 'read'),
+  });
+
   const form = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
     defaultValues: {
@@ -142,7 +166,7 @@ function ProductsPage() {
       description: "",
       sku: "",
       price: 0,
-      category: "",
+      categoryId: 0,
       minStock: 10,
     },
   });
@@ -150,7 +174,7 @@ function ProductsPage() {
   const filteredProducts = products?.filter(product => 
     product.name.toLowerCase().includes(search.toLowerCase()) ||
     product.sku.toLowerCase().includes(search.toLowerCase()) ||
-    product.category.toLowerCase().includes(search.toLowerCase())
+    product.category.name.toLowerCase().includes(search.toLowerCase())
   );
 
   const getStockStatus = (product: Product) => {
@@ -281,13 +305,30 @@ function ProductsPage() {
                   />
                   <FormField
                     control={form.control}
-                    name="category"
+                    name="categoryId"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Category</FormLabel>
-                        <FormControl>
-                          <Input {...field} />
-                        </FormControl>
+                        <Select
+                          onValueChange={(value) => field.onChange(parseInt(value))}
+                          defaultValue={field.value.toString()}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select a category" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {categories?.map((category) => (
+                              <SelectItem
+                                key={category.id}
+                                value={category.id.toString()}
+                              >
+                                {category.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -374,7 +415,7 @@ function ProductsPage() {
                         <div className="text-sm text-muted-foreground">{product.description}</div>
                       </TableCell>
                       <TableCell>{product.sku}</TableCell>
-                      <TableCell>{product.category}</TableCell>
+                      <TableCell>{product.category.name}</TableCell>
                       <TableCell>{formatPrice(product.price)}</TableCell>
                       <TableCell>{product.inventory[0]?.quantity ?? 0}</TableCell>
                       <TableCell>
@@ -397,7 +438,7 @@ function ProductsPage() {
                                       description: product.description,
                                       sku: product.sku,
                                       price: Number(product.price),
-                                      category: product.category,
+                                      categoryId: product.categoryId,
                                       minStock: product.minStock,
                                     });
                                   }}
@@ -470,13 +511,30 @@ function ProductsPage() {
                                     />
                                     <FormField
                                       control={form.control}
-                                      name="category"
+                                      name="categoryId"
                                       render={({ field }) => (
                                         <FormItem>
                                           <FormLabel>Category</FormLabel>
-                                          <FormControl>
-                                            <Input {...field} />
-                                          </FormControl>
+                                          <Select
+                                            onValueChange={(value) => field.onChange(parseInt(value))}
+                                            defaultValue={field.value.toString()}
+                                          >
+                                            <FormControl>
+                                              <SelectTrigger>
+                                                <SelectValue placeholder="Select a category" />
+                                              </SelectTrigger>
+                                            </FormControl>
+                                            <SelectContent>
+                                              {categories?.map((category) => (
+                                                <SelectItem
+                                                  key={category.id}
+                                                  value={category.id.toString()}
+                                                >
+                                                  {category.name}
+                                                </SelectItem>
+                                              ))}
+                                            </SelectContent>
+                                          </Select>
                                           <FormMessage />
                                         </FormItem>
                                       )}

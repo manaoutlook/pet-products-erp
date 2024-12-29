@@ -3,19 +3,41 @@ import { relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// Role Types master table
+// Categories table for product categorization
+export const categories = pgTable("categories", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Create schemas for categories
+export const insertCategorySchema = createInsertSchema(categories);
+export const selectCategorySchema = createSelectSchema(categories);
+export type InsertCategory = typeof categories.$inferInsert;
+export type SelectCategory = typeof categories.$inferSelect;
+
+// Products table with proper category relationship
+export const products = pgTable("products", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  sku: text("sku").unique().notNull(),
+  price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  categoryId: integer("category_id").references(() => categories.id).notNull(),
+  minStock: integer("min_stock").notNull().default(10),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Role Types table
 export const roleTypes = pgTable("role_types", {
   id: serial("id").primaryKey(),
   description: text("description").notNull(),
 });
 
-// Create schemas for roleTypes
-export const insertRoleTypeSchema = createInsertSchema(roleTypes);
-export const selectRoleTypeSchema = createSelectSchema(roleTypes);
-export type InsertRoleType = typeof roleTypes.$inferInsert;
-export type SelectRoleType = typeof roleTypes.$inferSelect;
-
-// Roles table with relationship to role types
+// Roles table with proper JSONB handling
 export const roles = pgTable("roles", {
   id: serial("id").primaryKey(),
   name: text("name").unique().notNull(),
@@ -51,7 +73,7 @@ export const stores = pgTable("stores", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// User Store Assignments table - new table for managing user-store relationships
+// User Store Assignments table
 export const userStoreAssignments = pgTable("user_store_assignments", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").references(() => users.id).notNull(),
@@ -60,7 +82,54 @@ export const userStoreAssignments = pgTable("user_store_assignments", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Define relationships between tables
+// Inventory table
+export const inventory = pgTable("inventory", {
+  id: serial("id").primaryKey(),
+  productId: integer("product_id").references(() => products.id),
+  storeId: integer("store_id").references(() => stores.id),
+  quantity: integer("quantity").notNull().default(0),
+  location: text("location"),
+  inventoryType: text("inventory_type").notNull().default('STORE'),
+  centerId: text("center_id").default('DC001'),
+  barcode: text("barcode").unique(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Orders table
+export const orders = pgTable("orders", {
+  id: serial("id").primaryKey(),
+  customerName: text("customer_name").notNull(),
+  customerEmail: text("customer_email").notNull(),
+  status: text("status").notNull().default('pending'),
+  storeId: integer("store_id").references(() => stores.id),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Order Items table
+export const orderItems = pgTable("order_items", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").references(() => orders.id),
+  productId: integer("product_id").references(() => products.id),
+  quantity: integer("quantity").notNull(),
+  price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+});
+
+// Define relationships
+export const categoriesRelations = relations(categories, ({ many }) => ({
+  products: many(products),
+}));
+
+export const productsRelations = relations(products, ({ one, many }) => ({
+  category: one(categories, {
+    fields: [products.categoryId],
+    references: [categories.id],
+  }),
+  inventory: many(inventory),
+  orderItems: many(orderItems),
+}));
+
 export const roleTypesRelations = relations(roleTypes, ({ many }) => ({
   roles: many(roles),
 }));
@@ -84,7 +153,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
 export const storesRelations = relations(stores, ({ many }) => ({
   inventory: many(inventory),
   orders: many(orders),
-  userAssignments: many(userStoreAssignments)
+  userAssignments: many(userStoreAssignments),
 }));
 
 export const userStoreAssignmentsRelations = relations(userStoreAssignments, ({ one }) => ({
@@ -98,7 +167,42 @@ export const userStoreAssignmentsRelations = relations(userStoreAssignments, ({ 
   }),
 }));
 
-// Create schemas
+export const inventoryRelations = relations(inventory, ({ one }) => ({
+  product: one(products, {
+    fields: [inventory.productId],
+    references: [products.id],
+  }),
+  store: one(stores, {
+    fields: [inventory.storeId],
+    references: [stores.id],
+  }),
+}));
+
+export const ordersRelations = relations(orders, ({ many, one }) => ({
+  items: many(orderItems),
+  store: one(stores, {
+    fields: [orders.storeId],
+    references: [stores.id],
+  }),
+}));
+
+export const orderItemsRelations = relations(orderItems, ({ one }) => ({
+  order: one(orders, {
+    fields: [orderItems.orderId],
+    references: [orders.id],
+  }),
+  product: one(products, {
+    fields: [orderItems.productId],
+    references: [products.id],
+  }),
+}));
+
+// Export schemas
+export const insertRoleTypeSchema = createInsertSchema(roleTypes);
+export const selectRoleTypeSchema = createSelectSchema(roleTypes);
+export type InsertRoleType = typeof roleTypes.$inferInsert;
+export type SelectRoleType = typeof roleTypes.$inferSelect;
+
 export const insertRoleSchema = createInsertSchema(roles);
 export const selectRoleSchema = createSelectSchema(roles);
 export type InsertRole = typeof roles.$inferInsert;
@@ -118,7 +222,6 @@ export const selectStoreSchema = createSelectSchema(stores);
 export type InsertStore = typeof stores.$inferInsert;
 export type SelectStore = typeof stores.$inferSelect;
 
-// Create schemas for user store assignments
 export const insertUserStoreAssignmentSchema = createInsertSchema(userStoreAssignments);
 export const selectUserStoreAssignmentSchema = createSelectSchema(userStoreAssignments);
 export type InsertUserStoreAssignment = typeof userStoreAssignments.$inferInsert;
@@ -126,87 +229,3 @@ export type SelectUserStoreAssignment = typeof userStoreAssignments.$inferSelect
   user?: SelectUser | null;
   store?: SelectStore | null;
 };
-
-// Products - Core entity for pet products
-export const products = pgTable("products", {
-  id: serial("id").primaryKey(),
-  name: text("name").notNull(),
-  description: text("description"),
-  sku: text("sku").unique().notNull(),
-  price: decimal("price", { precision: 10, scale: 2 }).notNull(),
-  category: text("category").notNull(),
-  minStock: integer("min_stock").notNull().default(10),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
-
-// Inventory - Tracks product stock levels with location type
-export const inventory = pgTable("inventory", {
-  id: serial("id").primaryKey(),
-  productId: integer("product_id").references(() => products.id),
-  storeId: integer("store_id").references(() => stores.id),
-  quantity: integer("quantity").notNull().default(0),
-  location: text("location"),
-  // New fields for inventory type and center identification
-  inventoryType: text("inventory_type").notNull().default('STORE'), // Values: 'DC' or 'STORE'
-  centerId: text("center_id").default('DC001'), // Default for Distribution Center
-  barcode: text("barcode").unique(), // New field for storing unique barcodes
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
-
-// Orders - Main order entity
-export const orders = pgTable("orders", {
-  id: serial("id").primaryKey(),
-  customerName: text("customer_name").notNull(),
-  customerEmail: text("customer_email").notNull(),
-  status: text("status").notNull().default('pending'),
-  storeId: integer("store_id").references(() => stores.id),
-  total: decimal("total", { precision: 10, scale: 2 }).notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
-
-// Order Items - Links orders to products
-export const orderItems = pgTable("order_items", {
-  id: serial("id").primaryKey(),
-  orderId: integer("order_id").references(() => orders.id),
-  productId: integer("product_id").references(() => products.id),
-  quantity: integer("quantity").notNull(),
-  price: decimal("price", { precision: 10, scale: 2 }).notNull(),
-});
-
-// Define relationships between tables
-export const productsRelations = relations(products, ({ many }) => ({
-  inventory: many(inventory),
-  orderItems: many(orderItems),
-}));
-
-export const ordersRelations = relations(orders, ({ many, one }) => ({
-  items: many(orderItems),
-  store: one(stores, {
-    fields: [orders.storeId],
-    references: [stores.id],
-  }),
-}));
-
-export const inventoryRelations = relations(inventory, ({ one }) => ({
-  product: one(products, {
-    fields: [inventory.productId],
-    references: [products.id],
-  }),
-  store: one(stores, {
-    fields: [inventory.storeId],
-    references: [stores.id],
-  }),
-}));
-
-export const orderItemsRelations = relations(orderItems, ({ one }) => ({
-  order: one(orders, {
-    fields: [orderItems.orderId],
-    references: [orders.id],
-  }),
-  product: one(products, {
-    fields: [orderItems.productId],
-    references: [products.id],
-  }),
-}));

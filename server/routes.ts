@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { db } from "@db";
-import { products, inventory, orders, orderItems, users, roles, roleTypes, stores, userStoreAssignments } from "@db/schema";
+import { products, inventory, orders, orderItems, users, roles, roleTypes, stores, userStoreAssignments, categories } from "@db/schema";
 import { eq, and, desc, sql, gte, lt } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
 import { z } from "zod";
@@ -283,6 +283,124 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+
+  // Category Management endpoints
+  app.get("/api/categories", requireAuth, async (req, res) => {
+    try {
+      const allCategories = await db.query.categories.findMany({
+        orderBy: [desc(categories.updatedAt)],
+      });
+      res.json(allCategories);
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+      res.status(500).send("Failed to fetch categories");
+    }
+  });
+
+  app.post("/api/categories", requireRole(['admin']), async (req, res) => {
+    try {
+      const { name, description } = req.body;
+
+      if (!name) {
+        return res.status(400).send("Category name is required");
+      }
+
+      // Check if category exists
+      const existingCategory = await db.query.categories.findFirst({
+        where: eq(categories.name, name),
+      });
+
+      if (existingCategory) {
+        return res.status(400).send("Category name already exists");
+      }
+
+      const [newCategory] = await db
+        .insert(categories)
+        .values({
+          name,
+          description,
+        })
+        .returning();
+
+      res.json({
+        message: "Category created successfully",
+        category: newCategory,
+      });
+    } catch (error) {
+      console.error('Error creating category:', error);
+      res.status(500).send("Failed to create category");
+    }
+  });
+
+  app.put("/api/categories/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, description } = req.body;
+
+      if (!name) {
+        return res.status(400).send("Category name is required");
+      }
+
+      // Check if category exists
+      const existingCategory = await db.query.categories.findFirst({
+        where: and(
+          eq(categories.name, name),
+          sql`id != ${id}`
+        ),
+      });
+
+      if (existingCategory) {
+        return res.status(400).send("Category name already exists");
+      }
+
+      const [updatedCategory] = await db
+        .update(categories)
+        .set({
+          name,
+          description,
+          updatedAt: new Date(),
+        })
+        .where(eq(categories.id, parseInt(id)))
+        .returning();
+
+      if (!updatedCategory) {
+        return res.status(404).send("Category not found");
+      }
+
+      res.json({
+        message: "Category updated successfully",
+        category: updatedCategory,
+      });
+    } catch (error) {
+      console.error('Error updating category:', error);
+      res.status(500).send("Failed to update category");
+    }
+  });
+
+  app.delete("/api/categories/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if category is used by any products
+      const products = await db.query.products.findMany({
+        where: eq(products.categoryId, parseInt(id)),
+        limit: 1,
+      });
+
+      if (products.length > 0) {
+        return res.status(400).send("Cannot delete category that is assigned to products");
+      }
+
+      await db
+        .delete(categories)
+        .where(eq(categories.id, parseInt(id)));
+
+      res.json({ message: "Category deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting category:', error);
+      res.status(500).send("Failed to delete category");
+    }
+  });
 
   // Role Mapping endpoint - admin only
   app.get("/api/roles/mapping", requireRole(['admin']), async (req, res) => {
