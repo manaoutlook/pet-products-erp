@@ -40,6 +40,7 @@ function Sidebar() {
       children: [
         { name: "Users", href: "/users", icon: Users, roles: ['admin'] },
         { name: "Roles", href: "/roles", icon: Settings, roles: ['admin'] },
+        { name: "Store Assignments", href: "/store-assignments", icon: Store, roles: ['admin'] },
       ],
     },
   ];
