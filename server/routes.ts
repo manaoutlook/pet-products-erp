@@ -36,7 +36,7 @@ export function registerRoutes(app: Express): Server {
   setupAuth(app);
 
   // Role Types endpoints - admin only
-  app.get("/api/role-types", requireRole(['admin']), async (req, res) => {
+  app.get("/api/role-types", async (req, res) => {
     try {
       const roleTypes = await db.query.roleTypes.findMany();
       res.json(roleTypes);
