@@ -49,12 +49,24 @@ export function registerRoutes(app: Express): Server {
   // Roles endpoints - admin only
   app.get("/api/roles", requireRole(['admin']), async (req, res) => {
     try {
-      const allRoles = await db.query.roles.findMany({
-        with: {
-          roleType: true,
-        },
-        orderBy: [{ name: 'asc' }], // Maintain consistent ordering by name
-      });
+      const allRoles = await db
+        .select({
+          id: roles.id,
+          name: roles.name,
+          description: roles.description,
+          permissions: roles.permissions,
+          roleTypeId: roles.roleTypeId,
+          createdAt: roles.createdAt,
+          updatedAt: roles.updatedAt,
+          roleType: {
+            id: roleTypes.id,
+            description: roleTypes.description,
+          },
+        })
+        .from(roles)
+        .leftJoin(roleTypes, eq(roles.roleTypeId, roleTypes.id))
+        .orderBy(roles.name);
+
       res.json(allRoles);
     } catch (error) {
       console.error('Error fetching roles:', error);
@@ -1020,8 +1032,7 @@ export function registerRoutes(app: Express): Server {
 
       // Fetch the complete inventory item with related data
       const inventoryWithDetails = await db.query.inventory.findFirst({
-        where: eq(inventory.id, newInventoryItem.id),
-        with: {
+        where: eq(inventory.id, newInventoryItem.id),        with: {
           product: true,
           store: true,
         },
