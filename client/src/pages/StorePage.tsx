@@ -205,7 +205,12 @@ function StorePage() {
                     <FormItem>
                       <FormLabel>Store Name</FormLabel>
                       <FormControl>
-                        <Input {...field} />
+                        <Input 
+                          placeholder="Enter store name" 
+                          {...field} 
+                          onChange={(e) => field.onChange(e.target.value)}
+                          value={field.value || ''}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
