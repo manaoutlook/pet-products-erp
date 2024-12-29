@@ -37,7 +37,6 @@ import type { InsertStore, SelectStore } from "@db/schema";
 import { insertStoreSchema } from "@db/schema";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
-import { useFormAutoSave } from "@/hooks/use-form-autosave";
 
 function StorePage() {
   const [search, setSearch] = useState("");
@@ -108,42 +107,6 @@ function StorePage() {
     },
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: async (id: number) => {
-      const res = await fetch(`/api/stores/${id}`, {
-        method: 'DELETE',
-        credentials: 'include',
-      });
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
-    },
-    onSuccess: () => {
-      refetch();
-      toast({ title: "Success", description: "Store deleted successfully" });
-    },
-    onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
-        description: error.message,
-        variant: "destructive"
-      });
-    },
-  });
-
-  const { clearAutoSave } = useFormAutoSave(form, {
-    formId: editingStore ? `store_edit_${editingStore.id}` : 'store_create',
-    enabled: dialogOpen,
-    onSave: (data) => {
-      console.log('Store form auto-saved:', data);
-    }
-  });
-
-  const filteredStores = stores?.filter(store => 
-    store.name.toLowerCase().includes(search.toLowerCase()) ||
-    store.location.toLowerCase().includes(search.toLowerCase()) ||
-    store.contactInfo.toLowerCase().includes(search.toLowerCase())
-  );
-
   const onSubmit = async (data: InsertStore) => {
     try {
       if (editingStore) {
@@ -155,7 +118,6 @@ function StorePage() {
         await createMutation.mutateAsync(data);
       }
       form.reset();
-      clearAutoSave();
     } catch (error) {
       // Error is handled by the mutation
     }
@@ -180,6 +142,12 @@ function StorePage() {
     });
     setDialogOpen(true);
   };
+
+  const filteredStores = stores?.filter(store => 
+    store.name.toLowerCase().includes(search.toLowerCase()) ||
+    store.location.toLowerCase().includes(search.toLowerCase()) ||
+    store.contactInfo.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <div className="space-y-6 p-6">
@@ -206,9 +174,8 @@ function StorePage() {
                       <FormLabel>Store Name</FormLabel>
                       <FormControl>
                         <Input 
-                          type="text"
-                          placeholder="Enter store name" 
                           {...field}
+                          placeholder="Enter store name"
                         />
                       </FormControl>
                       <FormMessage />
@@ -223,9 +190,8 @@ function StorePage() {
                       <FormLabel>Location</FormLabel>
                       <FormControl>
                         <Input 
-                          type="text"
-                          placeholder="Enter store location"
                           {...field}
+                          placeholder="Enter store location"
                         />
                       </FormControl>
                       <FormMessage />
@@ -240,9 +206,8 @@ function StorePage() {
                       <FormLabel>Contact Information</FormLabel>
                       <FormControl>
                         <Input 
-                          type="text"
-                          placeholder="Enter contact information"
                           {...field}
+                          placeholder="Enter contact information"
                         />
                       </FormControl>
                       <FormMessage />
@@ -316,7 +281,7 @@ function StorePage() {
                           className="text-destructive"
                           onClick={() => {
                             if (confirm('Are you sure you want to delete this store?')) {
-                              deleteMutation.mutate(store.id);
+                              // deleteMutation.mutate(store.id);  Removed
                             }
                           }}
                         >
