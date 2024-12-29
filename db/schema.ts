@@ -1,20 +1,4 @@
-/**
- * Database Schema Definition
- * 
- * IMPORTANT DATABASE PRINCIPLES:
- * - PostgreSQL is used strictly for:
- *   1. Data storage and retrieval
- *   2. Table relationships and foreign key constraints
- *   3. Indexing for performance optimization
- * 
- * - All business logic, access controls, and data validation are implemented
- *   at the application level, not in the database
- * 
- * - No stored procedures, triggers, or complex database-level policies
- * - No row-level security or database-level access controls
- */
-
-import { pgTable, text, serial, integer, timestamp, decimal } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, decimal, jsonb } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -37,6 +21,12 @@ export const roles = pgTable("roles", {
   name: text("name").unique().notNull(),
   description: text("description"),
   roleTypeId: integer("role_type_id").references(() => roleTypes.id).notNull(),
+  permissions: jsonb("permissions").default({
+    products: { create: false, read: true, update: false, delete: false },
+    orders: { create: false, read: true, update: false, delete: false },
+    inventory: { create: false, read: true, update: false, delete: false },
+    users: { create: false, read: false, update: false, delete: false }
+  }).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

@@ -219,6 +219,58 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Add new endpoint for updating role permissions
+  app.put("/api/roles/:id/permissions", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { permissions } = req.body;
+
+      // Validate permissions object structure
+      if (!permissions || typeof permissions !== 'object') {
+        return res.status(400).send("Invalid permissions format");
+      }
+
+      // Prevent modifying admin role permissions
+      const roleToUpdate = await db.query.roles.findFirst({
+        where: eq(roles.id, parseInt(id)),
+      });
+
+      if (!roleToUpdate) {
+        return res.status(404).send("Role not found");
+      }
+
+      if (roleToUpdate.name === 'admin') {
+        return res.status(400).send("Cannot modify admin role permissions");
+      }
+
+      const [updatedRole] = await db
+        .update(roles)
+        .set({
+          permissions,
+          updatedAt: new Date(),
+        })
+        .where(eq(roles.id, parseInt(id)))
+        .returning();
+
+      // Fetch the complete role with updated permissions
+      const roleWithPermissions = await db.query.roles.findFirst({
+        where: eq(roles.id, updatedRole.id),
+        with: {
+          roleType: true,
+        },
+      });
+
+      res.json({
+        message: "Role permissions updated successfully",
+        role: roleWithPermissions,
+      });
+    } catch (error) {
+      console.error('Error updating role permissions:', error);
+      res.status(500).send("Failed to update role permissions");
+    }
+  });
+
+
   // User management endpoints - admin only
   app.get("/api/users", requireRole(['admin']), async (req, res) => {
     try {
