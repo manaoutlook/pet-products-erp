@@ -554,7 +554,11 @@ export function registerRoutes(app: Express): Server {
         with: {
           user: {
             with: {
-              role: true
+              role: {
+                with: {
+                  roleType: true
+                }
+              }
             }
           },
           store: true
@@ -569,23 +573,26 @@ export function registerRoutes(app: Express): Server {
 
   app.get("/api/store-assignments/users", requireRole(['admin']), async (req, res) => {
     try {
-      // Get users with Pet Store role type
-      const petStoreUsers = await db.query.users.findMany({
-        with: {
+      // Get users with Pet Store role type using proper joins
+      const petStoreUsers = await db
+        .select({
+          id: users.id,
+          username: users.username,
           role: {
-            with: {
-              roleType: true
+            id: roles.id,
+            name: roles.name,
+            roleType: {
+              id: roleTypes.id,
+              description: roleTypes.description
             }
           }
-        },
-        where: sql`roles.role_type_id = (
-          SELECT id FROM role_types WHERE description = 'Pet Store'
-        )`
-      });
+        })
+        .from(users)
+        .innerJoin(roles, eq(users.roleId, roles.id))
+        .innerJoin(roleTypes, eq(roles.roleTypeId, roleTypes.id))
+        .where(eq(roleTypes.description, 'Pet Store'));
 
-      // Return only necessary user information
-      const sanitizedUsers = petStoreUsers.map(({ password, ...user }) => user);
-      res.json(sanitizedUsers);
+      res.json(petStoreUsers);
     } catch (error) {
       console.error('Error fetching pet store users:', error);
       res.status(500).json({
