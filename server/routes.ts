@@ -999,26 +999,30 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
+      console.log(`Fetching inventory for user ${user.username} with role type ${user.role.roleType.description}`);
+
       let allInventory;
 
-      // Filter inventory based on role type
       if (user.role.roleType.description === 'Pet Store') {
-        // Get user's store assignment
+        // Get the store assignment for the user
         const storeAssignment = await db.query.userStoreAssignments.findFirst({
-          where: eq(userStoreAssignments.userId, req.user!.id),
+          where: eq(userStoreAssignments.userId, user.id),
           with: {
             store: true
           }
         });
 
         if (!storeAssignment) {
+          console.log(`No store assignment found for user ${user.username}`);
           return res.status(400).json({
-            message: "Store assignment not found for user",
-            suggestion: "Please assign user to a store first"
+            message: "User is not assigned to any store",
+            suggestion: "Please contact administrator to assign a store"
           });
         }
 
-        // Get inventory only for user's assigned store
+        console.log(`User ${user.username} is assigned to store ${storeAssignment.store.name}`);
+
+        // For Pet Store users, show only their store's inventory
         allInventory = await db.query.inventory.findMany({
           where: and(
             eq(inventory.storeId, storeAssignment.storeId),
@@ -1031,18 +1035,9 @@ export function registerRoutes(app: Express): Server {
           orderBy: [desc(inventory.updatedAt)],
         });
 
+        console.log(`Found ${allInventory.length} inventory items for store ${storeAssignment.store.name}`);
       } else if (user.role.roleType.description === 'Distribution Center') {
-        // For Distribution Center users, show:
-        // 1. All DC inventory items
-        // 2. All Store inventory items
-        allInventory = await db.query.inventory.findMany({
-          with: {
-            product: true,
-            store: true,
-          },
-          orderBy: [desc(inventory.updatedAt)],        });
-      } else {
-        // For other roles (like admin), show all inventory
+        // For DC users, show all inventory
         allInventory = await db.query.inventory.findMany({
           with: {
             product: true,
@@ -1050,9 +1045,26 @@ export function registerRoutes(app: Express): Server {
           },
           orderBy: [desc(inventory.updatedAt)],
         });
-      }
 
-      console.log(`Fetched ${allInventory.length} inventory items for user ${user.username} with role type ${user.role.roleType.description}`);
+        console.log(`Found ${allInventory.length} inventory items for DC user ${user.username}`);
+      } else if (user.role.roleType.description === 'System Administrator') {
+        // For admin users, show all inventory
+        allInventory = await db.query.inventory.findMany({
+          with: {
+            product: true,
+            store: true,
+          },
+          orderBy: [desc(inventory.updatedAt)],
+        });
+
+        console.log(`Found ${allInventory.length} inventory items for admin user ${user.username}`);
+      } else {
+        console.log(`Unknown role type ${user.role.roleType.description} for user ${user.username}`);
+        return res.status(400).json({
+          message: "Invalid user role type",
+          suggestion: "Please contact administrator to verify role configuration"
+        });
+      }
 
       res.json(allInventory);
     } catch (error) {
