@@ -70,6 +70,8 @@ function Sidebar() {
     {
       name: "User Management",
       icon: UserCog,
+      module: 'users',
+      action: 'read',
       children: [
         { 
           name: "Users", 
@@ -81,17 +83,20 @@ function Sidebar() {
         { 
           name: "Roles", 
           href: "/roles", 
-          icon: Settings
+          icon: Settings,
+          adminOnly: true
         },
         { 
           name: "Permissions", 
           href: "/role-permissions", 
-          icon: Lock
+          icon: Lock,
+          adminOnly: true
         },
         { 
           name: "Store Assignments", 
           href: "/store-assignments", 
-          icon: Store
+          icon: Store,
+          adminOnly: true
         },
       ],
     },
@@ -112,6 +117,7 @@ function Sidebar() {
       return hasPermission(item.module, item.action);
     }
 
+    // For parent items with children, check if user has access to any child item
     if (item.children) {
       return item.children.some(child => hasAccess(child));
     }
