@@ -53,6 +53,7 @@ export function registerRoutes(app: Express): Server {
         with: {
           roleType: true,
         },
+        orderBy: [{ name: 'asc' }], // Maintain consistent ordering by name
       });
       res.json(allRoles);
     } catch (error) {

@@ -132,6 +132,7 @@ function RolePermissionsPage() {
 
   const { data: roles, isLoading: isLoadingRoles } = useQuery<Role[]>({
     queryKey: ['/api/roles'],
+    staleTime: 0, // Disable automatic background updates
   });
 
   const { data: roleTypes, isLoading: isLoadingRoleTypes } = useQuery<RoleType[]>({
@@ -180,8 +181,16 @@ function RolePermissionsPage() {
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/roles'] });
+    onSuccess: (data, variables) => {
+      // Update the roles cache optimistically to maintain order
+      queryClient.setQueryData<Role[]>(['/api/roles'], (oldRoles) => {
+        if (!oldRoles) return oldRoles;
+        return oldRoles.map(role => 
+          role.id === variables.roleId 
+            ? { ...role, permissions: variables.permissions }
+            : role
+        );
+      });
       toast({ title: "Success", description: "Permissions updated successfully" });
     },
     onError: (error: Error) => {
@@ -190,6 +199,8 @@ function RolePermissionsPage() {
         description: error.message,
         variant: "destructive"
       });
+      // Invalidate the cache to refetch the correct data
+      queryClient.invalidateQueries({ queryKey: ['/api/roles'] });
     },
   });
 
