@@ -16,7 +16,7 @@ export function requireRole(allowedRoles: string[]) {
 
     // Get the full role details including permissions
     const role = await db.query.roles.findFirst({
-      where: eq(roles.id, req.user.roleId),
+      where: eq(roles.id, req.user.role.id), // Changed from roleId to role.id
     });
 
     if (!role || !allowedRoles.includes(role.name)) {
@@ -42,7 +42,7 @@ export function requirePermission(module: string, action: 'create' | 'read' | 'u
 
     // Get the full role details including permissions
     const role = await db.query.roles.findFirst({
-      where: eq(roles.id, req.user.roleId),
+      where: eq(roles.id, req.user.role.id), // Changed from roleId to role.id
     });
 
     if (!role || !role.permissions) {
@@ -50,7 +50,7 @@ export function requirePermission(module: string, action: 'create' | 'read' | 'u
     }
 
     // Check if the role has the required permission
-    const modulePermissions = role.permissions[module];
+    const modulePermissions = role.permissions[module as keyof typeof role.permissions];
     if (!modulePermissions || !modulePermissions[action]) {
       return res.status(403).send(`Access denied: Insufficient ${module} ${action} permission`);
     }
