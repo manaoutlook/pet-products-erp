@@ -37,8 +37,22 @@ export function requirePermission(module: string, action: 'create' | 'read' | 'u
     // Check if the role has the required permission
     const modulePermissions = req.user.role.permissions[module];
     if (!modulePermissions || !modulePermissions[action]) {
-      return res.status(403).send(`Access denied: Insufficient ${module} ${action} permission`);
+      return res.status(403).json({
+        message: `Access denied: Insufficient ${module} ${action} permission`,
+        permission: {
+          module,
+          action,
+          granted: false
+        }
+      });
     }
+
+    // Add permissions to the request for use in routes
+    req.permissions = {
+      module,
+      action,
+      granted: true
+    };
 
     next();
   };
@@ -50,4 +64,17 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     return res.status(401).send('Not authenticated');
   }
   next();
+}
+
+// Add permissions property to Request type
+declare global {
+  namespace Express {
+    interface Request {
+      permissions?: {
+        module: string;
+        action: string;
+        granted: boolean;
+      };
+    }
+  }
 }
