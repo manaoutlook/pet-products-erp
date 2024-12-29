@@ -72,7 +72,6 @@ function Sidebar() {
     {
       name: "User Management",
       icon: UserCog,
-      systemAdminOnly: true,
       children: [
         { 
           name: "Users", 
@@ -105,8 +104,13 @@ function Sidebar() {
 
   // Check if user has access to the item based on permissions
   const hasAccess = (item: NavItem): boolean => {
+    // System Administrator has access to everything
+    if (isSystemAdmin) {
+      return true;
+    }
+
     if (item.systemAdminOnly) {
-      return isSystemAdmin;
+      return false;
     }
 
     if (item.adminOnly) {
