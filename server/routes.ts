@@ -1000,6 +1000,7 @@ export function registerRoutes(app: Express): Server {
     try {
       const allProducts = await db.query.products.findMany({
         with: {
+          category: true,
           inventory: true,
         },
         orderBy: [desc(products.updatedAt)],
