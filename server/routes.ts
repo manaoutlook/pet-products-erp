@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { db } from "@db";
-import { products, inventory, orders, orderItems, users, roles, roleTypes, stores } from "@db/schema";
+import { products, inventory, orders, orderItems, users, roles, roleTypes, stores, userStoreAssignments } from "@db/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
 import { z } from "zod";
@@ -544,6 +544,153 @@ export function registerRoutes(app: Express): Server {
     } catch (error) {
       console.error('Error deleting store:', error);
       res.status(500).send("Failed to delete store");
+    }
+  });
+
+  // User-Store Assignment endpoints
+  app.get("/api/store-assignments", requireRole(['admin']), async (req, res) => {
+    try {
+      const assignments = await db.query.userStoreAssignments.findMany({
+        with: {
+          user: {
+            with: {
+              role: true
+            }
+          },
+          store: true
+        },
+      });
+      res.json(assignments);
+    } catch (error) {
+      console.error('Error fetching store assignments:', error);
+      res.status(500).send("Failed to fetch store assignments");
+    }
+  });
+
+  app.get("/api/store-assignments/users", requireRole(['admin']), async (req, res) => {
+    try {
+      // Get users with Pet Store role type
+      const petStoreUsers = await db.query.users.findMany({
+        with: {
+          role: {
+            with: {
+              roleType: true
+            }
+          },
+          storeAssignments: {
+            with: {
+              store: true
+            }
+          }
+        },
+        where: sql`roles.role_type_id = (
+          SELECT id FROM role_types WHERE description = 'Pet Store'
+        )`
+      });
+      res.json(petStoreUsers);
+    } catch (error) {
+      console.error('Error fetching pet store users:', error);
+      res.status(500).send("Failed to fetch pet store users");
+    }
+  });
+
+  app.post("/api/store-assignments", requireRole(['admin']), async (req, res) => {
+    try {
+      const { userId, storeId } = req.body;
+
+      if (!userId || !storeId) {
+        return res.status(400).send("User ID and Store ID are required");
+      }
+
+      // Check if user exists and has pet store role
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, userId),
+        with: {
+          role: {
+            with: {
+              roleType: true
+            }
+          }
+        }
+      });
+
+      if (!user) {
+        return res.status(404).send("User not found");
+      }
+
+      if (user.role?.roleType?.description !== 'Pet Store') {
+        return res.status(400).send("Only Pet Store users can be assigned to stores");
+      }
+
+      // Check if store exists
+      const store = await db.query.stores.findFirst({
+        where: eq(stores.id, storeId)
+      });
+
+      if (!store) {
+        return res.status(404).send("Store not found");
+      }
+
+      // Check if assignment already exists
+      const existingAssignment = await db.query.userStoreAssignments.findFirst({
+        where: and(
+          eq(userStoreAssignments.userId, userId),
+          eq(userStoreAssignments.storeId, storeId)
+        )
+      });
+
+      if (existingAssignment) {
+        return res.status(400).send("User is already assigned to this store");
+      }
+
+      const [newAssignment] = await db
+        .insert(userStoreAssignments)
+        .values({
+          userId,
+          storeId
+        })
+        .returning();
+
+      const assignmentWithDetails = await db.query.userStoreAssignments.findFirst({
+        where: eq(userStoreAssignments.id, newAssignment.id),
+        with: {
+          user: true,
+          store: true
+        }
+      });
+
+      res.json({
+        message: "Store assignment created successfully",
+        assignment: assignmentWithDetails
+      });
+    } catch (error) {
+      console.error('Error creating store assignment:', error);
+      res.status(500).send("Failed to create store assignment");
+    }
+  });
+
+  app.delete("/api/store-assignments/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const [assignment] = await db
+        .select()
+        .from(userStoreAssignments)
+        .where(eq(userStoreAssignments.id, parseInt(id)))
+        .limit(1);
+
+      if (!assignment) {
+        return res.status(404).send("Assignment not found");
+      }
+
+      await db
+        .delete(userStoreAssignments)
+        .where(eq(userStoreAssignments.id, parseInt(id)));
+
+      res.json({ message: "Store assignment deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting store assignment:', error);
+      res.status(500).send("Failed to delete store assignment");
     }
   });
 
