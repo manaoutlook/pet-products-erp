@@ -23,6 +23,7 @@ interface NavItem {
   module?: string;
   action?: 'create' | 'read' | 'update' | 'delete';
   adminOnly?: boolean;
+  systemAdminOnly?: boolean;
   children?: NavItem[];
 }
 
@@ -30,14 +31,15 @@ function Sidebar() {
   const [location] = useLocation();
   const { logout, user } = useUser();
   const { hasPermission, isAdmin } = usePermissions();
+  const isSystemAdmin = user?.role?.name === 'System Administrator';
 
   // Define navigation items with permission-based access
   const navigationItems: NavItem[] = [
     { 
       name: "Dashboard", 
       href: "/", 
-      icon: LayoutDashboard, 
-      adminOnly: true 
+      icon: LayoutDashboard,
+      systemAdminOnly: true
     },
     { 
       name: "Products", 
@@ -70,7 +72,7 @@ function Sidebar() {
     {
       name: "User Management",
       icon: UserCog,
-      adminOnly: true,
+      systemAdminOnly: true,
       children: [
         { 
           name: "Users", 
@@ -83,19 +85,19 @@ function Sidebar() {
           name: "Roles", 
           href: "/roles", 
           icon: Settings,
-          adminOnly: true
+          systemAdminOnly: true
         },
         { 
           name: "Permissions", 
           href: "/role-permissions", 
           icon: Lock,
-          adminOnly: true
+          systemAdminOnly: true
         },
         { 
           name: "Store Assignments", 
           href: "/store-assignments", 
           icon: Store,
-          adminOnly: true
+          systemAdminOnly: true
         },
       ],
     },
@@ -103,6 +105,10 @@ function Sidebar() {
 
   // Check if user has access to the item based on permissions
   const hasAccess = (item: NavItem) => {
+    if (item.systemAdminOnly) {
+      return isSystemAdmin;
+    }
+
     if (item.adminOnly) {
       return isAdmin;
     }
