@@ -34,9 +34,8 @@ interface AuthError {
 }
 
 function AuthPage() {
-  const [isLogin, setIsLogin] = useState(true);
   const [authError, setAuthError] = useState<AuthError | null>(null);
-  const { login, register } = useUser();
+  const { login } = useUser();
   const { toast } = useToast();
 
   const form = useForm<InsertUser>({
@@ -53,27 +52,15 @@ function AuthPage() {
       setAuthError(null);
       console.log('Attempting authentication...', { username: data.username });
 
-      if (isLogin) {
-        const result = await login(data);
-        if ('suggestion' in result) {
-          setAuthError(result as AuthError);
-          return;
-        }
-        toast({
-          title: "Success",
-          description: "Logged in successfully",
-        });
-      } else {
-        const result = await register(data);
-        if ('suggestion' in result) {
-          setAuthError(result as AuthError);
-          return;
-        }
-        toast({
-          title: "Success",
-          description: "Registered successfully",
-        });
+      const result = await login(data);
+      if ('suggestion' in result) {
+        setAuthError(result as AuthError);
+        return;
       }
+      toast({
+        title: "Success",
+        description: "Logged in successfully",
+      });
     } catch (error: any) {
       console.error('Authentication error:', error);
       setAuthError({
@@ -87,11 +74,9 @@ function AuthPage() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>{isLogin ? "Login" : "Register"}</CardTitle>
+          <CardTitle>Login</CardTitle>
           <CardDescription>
-            {isLogin
-              ? "Enter your credentials to access your account"
-              : "Create a new account"}
+            Enter your credentials to access your account
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -115,7 +100,7 @@ function AuthPage() {
                     <FormControl>
                       <Input 
                         {...field} 
-                        autoComplete={isLogin ? "username" : "new-username"}
+                        autoComplete="username"
                       />
                     </FormControl>
                     <FormMessage />
@@ -132,7 +117,7 @@ function AuthPage() {
                       <Input 
                         type="password" 
                         {...field} 
-                        autoComplete={isLogin ? "current-password" : "new-password"}
+                        autoComplete="current-password"
                       />
                     </FormControl>
                     <FormMessage />
@@ -147,25 +132,10 @@ function AuthPage() {
                 {form.formState.isSubmitting && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
-                {isLogin ? "Login" : "Register"}
+                Login
               </Button>
             </form>
           </Form>
-          <div className="mt-4 text-center text-sm">
-            <button
-              type="button"
-              onClick={() => {
-                setIsLogin(!isLogin);
-                setAuthError(null);
-                form.reset();
-              }}
-              className="text-primary hover:underline"
-            >
-              {isLogin
-                ? "Don't have an account? Register"
-                : "Already have an account? Login"}
-            </button>
-          </div>
         </CardContent>
       </Card>
     </div>
