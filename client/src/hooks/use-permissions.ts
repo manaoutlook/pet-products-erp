@@ -12,6 +12,7 @@ interface Permissions {
   orders: Permission;
   inventory: Permission;
   users: Permission;
+  stores: Permission; // Added stores permission
 }
 
 interface Role {

@@ -20,7 +20,7 @@ interface NavItem {
   name: string;
   href?: string;
   icon: any;
-  module?: string;
+  module?: 'products' | 'orders' | 'inventory' | 'users' | 'stores';
   action?: 'create' | 'read' | 'update' | 'delete';
   adminOnly?: boolean;
   systemAdminOnly?: boolean;
@@ -104,7 +104,7 @@ function Sidebar() {
   ];
 
   // Check if user has access to the item based on permissions
-  const hasAccess = (item: NavItem) => {
+  const hasAccess = (item: NavItem): boolean => {
     if (item.systemAdminOnly) {
       return isSystemAdmin;
     }
@@ -125,10 +125,14 @@ function Sidebar() {
   };
 
   const renderNavItem = (item: NavItem) => {
+    // Skip rendering if user doesn't have access
+    if (!hasAccess(item)) {
+      return null;
+    }
+
     if (item.children) {
-      // Only show parent item if user has access to at least one child
-      const hasAccessibleChildren = item.children.some(child => hasAccess(child));
-      if (!hasAccessibleChildren) return null;
+      const accessibleChildren = item.children.filter(child => hasAccess(child));
+      if (accessibleChildren.length === 0) return null;
 
       return (
         <div key={item.name} className="space-y-1">
@@ -139,29 +143,15 @@ function Sidebar() {
             {item.name}
           </div>
           <div className="pl-4 space-y-1">
-            {item.children.map(child => 
-              hasAccess(child) && (
-                <Link key={child.name} href={child.href!}>
-                  <a
-                    className={cn(
-                      "flex items-center px-2 py-2 text-sm font-medium rounded-md",
-                      location === child.href
-                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent/50"
-                    )}
-                  >
-                    <child.icon className="mr-3 h-5 w-5" />
-                    {child.name}
-                  </a>
-                </Link>
-              )
-            )}
+            {accessibleChildren.map(child => renderNavItem(child))}
           </div>
         </div>
       );
     }
 
-    return item.href && hasAccess(item) && (
+    if (!item.href) return null;
+
+    return (
       <Link key={item.name} href={item.href}>
         <a
           className={cn(
