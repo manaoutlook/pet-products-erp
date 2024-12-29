@@ -980,9 +980,9 @@ export function registerRoutes(app: Express): Server {
   // Inventory Management endpoints
   app.get("/api/inventory", requireAuth, async (req, res) => {
     try {
-      // Get user's role type
+      // Get user's role type and role information
       const user = await db.query.users.findFirst({
-        where: eq(users.id, req.user.id),
+        where: eq(users.id, req.user!.id),
         with: {
           role: {
             with: {
@@ -993,7 +993,10 @@ export function registerRoutes(app: Express): Server {
       });
 
       if (!user?.role?.roleType) {
-        return res.status(400).send("User role type not found");
+        return res.status(400).json({
+          message: "User role type not found",
+          suggestion: "Please verify user role configuration"
+        });
       }
 
       let allInventory;
@@ -1002,19 +1005,37 @@ export function registerRoutes(app: Express): Server {
       if (user.role.roleType.description === 'Pet Store') {
         // Get user's store assignment
         const storeAssignment = await db.query.userStoreAssignments.findFirst({
-          where: eq(userStoreAssignments.userId, req.user.id),
+          where: eq(userStoreAssignments.userId, req.user!.id),
           with: {
             store: true
           }
         });
 
         if (!storeAssignment) {
-          return res.status(400).send("Store assignment not found for user");
+          return res.status(400).json({
+            message: "Store assignment not found for user",
+            suggestion: "Please assign user to a store first"
+          });
         }
 
         // Get inventory only for user's assigned store
         allInventory = await db.query.inventory.findMany({
-          where: eq(inventory.storeId, storeAssignment.storeId),
+          where: and(
+            eq(inventory.storeId, storeAssignment.storeId),
+            eq(inventory.inventoryType, 'STORE')
+          ),
+          with: {
+            product: true,
+            store: true,
+          },
+          orderBy: [desc(inventory.updatedAt)],
+        });
+
+      } else if (user.role.roleType.description === 'Distribution Center') {
+        // For Distribution Center users, show:
+        // 1. All DC inventory items
+        // 2. All Store inventory items
+        allInventory = await db.query.inventory.findMany({
           with: {
             product: true,
             store: true,
@@ -1022,7 +1043,7 @@ export function registerRoutes(app: Express): Server {
           orderBy: [desc(inventory.updatedAt)],
         });
       } else {
-        // For Distribution Center users, show all inventory
+        // For other roles (like admin), show all inventory
         allInventory = await db.query.inventory.findMany({
           with: {
             product: true,
@@ -1032,14 +1053,18 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      console.log(`Fetched ${allInventory.length} inventory items for user ${req.user.username} with role type ${user.role.roleType.description}`);
+      console.log(`Fetched ${allInventory.length} inventory items for user ${user.username} with role type ${user.role.roleType.description}`);
 
       res.json(allInventory);
     } catch (error) {
       console.error('Error fetching inventory:', error);
-      res.status(500).send("Failed to fetch inventory");
+      res.status(500).json({
+        message: "Failed to fetch inventory",
+        suggestion: "Please try again later"
+      });
     }
   });
+
   app.post("/api/inventory", requireRole(['admin']), async (req, res) => {
     try {
       const { productId, storeId, quantity, location, inventoryType } = req.body;
