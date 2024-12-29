@@ -15,7 +15,8 @@ import {
   UserCog,
   Lock,
   BarChart,
-  Network
+  Network,
+  Folders // Add Folders icon for categories
 } from "lucide-react";
 
 interface NavItem {
@@ -43,10 +44,25 @@ function Sidebar() {
     },
     { 
       name: "Products", 
-      href: "/products", 
       icon: Package,
       module: 'products',
-      action: 'read'
+      action: 'read',
+      children: [
+        {
+          name: "Product List",
+          href: "/products",
+          icon: Package,
+          module: 'products',
+          action: 'read'
+        },
+        {
+          name: "Categories",
+          href: "/categories",
+          icon: Folders,
+          module: 'products',
+          action: 'read'
+        }
+      ]
     },
     { 
       name: "Orders", 
