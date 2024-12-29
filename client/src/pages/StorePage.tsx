@@ -37,6 +37,7 @@ import type { InsertStore, SelectStore } from "@db/schema";
 import { insertStoreSchema } from "@db/schema";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
+import { useFormAutoSave } from "@/hooks/use-form-autosave";
 
 function StorePage() {
   const [search, setSearch] = useState("");
@@ -129,6 +130,14 @@ function StorePage() {
     },
   });
 
+  const { clearAutoSave } = useFormAutoSave(form, {
+    formId: editingStore ? `store_edit_${editingStore.id}` : 'store_create',
+    enabled: dialogOpen,
+    onSave: (data) => {
+      console.log('Store form auto-saved:', data);
+    }
+  });
+
   const filteredStores = stores?.filter(store => 
     store.name.toLowerCase().includes(search.toLowerCase()) ||
     store.location.toLowerCase().includes(search.toLowerCase()) ||
@@ -146,6 +155,7 @@ function StorePage() {
         await createMutation.mutateAsync(data);
       }
       form.reset();
+      clearAutoSave();
     } catch (error) {
       // Error is handled by the mutation
     }
