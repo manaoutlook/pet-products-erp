@@ -16,10 +16,10 @@ const crypto = {
   hash: async (password: string) => {
     try {
       const salt = randomBytes(16).toString("hex");
-      console.log(`Generated salt for password hashing`);
+      console.log(`Generated salt for password hashing: ${salt}`);
       const buf = (await scryptAsync(password, salt, 64)) as Buffer;
       const hashedPassword = `${buf.toString("hex")}.${salt}`;
-      console.log(`Successfully hashed password`);
+      console.log(`Successfully hashed password. Hash length: ${hashedPassword.length}`);
       return hashedPassword;
     } catch (error) {
       console.error('Error hashing password:', error);
@@ -28,19 +28,31 @@ const crypto = {
   },
   compare: async (suppliedPassword: string, storedPassword: string) => {
     try {
-      console.log('Comparing passwords...');
+      console.log('Starting password comparison...');
+      console.log('Stored password format:', storedPassword);
+
       const [hashedPassword, salt] = storedPassword.split(".");
+      console.log('Extracted salt:', salt);
+      console.log('Extracted hash length:', hashedPassword.length);
+
       const hashedPasswordBuf = Buffer.from(hashedPassword, "hex");
       const suppliedPasswordBuf = (await scryptAsync(
         suppliedPassword,
         salt,
         64
       )) as Buffer;
+
+      console.log('Generated hash for supplied password length:', suppliedPasswordBuf.length);
+
       const isMatch = timingSafeEqual(hashedPasswordBuf, suppliedPasswordBuf);
       console.log(`Password comparison result: ${isMatch}`);
+      console.log('Supplied password buffer:', suppliedPasswordBuf.toString('hex'));
+      console.log('Stored password buffer:', hashedPasswordBuf.toString('hex'));
+
       return isMatch;
     } catch (error) {
       console.error('Error comparing passwords:', error);
+      console.error('Stored password format:', storedPassword);
       throw new Error('Error verifying password. Please try again.');
     }
   },
