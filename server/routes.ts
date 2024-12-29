@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { db } from "@db";
-import { products, inventory, orders, orderItems, users, roles, roleTypes } from "@db/schema";
+import { products, inventory, orders, orderItems, users, roles, roleTypes, stores } from "@db/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
 import { z } from "zod";
