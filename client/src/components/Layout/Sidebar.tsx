@@ -38,8 +38,7 @@ function Sidebar() {
     { 
       name: "Dashboard", 
       href: "/", 
-      icon: LayoutDashboard,
-      systemAdminOnly: true
+      icon: LayoutDashboard 
     },
     { 
       name: "Products", 
