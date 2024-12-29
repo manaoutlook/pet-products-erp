@@ -161,16 +161,33 @@ function StorePage() {
     }
   };
 
+  const handleAddStore = () => {
+    setEditingStore(null);
+    form.reset({
+      name: "",
+      location: "",
+      contactInfo: "",
+    });
+    setDialogOpen(true);
+  };
+
+  const handleEditStore = (store: SelectStore) => {
+    setEditingStore(store);
+    form.reset({
+      name: store.name,
+      location: store.location,
+      contactInfo: store.contactInfo,
+    });
+    setDialogOpen(true);
+  };
+
   return (
     <div className="space-y-6 p-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Stores</h1>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button onClick={() => {
-              setEditingStore(null);
-              form.reset();
-            }}>
+            <Button onClick={handleAddStore}>
               <Plus className="mr-2 h-4 w-4" />
               Add Store
             </Button>
@@ -274,82 +291,13 @@ function StorePage() {
                     <TableCell>{store.contactInfo}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                          <DialogTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              onClick={() => {
-                                setEditingStore(store);
-                                form.reset({
-                                  name: store.name,
-                                  location: store.location,
-                                  contactInfo: store.contactInfo,
-                                });
-                              }}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent>
-                            <DialogHeader>
-                              <DialogTitle>Edit Store</DialogTitle>
-                            </DialogHeader>
-                            <Form {...form}>
-                              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                                <FormField
-                                  control={form.control}
-                                  name="name"
-                                  render={({ field }) => (
-                                    <FormItem>
-                                      <FormLabel>Store Name</FormLabel>
-                                      <FormControl>
-                                        <Input {...field} />
-                                      </FormControl>
-                                      <FormMessage />
-                                    </FormItem>
-                                  )}
-                                />
-                                <FormField
-                                  control={form.control}
-                                  name="location"
-                                  render={({ field }) => (
-                                    <FormItem>
-                                      <FormLabel>Location</FormLabel>
-                                      <FormControl>
-                                        <Input {...field} />
-                                      </FormControl>
-                                      <FormMessage />
-                                    </FormItem>
-                                  )}
-                                />
-                                <FormField
-                                  control={form.control}
-                                  name="contactInfo"
-                                  render={({ field }) => (
-                                    <FormItem>
-                                      <FormLabel>Contact Information</FormLabel>
-                                      <FormControl>
-                                        <Input {...field} />
-                                      </FormControl>
-                                      <FormMessage />
-                                    </FormItem>
-                                  )}
-                                />
-                                <Button
-                                  type="submit"
-                                  className="w-full"
-                                  disabled={form.formState.isSubmitting}
-                                >
-                                  {form.formState.isSubmitting && (
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                  )}
-                                  Update Store
-                                </Button>
-                              </form>
-                            </Form>
-                          </DialogContent>
-                        </Dialog>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => handleEditStore(store)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
                         <Button
                           variant="outline"
                           size="icon"
