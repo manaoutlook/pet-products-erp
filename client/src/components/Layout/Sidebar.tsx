@@ -14,7 +14,8 @@ import {
   LogOut,
   UserCog,
   Lock,
-  BarChart
+  BarChart,
+  Network
 } from "lucide-react";
 
 interface NavItem {
@@ -112,6 +113,12 @@ function Sidebar() {
           name: "Store Assignments", 
           href: "/store-assignments", 
           icon: Store,
+          adminOnly: true
+        },
+        { 
+          name: "Role Mapping", 
+          href: "/role-mapping", 
+          icon: Network,
           adminOnly: true
         },
       ],

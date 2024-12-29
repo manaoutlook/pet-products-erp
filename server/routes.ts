@@ -284,6 +284,38 @@ export function registerRoutes(app: Express): Server {
   });
 
 
+  // Role Mapping endpoint - admin only
+  app.get("/api/roles/mapping", requireRole(['admin']), async (req, res) => {
+    try {
+      // Fetch roles with users and role types
+      const roles = await db.query.roles.findMany({
+        with: {
+          roleType: true,
+          users: {
+            columns: {
+              id: true,
+              username: true,
+              password: false, // Exclude sensitive data
+              roleId: true,
+              createdAt: false,
+              updatedAt: false
+            }
+          }
+        },
+      });
+
+      res.json({
+        roles,
+      });
+    } catch (error) {
+      console.error('Error fetching role mapping:', error);
+      res.status(500).json({
+        message: "Failed to fetch role mapping",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
   // User management endpoints - admin only
   app.get("/api/users", requireRole(['admin']), async (req, res) => {
     try {
