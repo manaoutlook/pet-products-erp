@@ -96,6 +96,12 @@ function UsersPage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number; data: Partial<InsertUser> }) => {
+      // If password is empty string, remove it from the update data
+      if (data.password === '') {
+        const { password, ...rest } = data;
+        data = rest;
+      }
+
       const res = await fetch(`/api/users/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -157,10 +163,13 @@ function UsersPage() {
   const onSubmit = async (data: InsertUser) => {
     try {
       if (editingUser) {
-        const { password, ...updateData } = data;
         await updateMutation.mutateAsync({ 
           id: editingUser.id, 
-          data: updateData
+          data: {
+            username: data.username,
+            password: data.password, // Include password in update
+            roleId: data.roleId
+          }
         });
       } else {
         await createMutation.mutateAsync(data);
@@ -174,7 +183,7 @@ function UsersPage() {
     setEditingUser(user);
     form.reset({
       username: user.username,
-      password: "",
+      password: "", // Reset password field
       roleId: user.role.id,
     });
     setDialogOpen(true);
@@ -217,21 +226,19 @@ function UsersPage() {
                     </FormItem>
                   )}
                 />
-                {!editingUser && (
-                  <FormField
-                    control={form.control}
-                    name="password"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Password</FormLabel>
-                        <FormControl>
-                          <Input type="password" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{editingUser ? 'New Password (leave empty to keep current)' : 'Password'}</FormLabel>
+                      <FormControl>
+                        <Input type="password" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <FormField
                   control={form.control}
                   name="roleId"
@@ -313,99 +320,13 @@ function UsersPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              onClick={() => {
-                                setEditingUser(user);
-                                form.reset({
-                                  username: user.username,
-                                  password: "",
-                                  roleId: user.role.id,
-                                });
-                                setDialogOpen(true);
-                              }}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent>
-                            <DialogHeader>
-                              <DialogTitle>Edit User</DialogTitle>
-                            </DialogHeader>
-                            <Form {...form}>
-                              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                                <FormField
-                                  control={form.control}
-                                  name="username"
-                                  render={({ field }) => (
-                                    <FormItem>
-                                      <FormLabel>Username</FormLabel>
-                                      <FormControl>
-                                        <Input {...field} />
-                                      </FormControl>
-                                      <FormMessage />
-                                    </FormItem>
-                                  )}
-                                />
-                                {!editingUser && (
-                                  <FormField
-                                    control={form.control}
-                                    name="password"
-                                    render={({ field }) => (
-                                      <FormItem>
-                                        <FormLabel>Password</FormLabel>
-                                        <FormControl>
-                                          <Input type="password" {...field} />
-                                        </FormControl>
-                                        <FormMessage />
-                                      </FormItem>
-                                    )}
-                                  />
-                                )}
-                                <FormField
-                                  control={form.control}
-                                  name="roleId"
-                                  render={({ field }) => (
-                                    <FormItem>
-                                      <FormLabel>Role</FormLabel>
-                                      <Select
-                                        onValueChange={(value) => field.onChange(parseInt(value))}
-                                        value={field.value?.toString()}
-                                      >
-                                        <FormControl>
-                                          <SelectTrigger>
-                                            <SelectValue placeholder="Select role" />
-                                          </SelectTrigger>
-                                        </FormControl>
-                                        <SelectContent>
-                                          {roles?.map(role => (
-                                            <SelectItem key={role.id} value={role.id.toString()}>
-                                              {role.name} ({role.roleType?.description})
-                                            </SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                      <FormMessage />
-                                    </FormItem>
-                                  )}
-                                />
-                                <Button
-                                  type="submit"
-                                  className="w-full"
-                                  disabled={form.formState.isSubmitting}
-                                >
-                                  {form.formState.isSubmitting && (
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                  )}
-                                  {editingUser ? 'Update User' : 'Create User'}
-                                </Button>
-                              </form>
-                            </Form>
-                          </DialogContent>
-                        </Dialog>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => handleEditUser(user)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
                         <Button
                           variant="outline"
                           size="icon"
@@ -415,6 +336,7 @@ function UsersPage() {
                               deleteMutation.mutate(user.id);
                             }
                           }}
+                          disabled={user.role.name === 'admin'} // Prevent deleting admin users
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
