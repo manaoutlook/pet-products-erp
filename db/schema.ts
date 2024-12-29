@@ -150,13 +150,16 @@ export const products = pgTable("products", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Inventory - Tracks product stock levels
+// Inventory - Tracks product stock levels with location type
 export const inventory = pgTable("inventory", {
   id: serial("id").primaryKey(),
   productId: integer("product_id").references(() => products.id),
   storeId: integer("store_id").references(() => stores.id),
   quantity: integer("quantity").notNull().default(0),
   location: text("location"),
+  // New fields for inventory type and center identification
+  inventoryType: text("inventory_type").notNull().default('STORE'), // Values: 'DC' or 'STORE'
+  centerId: text("center_id").default('DC001'), // Default for Distribution Center
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
