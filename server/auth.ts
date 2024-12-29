@@ -191,13 +191,15 @@ export function setupAuth(app: Express) {
           .limit(1);
 
         if (!user) {
-          console.log('User not found');
+          console.log('User not found in database');
           return done(null, false, { message: "Username not found" });
         }
 
+        console.log('Found user, verifying password...');
         const isMatch = await crypto.compare(password, user.password);
 
         if (!isMatch) {
+          console.log('Password verification failed');
           return done(null, false, { message: "Incorrect password" });
         }
 
@@ -301,9 +303,9 @@ export function setupAuth(app: Express) {
   });
 
   app.get("/api/user", (req, res) => {
-    console.log('User info request:', { 
+    console.log('User info request:', {
       isAuthenticated: req.isAuthenticated(),
-      user: req.user 
+      user: req.user
     });
 
     if (req.isAuthenticated()) {
