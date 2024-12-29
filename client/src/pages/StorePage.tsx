@@ -223,7 +223,12 @@ function StorePage() {
                     <FormItem>
                       <FormLabel>Location</FormLabel>
                       <FormControl>
-                        <Input {...field} />
+                        <Input 
+                          placeholder="Enter store location"
+                          {...field}
+                          onChange={(e) => field.onChange(e.target.value)}
+                          value={field.value || ''}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -236,7 +241,12 @@ function StorePage() {
                     <FormItem>
                       <FormLabel>Contact Information</FormLabel>
                       <FormControl>
-                        <Input {...field} />
+                        <Input 
+                          placeholder="Enter contact information"
+                          {...field}
+                          onChange={(e) => field.onChange(e.target.value)}
+                          value={field.value || ''}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
