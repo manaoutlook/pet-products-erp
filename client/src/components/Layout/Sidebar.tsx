@@ -23,7 +23,6 @@ interface NavItem {
   module?: 'products' | 'orders' | 'inventory' | 'users' | 'stores';
   action?: 'create' | 'read' | 'update' | 'delete';
   adminOnly?: boolean;
-  systemAdminOnly?: boolean;
   children?: NavItem[];
 }
 
@@ -31,7 +30,7 @@ function Sidebar() {
   const [location] = useLocation();
   const { logout, user } = useUser();
   const { hasPermission, isAdmin } = usePermissions();
-  const isSystemAdmin = user?.role?.name === 'System Administrator';
+  const isSystemAdmin = user?.role?.roleType?.description === 'System Administrator';
 
   // Define navigation items with permission-based access
   const navigationItems: NavItem[] = [
@@ -82,20 +81,17 @@ function Sidebar() {
         { 
           name: "Roles", 
           href: "/roles", 
-          icon: Settings,
-          systemAdminOnly: true
+          icon: Settings
         },
         { 
           name: "Permissions", 
           href: "/role-permissions", 
-          icon: Lock,
-          systemAdminOnly: true
+          icon: Lock
         },
         { 
           name: "Store Assignments", 
           href: "/store-assignments", 
-          icon: Store,
-          systemAdminOnly: true
+          icon: Store
         },
       ],
     },
@@ -106,10 +102,6 @@ function Sidebar() {
     // System Administrator has access to everything
     if (isSystemAdmin) {
       return true;
-    }
-
-    if (item.systemAdminOnly) {
-      return false;
     }
 
     if (item.adminOnly) {
