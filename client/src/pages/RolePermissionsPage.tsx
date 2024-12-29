@@ -16,6 +16,14 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useState } from "react";
 
 interface Permission {
   create: boolean;
@@ -44,6 +52,8 @@ interface Role {
 function RolePermissionsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [selectedRole, setSelectedRole] = useState<string>("");
+  const [selectedModule, setSelectedModule] = useState<string>("");
 
   const { data: roles, isLoading: isLoadingRoles } = useQuery<Role[]>({
     queryKey: ['/api/roles'],
@@ -65,8 +75,8 @@ function RolePermissionsPage() {
       // Update the roles cache optimistically to maintain order
       queryClient.setQueryData<Role[]>(['/api/roles'], (oldRoles) => {
         if (!oldRoles) return oldRoles;
-        return oldRoles.map(role => 
-          role.id === variables.roleId 
+        return oldRoles.map(role =>
+          role.id === variables.roleId
             ? { ...role, permissions: variables.permissions }
             : role
         );
@@ -135,9 +145,62 @@ function RolePermissionsPage() {
     );
   }
 
+  // Filter roles and modules based on selection
+  const filteredRoles = selectedRole
+    ? roles?.filter(role => role.id.toString() === selectedRole)
+    : roles;
+
+  const filteredModules = selectedModule
+    ? modules.filter(module => module.key === selectedModule)
+    : modules;
+
   return (
     <div className="space-y-6 p-6">
       <h1 className="text-3xl font-bold tracking-tight">Role Permissions</h1>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Filters</CardTitle>
+        </CardHeader>
+        <CardContent className="flex gap-4">
+          <div className="w-[200px]">
+            <Select
+              value={selectedRole}
+              onValueChange={setSelectedRole}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select Role" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">All Roles</SelectItem>
+                {roles?.map((role) => (
+                  <SelectItem key={role.id} value={role.id.toString()}>
+                    {role.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="w-[200px]">
+            <Select
+              value={selectedModule}
+              onValueChange={setSelectedModule}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select Module" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">All Modules</SelectItem>
+                {modules.map((module) => (
+                  <SelectItem key={module.key} value={module.key}>
+                    {module.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -148,7 +211,7 @@ function RolePermissionsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[200px]">Role</TableHead>
-                {modules.map(module => (
+                {filteredModules.map(module => (
                   <TableHead key={module.key} className="text-center min-w-[200px]">
                     {module.label}
                   </TableHead>
@@ -156,7 +219,7 @@ function RolePermissionsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {roles?.map((role) => (
+              {filteredRoles?.map((role) => (
                 <TableRow key={role.id}>
                   <TableCell className="font-medium">
                     <div>
@@ -164,7 +227,7 @@ function RolePermissionsPage() {
                       <p className="text-sm text-muted-foreground">{role.roleType.description}</p>
                     </div>
                   </TableCell>
-                  {modules.map(module => (
+                  {filteredModules.map(module => (
                     <TableCell key={module.key}>
                       <div className="space-y-2">
                         {permissions.map(permission => (
