@@ -196,65 +196,71 @@ function StorePage() {
             <DialogHeader>
               <DialogTitle>{editingStore ? 'Edit Store' : 'Add New Store'}</DialogTitle>
             </DialogHeader>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                    Store Name
-                  </label>
-                  <Input
-                    {...form.register('name')}
-                    placeholder="Enter store name"
-                  />
-                  {form.formState.errors.name && (
-                    <p className="text-sm font-medium text-destructive">
-                      {form.formState.errors.name.message}
-                    </p>
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Store Name</FormLabel>
+                      <FormControl>
+                        <Input 
+                          type="text"
+                          placeholder="Enter store name" 
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
                   )}
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                    Location
-                  </label>
-                  <Input
-                    {...form.register('location')}
-                    placeholder="Enter store location"
-                  />
-                  {form.formState.errors.location && (
-                    <p className="text-sm font-medium text-destructive">
-                      {form.formState.errors.location.message}
-                    </p>
+                />
+                <FormField
+                  control={form.control}
+                  name="location"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Location</FormLabel>
+                      <FormControl>
+                        <Input 
+                          type="text"
+                          placeholder="Enter store location"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
                   )}
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                    Contact Information
-                  </label>
-                  <Input
-                    {...form.register('contactInfo')}
-                    placeholder="Enter contact information"
-                  />
-                  {form.formState.errors.contactInfo && (
-                    <p className="text-sm font-medium text-destructive">
-                      {form.formState.errors.contactInfo.message}
-                    </p>
+                />
+                <FormField
+                  control={form.control}
+                  name="contactInfo"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Contact Information</FormLabel>
+                      <FormControl>
+                        <Input 
+                          type="text"
+                          placeholder="Enter contact information"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
                   )}
-                </div>
-              </div>
-
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={form.formState.isSubmitting}
-              >
-                {form.formState.isSubmitting && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                )}
-                {editingStore ? 'Update Store' : 'Create Store'}
-              </Button>
-            </form>
+                />
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={form.formState.isSubmitting}
+                >
+                  {form.formState.isSubmitting && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
+                  {editingStore ? 'Update Store' : 'Create Store'}
+                </Button>
+              </form>
+            </Form>
           </DialogContent>
         </Dialog>
       </div>
