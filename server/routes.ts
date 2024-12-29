@@ -901,6 +901,140 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Inventory Management endpoints
+  app.get("/api/inventory", requireAuth, async (req, res) => {
+    try {
+      const allInventory = await db.query.inventory.findMany({
+        with: {
+          product: true,
+          store: true,
+        },
+        orderBy: [desc(inventory.updatedAt)],
+      });
+      res.json(allInventory);
+    } catch (error) {
+      console.error('Error fetching inventory:', error);
+      res.status(500).send("Failed to fetch inventory");
+    }
+  });
+
+  app.post("/api/inventory", requireRole(['admin']), async (req, res) => {
+    try {
+      const { productId, storeId, quantity, location, inventoryType } = req.body;
+
+      if (!productId || !quantity || !inventoryType) {
+        return res.status(400).send("Product ID, quantity, and inventory type are required");
+      }
+
+      // Set centerId to DC001 if it's a Distribution Center item
+      const centerId = inventoryType === 'DC' ? 'DC001' : null;
+
+      const [newInventoryItem] = await db
+        .insert(inventory)
+        .values({
+          productId,
+          storeId: inventoryType === 'STORE' ? storeId : null,
+          quantity,
+          location,
+          inventoryType,
+          centerId,
+        })
+        .returning();
+
+      // Fetch the complete inventory item with related data
+      const inventoryWithDetails = await db.query.inventory.findFirst({
+        where: eq(inventory.id, newInventoryItem.id),
+        with: {
+          product: true,
+          store: true,
+        },
+      });
+
+      res.json({
+        message: "Inventory item created successfully",
+        inventory: inventoryWithDetails,
+      });
+    } catch (error) {
+      console.error('Error creating inventory item:', error);
+      res.status(500).send("Failed to create inventory item");
+    }
+  });
+
+  app.put("/api/inventory/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { productId, storeId, quantity, location, inventoryType } = req.body;
+
+      if (!productId || !quantity || !inventoryType) {
+        return res.status(400).send("Product ID, quantity, and inventory type are required");
+      }
+
+      // Set centerId based on inventoryType
+      const centerId = inventoryType === 'DC' ? 'DC001' : null;
+
+      const [updatedInventory] = await db
+        .update(inventory)
+        .set({
+          productId,
+          storeId: inventoryType === 'STORE' ? storeId : null,
+          quantity,
+          location,
+          inventoryType,
+          centerId,
+          updatedAt: new Date(),
+        })
+        .where(eq(inventory.id, parseInt(id)))
+        .returning();
+
+      if (!updatedInventory) {
+        return res.status(404).send("Inventory item not found");
+      }
+
+      // Fetch the complete inventory item with related data
+      const inventoryWithDetails = await db.query.inventory.findFirst({
+        where: eq(inventory.id, updatedInventory.id),
+        with: {
+          product: true,
+          store: true,
+        },
+      });
+
+      res.json({
+        message: "Inventory item updated successfully",
+        inventory: inventoryWithDetails,
+      });
+    } catch (error) {
+      console.error('Error updating inventory item:', error);
+      res.status(500).send("Failed to update inventory item");
+    }
+  });
+
+  app.delete("/api/inventory/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if inventory item exists
+      const [inventoryItem] = await db
+        .select()
+        .from(inventory)
+        .where(eq(inventory.id, parseInt(id)))
+        .limit(1);
+
+      if (!inventoryItem) {
+        return res.status(404).send("Inventory item not found");
+      }
+
+      await db
+        .delete(inventory)
+        .where(eq(inventory.id, parseInt(id)));
+
+      res.json({ message: "Inventory item deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting inventory item:', error);
+      res.status(500).send("Failed to delete inventory item");
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
