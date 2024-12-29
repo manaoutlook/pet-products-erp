@@ -103,23 +103,11 @@ export function useUser() {
     }
   });
 
-  const registerMutation = useMutation({
-    mutationFn: (userData: InsertUser) => handleRequest('/api/register', 'POST', userData),
-    onSuccess: () => {
-      console.log('Registration successful');
-      queryClient.invalidateQueries({ queryKey: ['user'] });
-    },
-    onError: (error) => {
-      console.error('Registration failed:', error);
-    }
-  });
-
   return {
     user,
     isLoading,
     error,
     login: loginMutation.mutateAsync,
     logout: logoutMutation.mutateAsync,
-    register: registerMutation.mutateAsync,
   };
 }
