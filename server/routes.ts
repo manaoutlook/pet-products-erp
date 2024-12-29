@@ -20,6 +20,16 @@ const updateUserSchema = z.object({
   roleId: z.number().positive("Role ID must be positive").optional(),
 });
 
+// Add proper Zod schema for product validation at the top with other schemas
+const insertProductSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  sku: z.string().min(1, "SKU is required"),
+  price: z.number().positive("Price must be positive"),
+  description: z.string().optional(),
+  categoryId: z.number().positive("Category is required"),
+  minStock: z.number().positive("Minimum stock must be positive").optional(),
+});
+
 function generateInventoryBarcode(
   inventoryType: 'DC' | 'STORE',
   productSku: string,
@@ -1015,42 +1025,72 @@ export function registerRoutes(app: Express): Server {
   // Products API - Create product (admin only)
   app.post("/api/products", requireRole(['admin']), async (req, res) => {
     try {
-      const { name, description, sku, price, category, minStock } = req.body;
-
-      if (!name || !sku || !price || !category) {
-        return res.status(400).send("Name, SKU, price, and category are required");
+      const result = insertProductSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({
+          message: "Invalid input",
+          errors: result.error.errors.map(err => ({
+            field: err.path.join('.'),            message: err.message
+          }))
+        });
       }
 
-      // Check if product with same SKU exists
-      const [existingProduct] = await db
-        .select()
-        .from(products)
-        .where(eq(products.sku, sku))
-        .limit(1);
+      const { name, sku, price, description, categoryId, minStock } = result.data;
+
+      // Check if SKU already exists
+      const existingProduct = await db.query.products.findFirst({
+        where: eq(products.sku, sku),
+      });
 
       if (existingProduct) {
-        return res.status(400).send("Product with this SKU already exists");
+        return res.status(400).json({
+          message: "SKU already exists",
+          suggestion: "Please use a different SKU"
+        });
+      }
+
+      // Check if category exists
+      const category = await db.query.categories.findFirst({
+        where: eq(categories.id, categoryId),
+      });
+
+      if (!category) {
+        return res.status(400).json({
+          message: "Category not found",
+          suggestion: "Please select a valid category"
+        });
       }
 
       const [newProduct] = await db
         .insert(products)
         .values({
           name,
-          description,
           sku,
           price,
-          category,
-          minStock: minStock || 10,
+          description,
+          categoryId,
+          minStock: minStock || 0,
         })
         .returning();
 
+      // Fetch the complete product with category
+      const productWithCategory = await db.query.products.findFirst({
+        where: eq(products.id, newProduct.id),
+        with: {
+          category: true,
+        },
+      });
+
       res.json({
         message: "Product created successfully",
-        product: newProduct,
+        product: productWithCategory,
       });
     } catch (error) {
       console.error('Error creating product:', error);
-      res.status(500).send("Failed to create product");
+      res.status(500).json({
+        message: "Failed to create product",
+        suggestion: "Please try again later"
+      });
     }
   });
 
