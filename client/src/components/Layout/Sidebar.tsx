@@ -14,6 +14,7 @@ import {
   LogOut,
   UserCog,
   Lock,
+  BarChart
 } from "lucide-react";
 
 interface NavItem {
@@ -62,10 +63,25 @@ function Sidebar() {
     },
     { 
       name: "Stores", 
-      href: "/stores", 
       icon: Store,
       module: 'stores',
-      action: 'read'
+      action: 'read',
+      children: [
+        { 
+          name: "Store List", 
+          href: "/stores", 
+          icon: Store,
+          module: 'stores',
+          action: 'read'
+        },
+        { 
+          name: "Store Performance", 
+          href: "/store-performance", 
+          icon: BarChart,
+          module: 'stores',
+          action: 'read'
+        }
+      ]
     },
     {
       name: "User Management",

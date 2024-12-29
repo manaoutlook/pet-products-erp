@@ -11,6 +11,7 @@ import RolesPage from "./pages/RolesPage";
 import RolePermissionsPage from "./pages/RolePermissionsPage";
 import StorePage from "./pages/StorePage";
 import StoreAssignmentPage from "./pages/StoreAssignmentPage";
+import StorePerformancePage from "./pages/StorePerformancePage";
 import MainLayout from "./components/Layout/MainLayout";
 
 function App() {
@@ -40,6 +41,7 @@ function App() {
         <Route path="/role-permissions" component={RolePermissionsPage} />
         <Route path="/stores" component={StorePage} />
         <Route path="/store-assignments" component={StoreAssignmentPage} />
+        <Route path="/store-performance" component={StorePerformancePage} />
         <Route>
           <div className="flex items-center justify-center h-full">
             <h1 className="text-2xl font-bold">404 - Page Not Found</h1>

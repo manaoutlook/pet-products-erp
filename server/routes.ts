@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { db } from "@db";
 import { products, inventory, orders, orderItems, users, roles, roleTypes, stores, userStoreAssignments } from "@db/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, gte, lt } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
 import { z } from "zod";
 
@@ -1040,8 +1040,7 @@ export function registerRoutes(app: Express): Server {
             product: true,
             store: true,
           },
-          orderBy: [desc(inventory.updatedAt)],
-        });
+          orderBy: [desc(inventory.updatedAt)],        });
       } else {
         // For other roles (like admin), show all inventory
         allInventory = await db.query.inventory.findMany({
@@ -1192,6 +1191,104 @@ export function registerRoutes(app: Express): Server {
     } catch (error) {
       console.error('Error deleting inventory item:', error);
       res.status(500).send("Failed to delete inventory item");
+    }
+  });
+
+  // Store Performance API endpoints
+  app.get("/api/stores/performance", requireAuth, async (req, res) => {
+    try {
+      // Get current month's start and end dates
+      const currentMonthStart = sql`date_trunc('month', current_date)`;
+      const nextMonthStart = sql`date_trunc('month', current_date) + interval '1 month'`;
+
+      // Get performance metrics for each store
+      const storeMetrics = await db
+        .select({
+          storeId: stores.id,
+          storeName: stores.name,
+          // Monthly order count
+          orderCount: sql<number>`count(distinct ${orders.id})`,
+          // Total revenue
+          revenue: sql<number>`coalesce(sum(${orders.total}), 0)`,
+          // Average order value
+          averageOrderValue: sql<number>`coalesce(avg(${orders.total}), 0)`,
+          // Order fulfillment rate (completed orders / total orders)
+          fulfillmentRate: sql<number>`
+            case 
+              when count(${orders.id}) > 0 
+              then sum(case when ${orders.status} = 'completed' then 1 else 0 end)::float / count(${orders.id}) 
+              else 0 
+            end
+          `,
+          // Inventory turnover (items sold / average inventory)
+          inventoryTurnover: sql<number>`
+            coalesce(
+              sum(${orderItems.quantity})::float / nullif(avg(${inventory.quantity}), 0),
+              0
+            )
+          `
+        })
+        .from(stores)
+        .leftJoin(orders, eq(orders.storeId, stores.id))
+        .leftJoin(orderItems, eq(orderItems.orderId, orders.id))
+        .leftJoin(inventory, eq(inventory.storeId, stores.id))
+        .where(
+          and(
+            gte(orders.createdAt, currentMonthStart),
+            lt(orders.createdAt, nextMonthStart)
+          )
+        )
+        .groupBy(stores.id)
+        .orderBy(stores.name);
+
+      // Get historical performance data for trending
+      const historicalData = await db
+        .select({
+          storeId: stores.id,
+          month: sql<string>`date_trunc('month', ${orders.createdAt})::date`,
+          revenue: sql<number>`sum(${orders.total})`,
+          orderCount: sql<number>`count(distinct ${orders.id})`
+        })
+        .from(stores)
+        .leftJoin(orders, eq(orders.storeId, stores.id))
+        .where(
+          gte(
+            orders.createdAt,
+            sql`date_trunc('month', current_date - interval '6 months')`
+          )
+        )
+        .groupBy(stores.id, sql`date_trunc('month', ${orders.createdAt})`)
+        .orderBy([stores.id, sql`date_trunc('month', ${orders.createdAt})`]);
+
+      // Get inventory status
+      const inventoryStatus = await db
+        .select({
+          storeId: stores.id,
+          totalItems: sql<number>`count(distinct ${inventory.productId})`,
+          lowStockItems: sql<number>`
+            count(distinct case 
+              when ${inventory.quantity} <= ${products.minStock} 
+              then ${inventory.productId} 
+              else null 
+            end)
+          `
+        })
+        .from(stores)
+        .leftJoin(inventory, eq(inventory.storeId, stores.id))
+        .leftJoin(products, eq(inventory.productId, products.id))
+        .groupBy(stores.id);
+
+      res.json({
+        currentMetrics: storeMetrics,
+        historicalData,
+        inventoryStatus
+      });
+    } catch (error) {
+      console.error('Error fetching store performance:', error);
+      res.status(500).json({
+        message: "Failed to fetch store performance metrics",
+        suggestion: "Please try again later"
+      });
     }
   });
 
