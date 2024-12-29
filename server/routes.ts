@@ -980,20 +980,66 @@ export function registerRoutes(app: Express): Server {
   // Inventory Management endpoints
   app.get("/api/inventory", requireAuth, async (req, res) => {
     try {
-      const allInventory = await db.query.inventory.findMany({
+      // Get user's role type
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, req.user.id),
         with: {
-          product: true,
-          store: true,
-        },
-        orderBy: [desc(inventory.updatedAt)],
+          role: {
+            with: {
+              roleType: true
+            }
+          }
+        }
       });
+
+      if (!user?.role?.roleType) {
+        return res.status(400).send("User role type not found");
+      }
+
+      let allInventory;
+
+      // Filter inventory based on role type
+      if (user.role.roleType.description === 'Pet Store') {
+        // Get user's store assignment
+        const storeAssignment = await db.query.userStoreAssignments.findFirst({
+          where: eq(userStoreAssignments.userId, req.user.id),
+          with: {
+            store: true
+          }
+        });
+
+        if (!storeAssignment) {
+          return res.status(400).send("Store assignment not found for user");
+        }
+
+        // Get inventory only for user's assigned store
+        allInventory = await db.query.inventory.findMany({
+          where: eq(inventory.storeId, storeAssignment.storeId),
+          with: {
+            product: true,
+            store: true,
+          },
+          orderBy: [desc(inventory.updatedAt)],
+        });
+      } else {
+        // For Distribution Center users, show all inventory
+        allInventory = await db.query.inventory.findMany({
+          with: {
+            product: true,
+            store: true,
+          },
+          orderBy: [desc(inventory.updatedAt)],
+        });
+      }
+
+      console.log(`Fetched ${allInventory.length} inventory items for user ${req.user.username} with role type ${user.role.roleType.description}`);
+
       res.json(allInventory);
     } catch (error) {
       console.error('Error fetching inventory:', error);
       res.status(500).send("Failed to fetch inventory");
     }
   });
-
   app.post("/api/inventory", requireRole(['admin']), async (req, res) => {
     try {
       const { productId, storeId, quantity, location, inventoryType } = req.body;
@@ -1032,7 +1078,8 @@ export function registerRoutes(app: Express): Server {
 
       // Fetch the complete inventory item with related data
       const inventoryWithDetails = await db.query.inventory.findFirst({
-        where: eq(inventory.id, newInventoryItem.id),        with: {
+        where: eq(inventory.id, newInventoryItem.id),
+        with: {
           product: true,
           store: true,
         },
@@ -1099,7 +1146,7 @@ export function registerRoutes(app: Express): Server {
 
   app.delete("/api/inventory/:id", requireRole(['admin']), async (req, res) => {
     try {
-      const { id }= req.params;
+      const { id } = req.params;
 
       // Check if inventory item exists
       const [inventoryItem] = await db
