@@ -11,14 +11,14 @@ import { eq } from "drizzle-orm";
 
 const scryptAsync = promisify(scrypt);
 
-// Improved crypto functions with better logging and error handling
+// Improved crypto functions with better error handling
 const crypto = {
   hash: async (password: string) => {
     try {
       const salt = randomBytes(16).toString("hex");
       console.log(`Generated salt for password hashing: ${salt}`);
-      const buf = (await scryptAsync(password, salt, 64)) as Buffer;
-      const hashedPassword = `${buf.toString("hex")}.${salt}`;
+      const derivedKey = (await scryptAsync(password, salt, 64)) as Buffer;
+      const hashedPassword = `${derivedKey.toString("hex")}.${salt}`;
       console.log(`Successfully hashed password. Hash length: ${hashedPassword.length}`);
       return hashedPassword;
     } catch (error) {
@@ -29,25 +29,27 @@ const crypto = {
   compare: async (suppliedPassword: string, storedPassword: string) => {
     try {
       console.log('Starting password comparison...');
-      console.log('Stored password format:', storedPassword);
 
-      const [hashedPassword, salt] = storedPassword.split(".");
-      console.log('Extracted salt:', salt);
-      console.log('Extracted hash length:', hashedPassword.length);
+      // Split stored password into hash and salt
+      const [storedHash, salt] = storedPassword.split(".");
+      if (!storedHash || !salt) {
+        throw new Error('Invalid stored password format');
+      }
 
-      const hashedPasswordBuf = Buffer.from(hashedPassword, "hex");
-      const suppliedPasswordBuf = (await scryptAsync(
-        suppliedPassword,
-        salt,
-        64
-      )) as Buffer;
+      // Generate hash of supplied password using same salt
+      const derivedKey = (await scryptAsync(suppliedPassword, salt, 64)) as Buffer;
+      const suppliedHash = derivedKey.toString("hex");
 
-      console.log('Generated hash for supplied password length:', suppliedPasswordBuf.length);
+      // Compare hashes using timing-safe comparison
+      const storedBuffer = Buffer.from(storedHash, "hex");
+      const suppliedBuffer = Buffer.from(suppliedHash, "hex");
 
-      const isMatch = timingSafeEqual(hashedPasswordBuf, suppliedPasswordBuf);
+      console.log('Comparing password hashes...');
+      console.log('Supplied hash:', suppliedHash);
+      console.log('Stored hash:', storedHash);
+
+      const isMatch = timingSafeEqual(storedBuffer, suppliedBuffer);
       console.log(`Password comparison result: ${isMatch}`);
-      console.log('Supplied password buffer:', suppliedPasswordBuf.toString('hex'));
-      console.log('Stored password buffer:', hashedPasswordBuf.toString('hex'));
 
       return isMatch;
     } catch (error) {
@@ -185,6 +187,7 @@ export function setupAuth(app: Express) {
     new LocalStrategy(async (username, password, done) => {
       try {
         console.log(`Attempting login for user: ${username}`);
+
         // Include role information in the login query
         const [user] = await db
           .select({
