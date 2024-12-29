@@ -8,6 +8,7 @@ import OrdersPage from "./pages/OrdersPage";
 import ProductsPage from "./pages/ProductsPage";
 import UsersPage from "./pages/UsersPage";
 import RolesPage from "./pages/RolesPage";
+import RolePermissionsPage from "./pages/RolePermissionsPage";
 import StorePage from "./pages/StorePage";
 import StoreAssignmentPage from "./pages/StoreAssignmentPage";
 import MainLayout from "./components/Layout/MainLayout";
@@ -36,6 +37,7 @@ function App() {
         <Route path="/products" component={ProductsPage} />
         <Route path="/users" component={UsersPage} />
         <Route path="/roles" component={RolesPage} />
+        <Route path="/role-permissions" component={RolePermissionsPage} />
         <Route path="/stores" component={StorePage} />
         <Route path="/store-assignments" component={StoreAssignmentPage} />
         <Route>

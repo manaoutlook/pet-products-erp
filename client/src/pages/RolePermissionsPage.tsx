@@ -14,7 +14,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/ui/button"; //Re-added import
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
@@ -45,7 +45,6 @@ interface Role {
 
 function RolePermissionsPage() {
   const { toast } = useToast();
-  const [selectedRole, setSelectedRole] = useState<Role | null>(null);
 
   const { data: roles, isLoading: isLoadingRoles } = useQuery<Role[]>({
     queryKey: ['/api/roles'],
