@@ -52,7 +52,9 @@ declare global {
       id: number;
       username: string;
       role: {
+        id: number;
         name: string;
+        permissions: Record<string, Record<string, boolean>>;
       };
     }
   }
@@ -91,6 +93,12 @@ export async function setupAdmin() {
         name: 'admin',
         description: 'Administrator role with full access',
         roleTypeId: adminRoleType.id,
+        permissions: {
+          products: { create: true, read: true, update: true, delete: true },
+          orders: { create: true, read: true, update: true, delete: true },
+          inventory: { create: true, read: true, update: true, delete: true },
+          users: { create: true, read: true, update: true, delete: true }
+        },
       })
       .onConflictDoNothing()
       .returning();
@@ -172,7 +180,9 @@ export function setupAuth(app: Express) {
             username: users.username,
             password: users.password,
             role: {
-              name: roles.name
+              id: roles.id,
+              name: roles.name,
+              permissions: roles.permissions
             }
           })
           .from(users)
@@ -203,7 +213,7 @@ export function setupAuth(app: Express) {
   );
 
   passport.serializeUser((user, done) => {
-    console.log('Serializing user:', { id: user.id, username: user.username });
+    console.log('Serializing user:', { id: user.id, username: user.username, role: user.role });
     done(null, { id: user.id, username: user.username, role: user.role });
   });
 
@@ -216,7 +226,9 @@ export function setupAuth(app: Express) {
           id: users.id,
           username: users.username,
           role: {
-            name: roles.name
+            id: roles.id,
+            name: roles.name,
+            permissions: roles.permissions
           }
         })
         .from(users)
