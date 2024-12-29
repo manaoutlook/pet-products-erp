@@ -79,7 +79,7 @@ interface RoleType {
 const formSchema = z.object({
   name: z.string().min(2, 'Role name must be at least 2 characters'),
   description: z.string().optional(),
-  roleTypeId: z.string(),
+  roleTypeId: z.string().min(1, 'Role type is required'),
   permissions: z.object({
     products: z.object({
       create: z.boolean(),
@@ -265,8 +265,11 @@ function RolePermissionsPage() {
                     <FormItem>
                       <FormLabel>Role Name</FormLabel>
                       <FormControl>
-                        <Input {...field} />
+                        <Input placeholder="Enter role name" {...field} />
                       </FormControl>
+                      <FormDescription>
+                        Choose a unique name for this role
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -279,8 +282,11 @@ function RolePermissionsPage() {
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Input {...field} />
+                        <Input placeholder="Enter role description" {...field} />
                       </FormControl>
+                      <FormDescription>
+                        Briefly describe the purpose of this role
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -291,14 +297,14 @@ function RolePermissionsPage() {
                   name="roleTypeId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Role Type</FormLabel>
+                      <FormLabel>Role Category</FormLabel>
                       <Select
                         onValueChange={field.onChange}
                         defaultValue={field.value}
                       >
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select a role type" />
+                            <SelectValue placeholder="Select a role category" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -309,6 +315,9 @@ function RolePermissionsPage() {
                           ))}
                         </SelectContent>
                       </Select>
+                      <FormDescription>
+                        Choose the category this role belongs to
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
