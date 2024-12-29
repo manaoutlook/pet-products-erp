@@ -2,6 +2,7 @@ import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useUser } from "@/hooks/use-user";
+import { usePermissions } from "@/hooks/use-permissions";
 import {
   LayoutDashboard,
   Package,
@@ -19,41 +20,110 @@ interface NavItem {
   name: string;
   href?: string;
   icon: any;
-  roles: string[];
+  module?: string;
+  action?: 'create' | 'read' | 'update' | 'delete';
+  adminOnly?: boolean;
   children?: NavItem[];
 }
 
 function Sidebar() {
   const [location] = useLocation();
   const { logout, user } = useUser();
+  const { hasPermission, isAdmin } = usePermissions();
 
-  // Define navigation items with role-based access and nested structure
+  // Define navigation items with permission-based access
   const navigationItems: NavItem[] = [
-    { name: "Dashboard", href: "/", icon: LayoutDashboard, roles: ['admin'] },
-    { name: "Products", href: "/products", icon: Package, roles: ['admin', 'user'] },
-    { name: "Orders", href: "/orders", icon: ShoppingCart, roles: ['admin'] },
-    { name: "Inventory", href: "/inventory", icon: PackageSearch, roles: ['admin'] },
-    { name: "Stores", href: "/stores", icon: Store, roles: ['admin'] },
+    { 
+      name: "Dashboard", 
+      href: "/", 
+      icon: LayoutDashboard, 
+      adminOnly: true 
+    },
+    { 
+      name: "Products", 
+      href: "/products", 
+      icon: Package,
+      module: 'products',
+      action: 'read'
+    },
+    { 
+      name: "Orders", 
+      href: "/orders", 
+      icon: ShoppingCart,
+      module: 'orders',
+      action: 'read'
+    },
+    { 
+      name: "Inventory", 
+      href: "/inventory", 
+      icon: PackageSearch,
+      module: 'inventory',
+      action: 'read'
+    },
+    { 
+      name: "Stores", 
+      href: "/stores", 
+      icon: Store,
+      module: 'stores',
+      action: 'read'
+    },
     {
       name: "User Management",
       icon: UserCog,
-      roles: ['admin'],
+      adminOnly: true,
       children: [
-        { name: "Users", href: "/users", icon: Users, roles: ['admin'] },
-        { name: "Roles", href: "/roles", icon: Settings, roles: ['admin'] },
-        { name: "Permissions", href: "/role-permissions", icon: Lock, roles: ['admin'] },
-        { name: "Store Assignments", href: "/store-assignments", icon: Store, roles: ['admin'] },
+        { 
+          name: "Users", 
+          href: "/users", 
+          icon: Users,
+          module: 'users',
+          action: 'read'
+        },
+        { 
+          name: "Roles", 
+          href: "/roles", 
+          icon: Settings,
+          adminOnly: true
+        },
+        { 
+          name: "Permissions", 
+          href: "/role-permissions", 
+          icon: Lock,
+          adminOnly: true
+        },
+        { 
+          name: "Store Assignments", 
+          href: "/store-assignments", 
+          icon: Store,
+          adminOnly: true
+        },
       ],
     },
   ];
 
-  // Filter navigation items based on user role
+  // Check if user has access to the item based on permissions
   const hasAccess = (item: NavItem) => {
-    return user?.role?.name && item.roles.includes(user.role.name);
+    if (item.adminOnly) {
+      return isAdmin;
+    }
+
+    if (item.module && item.action) {
+      return hasPermission(item.module, item.action);
+    }
+
+    if (item.children) {
+      return item.children.some(child => hasAccess(child));
+    }
+
+    return true;
   };
 
   const renderNavItem = (item: NavItem) => {
     if (item.children) {
+      // Only show parent item if user has access to at least one child
+      const hasAccessibleChildren = item.children.some(child => hasAccess(child));
+      if (!hasAccessibleChildren) return null;
+
       return (
         <div key={item.name} className="space-y-1">
           <div className={cn(
@@ -85,7 +155,7 @@ function Sidebar() {
       );
     }
 
-    return item.href && (
+    return item.href && hasAccess(item) && (
       <Link key={item.name} href={item.href}>
         <a
           className={cn(
@@ -109,7 +179,7 @@ function Sidebar() {
       </div>
 
       <nav className="flex-1 px-2 py-4 space-y-1">
-        {navigationItems.map(item => hasAccess(item) && renderNavItem(item))}
+        {navigationItems.map(item => renderNavItem(item))}
       </nav>
 
       <div className="p-4 border-t">
