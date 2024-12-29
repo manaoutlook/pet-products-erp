@@ -52,8 +52,8 @@ interface Role {
 function RolePermissionsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [selectedRole, setSelectedRole] = useState<string>("");
-  const [selectedModule, setSelectedModule] = useState<string>("");
+  const [selectedRole, setSelectedRole] = useState<string>("all");
+  const [selectedModule, setSelectedModule] = useState<string>("all");
 
   const { data: roles, isLoading: isLoadingRoles } = useQuery<Role[]>({
     queryKey: ['/api/roles'],
@@ -146,13 +146,13 @@ function RolePermissionsPage() {
   }
 
   // Filter roles and modules based on selection
-  const filteredRoles = selectedRole
-    ? roles?.filter(role => role.id.toString() === selectedRole)
-    : roles;
+  const filteredRoles = selectedRole === "all"
+    ? roles
+    : roles?.filter(role => role.id.toString() === selectedRole);
 
-  const filteredModules = selectedModule
-    ? modules.filter(module => module.key === selectedModule)
-    : modules;
+  const filteredModules = selectedModule === "all"
+    ? modules
+    : modules.filter(module => module.key === selectedModule);
 
   return (
     <div className="space-y-6 p-6">
@@ -172,7 +172,7 @@ function RolePermissionsPage() {
                 <SelectValue placeholder="Select Role" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Roles</SelectItem>
+                <SelectItem value="all">All Roles</SelectItem>
                 {roles?.map((role) => (
                   <SelectItem key={role.id} value={role.id.toString()}>
                     {role.name}
@@ -190,7 +190,7 @@ function RolePermissionsPage() {
                 <SelectValue placeholder="Select Module" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Modules</SelectItem>
+                <SelectItem value="all">All Modules</SelectItem>
                 {modules.map((module) => (
                   <SelectItem key={module.key} value={module.key}>
                     {module.label}
