@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { db } from "@db";
-import { products, inventory, orders, orderItems, users, roles, roleTypes, stores, userStoreAssignments, categories, brands } from "@db/schema";
+import { products, inventory, orders, orderItems, users, roles, roleTypes, stores, userStoreAssignments, categories, brands, suppliers } from "@db/schema";
 import { eq, and, desc, sql, gte, lt } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
 import { z } from "zod";
@@ -1032,7 +1032,8 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).json({
           message: "Invalid input",
           errors: result.error.errors.map(err => ({
-            field: err.path.join('.'),            message: err.message
+            field: err.path.join('.'),
+            message: err.message
           }))
         });
       }
@@ -1159,7 +1160,6 @@ export function registerRoutes(app: Express): Server {
           suggestion: "Please select a valid brand"
         });
       }
-
 
       const [updatedProduct] = await db
         .update(products)
@@ -1652,6 +1652,116 @@ export function registerRoutes(app: Express): Server {
     } catch (error) {
       console.error('Error deleting brand:', error);
       res.status(500).send("Failed to delete brand");
+    }
+  });
+
+  // Supplier Management endpoints - admin only
+  app.get("/api/suppliers", requireRole(['admin']), async (req, res) => {
+    try {
+      const allSuppliers = await db.query.suppliers.findMany({
+        orderBy: [desc(suppliers.updatedAt)],
+      });
+      res.json(allSuppliers);
+    } catch (error) {
+      console.error('Error fetching suppliers:', error);
+      res.status(500).send("Failed to fetch suppliers");
+    }
+  });
+
+  app.post("/api/suppliers", requireRole(['admin']), async (req, res) => {
+    try {
+      const { name, contactInfo, address } = req.body;
+
+      if (!name || !contactInfo || !address) {
+        return res.status(400).send("Name, contact information, and address are required");
+      }
+
+      const [newSupplier] = await db
+        .insert(suppliers)
+        .values({
+          name,
+          contactInfo,
+          address,
+        })
+        .returning();
+
+      res.json({
+        message: "Supplier created successfully",
+        supplier: newSupplier,
+      });
+    } catch (error) {
+      console.error('Error creating supplier:', error);
+      res.status(500).send("Failed to create supplier");
+    }
+  });
+
+  app.put("/api/suppliers/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, contactInfo, address } = req.body;
+
+      if (!name || !contactInfo || !address) {
+        return res.status(400).send("Name, contact information, and address are required");
+      }
+
+      const [updatedSupplier] = await db
+        .update(suppliers)
+        .set({
+          name,
+          contactInfo,
+          address,
+          updatedAt: new Date(),
+        })
+        .where(eq(suppliers.id, parseInt(id)))
+        .returning();
+
+      if (!updatedSupplier) {
+        return res.status(404).send("Supplier not found");
+      }
+
+      res.json({
+        message: "Supplier updated successfully",
+        supplier: updatedSupplier,
+      });
+    } catch (error) {
+      console.error('Error updating supplier:', error);
+      res.status(500).send("Failed to update supplier");
+    }
+  });
+
+  app.delete("/api/suppliers/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if supplier exists
+      const [supplier] = await db
+        .select()
+        .from(suppliers)
+        .where(eq(suppliers.id, parseInt(id)))
+        .limit(1);
+
+      if (!supplier) {
+        return res.status(404).send("Supplier not found");
+      }
+
+      // Check if supplier has any inventory
+      const [inventoryCount] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(inventory)
+        .where(eq(inventory.supplierId, parseInt(id)));
+
+      if (inventoryCount.count > 0) {
+        return res.status(400).send("Cannot delete supplier with existing inventory");
+      }
+
+      await db
+        .delete(suppliers)
+        .where(eq(suppliers.id, parseInt(id)));
+
+      res.json({ message: "Supplier deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting supplier:', error);
+      res.status(500).send("Failed to delete supplier");
     }
   });
 
