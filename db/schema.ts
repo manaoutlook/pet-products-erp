@@ -1,35 +1,7 @@
-import { pgTable, text, serial, integer, boolean, timestamp, decimal, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, decimal, jsonb, date } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
-
-// Categories table for product categorization
-export const categories = pgTable("categories", {
-  id: serial("id").primaryKey(),
-  name: text("name").notNull().unique(),
-  description: text("description"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
-
-// Create schemas for categories
-export const insertCategorySchema = createInsertSchema(categories);
-export const selectCategorySchema = createSelectSchema(categories);
-export type InsertCategory = typeof categories.$inferInsert;
-export type SelectCategory = typeof categories.$inferSelect;
-
-// Products table with proper category relationship
-export const products = pgTable("products", {
-  id: serial("id").primaryKey(),
-  name: text("name").notNull(),
-  description: text("description"),
-  sku: text("sku").unique().notNull(),
-  price: decimal("price", { precision: 10, scale: 2 }).notNull(),
-  categoryId: integer("category_id").references(() => categories.id).notNull(),
-  minStock: integer("min_stock").notNull().default(10),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
 
 // Role Types table
 export const roleTypes = pgTable("role_types", {
@@ -43,12 +15,7 @@ export const roles = pgTable("roles", {
   name: text("name").unique().notNull(),
   description: text("description"),
   roleTypeId: integer("role_type_id").references(() => roleTypes.id).notNull(),
-  permissions: jsonb("permissions").default({
-    products: { create: false, read: true, update: false, delete: false },
-    orders: { create: false, read: true, update: false, delete: false },
-    inventory: { create: false, read: true, update: false, delete: false },
-    users: { create: false, read: false, update: false, delete: false }
-  }).notNull(),
+  permissions: jsonb("permissions").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -82,16 +49,61 @@ export const userStoreAssignments = pgTable("user_store_assignments", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Inventory table
+// Brands table for product branding
+export const brands = pgTable("brands", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Suppliers table for inventory management
+export const suppliers = pgTable("suppliers", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  contactInfo: text("contact_info").notNull(),
+  address: text("address").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Categories table for product categorization
+export const categories = pgTable("categories", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Products table with proper category and brand relationships
+export const products = pgTable("products", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  sku: text("sku").unique().notNull(),
+  price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  categoryId: integer("category_id").references(() => categories.id).notNull(),
+  brandId: integer("brand_id").references(() => brands.id),
+  minStock: integer("min_stock").notNull().default(10),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Inventory table with all required fields
 export const inventory = pgTable("inventory", {
   id: serial("id").primaryKey(),
   productId: integer("product_id").references(() => products.id),
   storeId: integer("store_id").references(() => stores.id),
+  supplierId: integer("supplier_id").references(() => suppliers.id),
   quantity: integer("quantity").notNull().default(0),
   location: text("location"),
   inventoryType: text("inventory_type").notNull().default('STORE'),
   centerId: text("center_id").default('DC001'),
   barcode: text("barcode").unique(),
+  purchaseDate: date("purchase_date"),
+  expiryDate: date("expiry_date"),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
@@ -117,6 +129,14 @@ export const orderItems = pgTable("order_items", {
 });
 
 // Define relationships
+export const brandsRelations = relations(brands, ({ many }) => ({
+  products: many(products),
+}));
+
+export const suppliersRelations = relations(suppliers, ({ many }) => ({
+  inventory: many(inventory),
+}));
+
 export const categoriesRelations = relations(categories, ({ many }) => ({
   products: many(products),
 }));
@@ -125,6 +145,10 @@ export const productsRelations = relations(products, ({ one, many }) => ({
   category: one(categories, {
     fields: [products.categoryId],
     references: [categories.id],
+  }),
+  brand: one(brands, {
+    fields: [products.brandId],
+    references: [brands.id],
   }),
   inventory: many(inventory),
   orderItems: many(orderItems),
@@ -176,6 +200,10 @@ export const inventoryRelations = relations(inventory, ({ one }) => ({
     fields: [inventory.storeId],
     references: [stores.id],
   }),
+  supplier: one(suppliers, {
+    fields: [inventory.supplierId],
+    references: [suppliers.id],
+  }),
 }));
 
 export const ordersRelations = relations(orders, ({ many, one }) => ({
@@ -198,6 +226,16 @@ export const orderItemsRelations = relations(orderItems, ({ one }) => ({
 }));
 
 // Export schemas
+export const insertBrandSchema = createInsertSchema(brands);
+export const selectBrandSchema = createSelectSchema(brands);
+export type InsertBrand = typeof brands.$inferInsert;
+export type SelectBrand = typeof brands.$inferSelect;
+
+export const insertSupplierSchema = createInsertSchema(suppliers);
+export const selectSupplierSchema = createSelectSchema(suppliers);
+export type InsertSupplier = typeof suppliers.$inferInsert;
+export type SelectSupplier = typeof suppliers.$inferSelect;
+
 export const insertRoleTypeSchema = createInsertSchema(roleTypes);
 export const selectRoleTypeSchema = createSelectSchema(roleTypes);
 export type InsertRoleType = typeof roleTypes.$inferInsert;

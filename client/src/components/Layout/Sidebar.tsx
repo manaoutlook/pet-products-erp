@@ -16,7 +16,9 @@ import {
   Lock,
   BarChart,
   Network,
-  Folders // Add Folders icon for categories
+  Folders,
+  Tags,
+  Building2 // Add Building2 icon for Suppliers
 } from "lucide-react";
 
 interface NavItem {
@@ -35,12 +37,40 @@ function Sidebar() {
   const { hasPermission, isAdmin } = usePermissions();
   const isSystemAdmin = user?.role?.roleType?.description === 'System Administrator';
 
-  // Define navigation items with permission-based access
   const navigationItems: NavItem[] = [
     { 
       name: "Dashboard", 
       href: "/", 
       icon: LayoutDashboard 
+    },
+    {
+      name: "Master Data",
+      icon: Settings,
+      module: 'products',
+      action: 'read',
+      children: [
+        {
+          name: "Categories",
+          href: "/categories",
+          icon: Folders,
+          module: 'products',
+          action: 'read'
+        },
+        {
+          name: "Brands",
+          href: "/brands",
+          icon: Tags,
+          module: 'products',
+          action: 'read'
+        },
+        {
+          name: "Suppliers",
+          href: "/suppliers",
+          icon: Building2,
+          module: 'products',
+          action: 'read'
+        }
+      ]
     },
     { 
       name: "Products", 
@@ -52,13 +82,6 @@ function Sidebar() {
           name: "Product List",
           href: "/products",
           icon: Package,
-          module: 'products',
-          action: 'read'
-        },
-        {
-          name: "Categories",
-          href: "/categories",
-          icon: Folders,
           module: 'products',
           action: 'read'
         }
@@ -141,9 +164,7 @@ function Sidebar() {
     },
   ];
 
-  // Check if user has access to the item based on permissions
   const hasAccess = (item: NavItem): boolean => {
-    // System Administrator has access to everything
     if (isSystemAdmin) {
       return true;
     }
@@ -156,7 +177,6 @@ function Sidebar() {
       return hasPermission(item.module, item.action);
     }
 
-    // For parent items with children, check if user has access to any child item
     if (item.children) {
       return item.children.some(child => hasAccess(child));
     }
@@ -165,7 +185,6 @@ function Sidebar() {
   };
 
   const renderNavItem = (item: NavItem) => {
-    // Skip rendering if user doesn't have access
     if (!hasAccess(item)) {
       return null;
     }
