@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { db } from "@db";
-import { products, inventory, orders, orderItems, users, roles, roleTypes, stores, userStoreAssignments, categories } from "@db/schema";
+import { products, inventory, orders, orderItems, users, roles, roleTypes, stores, userStoreAssignments, categories, brands } from "@db/schema";
 import { eq, and, desc, sql, gte, lt } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
 import { z } from "zod";
@@ -28,6 +28,7 @@ const insertProductSchema = z.object({
   description: z.string().optional(),
   categoryId: z.number().positive("Category is required"),
   minStock: z.number().positive("Minimum stock must be positive").optional(),
+  brandId: z.number().positive("Brand ID must be positive").optional(),
 });
 
 function generateInventoryBarcode(
@@ -1012,6 +1013,7 @@ export function registerRoutes(app: Express): Server {
         with: {
           category: true,
           inventory: true,
+          brand: true,
         },
         orderBy: [desc(products.updatedAt)],
       });
@@ -1035,7 +1037,7 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { name, sku, price, description, categoryId, minStock } = result.data;
+      const { name, sku, price, description, categoryId, minStock, brandId } = result.data;
 
       // Check if SKU already exists
       const existingProduct = await db.query.products.findFirst({
@@ -1061,6 +1063,18 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
+      // Check if brand exists
+      const brand = await db.query.brands.findFirst({
+        where: eq(brands.id, brandId),
+      });
+
+      if (brandId && !brand) {
+        return res.status(400).json({
+          message: "Brand not found",
+          suggestion: "Please select a valid brand"
+        });
+      }
+
       const [newProduct] = await db
         .insert(products)
         .values({
@@ -1070,20 +1084,22 @@ export function registerRoutes(app: Express): Server {
           description,
           categoryId,
           minStock: minStock || 0,
+          brandId: brandId || null,
         })
         .returning();
 
-      // Fetch the complete product with category
-      const productWithCategory = await db.query.products.findFirst({
+      // Fetch the complete product with category and brand
+      const productWithCategoryAndBrand = await db.query.products.findFirst({
         where: eq(products.id, newProduct.id),
         with: {
           category: true,
+          brand: true,
         },
       });
 
       res.json({
         message: "Product created successfully",
-        product: productWithCategory,
+        product: productWithCategoryAndBrand,
       });
     } catch (error) {
       console.error('Error creating product:', error);
@@ -1098,9 +1114,9 @@ export function registerRoutes(app: Express): Server {
   app.put("/api/products/:id", requireRole(['admin']), async (req, res) => {
     try {
       const { id } = req.params;
-      const { name, description, sku, price, category, minStock } = req.body;
+      const { name, description, sku, price, categoryId, minStock, brandId } = req.body;
 
-      if (!name || !sku || !price || !category) {
+      if (!name || !sku || !price || !categoryId) {
         return res.status(400).send("Name, SKU, price, and category are required");
       }
 
@@ -1120,6 +1136,31 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).send("Another product with this SKU already exists");
       }
 
+      // Check if category exists
+      const category = await db.query.categories.findFirst({
+        where: eq(categories.id, categoryId),
+      });
+
+      if (!category) {
+        return res.status(400).json({
+          message: "Category not found",
+          suggestion: "Please select a valid category"
+        });
+      }
+
+      // Check if brand exists
+      const brand = await db.query.brands.findFirst({
+        where: eq(brands.id, brandId),
+      });
+
+      if (brandId && !brand) {
+        return res.status(400).json({
+          message: "Brand not found",
+          suggestion: "Please select a valid brand"
+        });
+      }
+
+
       const [updatedProduct] = await db
         .update(products)
         .set({
@@ -1127,8 +1168,9 @@ export function registerRoutes(app: Express): Server {
           description,
           sku,
           price,
-          category,
+          categoryId,
           minStock,
+          brandId: brandId || null,
           updatedAt: new Date(),
         })
         .where(eq(products.id, parseInt(id)))
@@ -1492,6 +1534,124 @@ export function registerRoutes(app: Express): Server {
         message: "Failed to fetch store performance metrics",
         suggestion: "Please try again later"
       });
+    }
+  });
+
+  // Brand Management endpoints
+  app.get("/api/brands", requireAuth, async (req, res) => {
+    try {
+      const allBrands = await db.query.brands.findMany({
+        orderBy: [desc(brands.updatedAt)],
+      });
+      res.json(allBrands);
+    } catch (error) {
+      console.error('Error fetching brands:', error);
+      res.status(500).send("Failed to fetch brands");
+    }
+  });
+
+  app.post("/api/brands", requireRole(['admin']), async (req, res) => {
+    try {
+      const { name, description } = req.body;
+
+      if (!name) {
+        return res.status(400).send("Brand name is required");
+      }
+
+      // Check if brand exists
+      const existingBrand = await db.query.brands.findFirst({
+        where: eq(brands.name, name),
+      });
+
+      if (existingBrand) {
+        return res.status(400).send("Brand name already exists");
+      }
+
+      const [newBrand] = await db
+        .insert(brands)
+        .values({
+          name,
+          description,
+        })
+        .returning();
+
+      res.json({
+        message: "Brand created successfully",
+        brand: newBrand,
+      });
+    } catch (error) {
+      console.error('Error creating brand:', error);
+      res.status(500).send("Failed to create brand");
+    }
+  });
+
+  app.put("/api/brands/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, description } = req.body;
+
+      if (!name) {
+        return res.status(400).send("Brand name is required");
+      }
+
+      // Check if brand exists
+      const existingBrand = await db.query.brands.findFirst({
+        where: and(
+          eq(brands.name, name),
+          sql`id != ${id}`
+        ),
+      });
+
+      if (existingBrand) {
+        return res.status(400).send("Brand name already exists");
+      }
+
+      const [updatedBrand] = await db
+        .update(brands)
+        .set({
+          name,
+          description,
+          updatedAt: new Date(),
+        })
+        .where(eq(brands.id, parseInt(id)))
+        .returning();
+
+      if (!updatedBrand) {
+        return res.status(404).send("Brand not found");
+      }
+
+      res.json({
+        message: "Brand updated successfully",
+        brand: updatedBrand,
+      });
+    } catch (error) {
+      console.error('Error updating brand:', error);
+      res.status(500).send("Failed to update brand");
+    }
+  });
+
+  app.delete("/api/brands/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if brand is used by any products
+      const productsWithBrand = await db.query.products.findMany({
+        where: eq(products.brandId, parseInt(id)),
+        limit: 1,
+      });
+
+      if (productsWithBrand.length > 0) {
+        return res.status(400).send("Cannot delete brand that is assigned to products");
+      }
+
+      await db
+        .delete(brands)
+        .where(eq(brands.id, parseInt(id)));
+
+      res.json({ message: "Brand deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting brand:', error);
+      res.status(500).send("Failed to delete brand");
     }
   });
 
