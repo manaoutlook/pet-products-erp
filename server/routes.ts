@@ -1240,106 +1240,122 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/inventory", requireRole(['admin']), async (req, res) => {
+  app.post("/api/inventory", requireAuth, async (req, res) => {
     try {
-      const { productId, storeId, quantity, location, inventoryType } = req.body;
+      const { productId, storeId, supplierId, quantity, location, inventoryType } = req.body;
 
       if (!productId || !quantity || !inventoryType) {
-        return res.status(400).send("Product ID, quantity, and inventory type are required");
+        return res.status(400).send("Product, quantity, and inventory type are required");
       }
 
-      // Get product SKU for barcode generation
+      // Verify product exists
       const product = await db.query.products.findFirst({
-        where: eq(products.id, productId),
+        where: eq(products.id, parseInt(productId)),
       });
 
       if (!product) {
         return res.status(404).send("Product not found");
       }
 
-      // Generate unique barcode
-      const barcode = generateInventoryBarcode(inventoryType as 'DC' | 'STORE', product.sku, storeId);
+      // Generate barcode
+      const barcode = generateInventoryBarcode(
+        inventoryType as 'DC' | 'STORE',
+        product.sku,
+        storeId ? parseInt(storeId) : null
+      );
 
-      // Set centerId to DC001 if it's a Distribution Center item
-      const centerId = inventoryType === 'DC' ? 'DC001' : null;
-
-      const [newInventoryItem] = await db
+      // Create inventory item with supplier
+      const [newInventory] = await db
         .insert(inventory)
         .values({
-          productId,
-          storeId: inventoryType === 'STORE' ? storeId : null,
-          quantity,
+          productId: parseInt(productId),
+          storeId: storeId ? parseInt(storeId) : null,
+          supplierId: supplierId ? parseInt(supplierId) : null,
+          quantity: parseInt(quantity),
           location,
           inventoryType,
-          centerId,
           barcode,
         })
         .returning();
 
-      // Fetch the complete inventory item with related data
-      const inventoryWithDetails = await db.query.inventory.findFirst({
-        where: eq(inventory.id, newInventoryItem.id),
+      // Fetch complete inventory item with relations
+      const inventoryWithRelations = await db.query.inventory.findFirst({
+        where: eq(inventory.id, newInventory.id),
         with: {
           product: true,
           store: true,
+          supplier: true,
         },
       });
 
       res.json({
         message: "Inventory item created successfully",
-        inventory: inventoryWithDetails,
+        inventory: inventoryWithRelations,
       });
     } catch (error) {
-      console.error('Error creating inventory item:', error);
+      console.error('Error creating inventory:', error);
       res.status(500).send("Failed to create inventory item");
     }
   });
 
-  app.put("/api/inventory/:id", requireRole(['admin']), async (req, res) => {
+  app.put("/api/inventory/:id", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
-      const { productId, storeId, quantity, location, inventoryType } = req.body;
+      const { productId, storeId, supplierId, quantity, location, inventoryType } = req.body;
 
       if (!productId || !quantity || !inventoryType) {
-        return res.status(400).send("Product ID, quantity, and inventory type are required");
+        return res.status(400).send("Product, quantity, and inventory type are required");
       }
 
-      // Set centerId based on inventoryType
-      const centerId = inventoryType === 'DC' ? 'DC001' : null;
+      // Verify inventory item exists
+      const existingInventory = await db.query.inventory.findFirst({
+        where: eq(inventory.id, parseInt(id)),
+      });
 
+      if (!existingInventory) {
+        return res.status(404).send("Inventory item not found");
+      }
+
+      // Verify product exists
+      const product = await db.query.products.findFirst({
+        where: eq(products.id, parseInt(productId)),
+      });
+
+      if (!product) {
+        return res.status(404).send("Product not found");
+      }
+
+      // Update inventory item with supplier
       const [updatedInventory] = await db
         .update(inventory)
         .set({
-          productId,
-          storeId: inventoryType === 'STORE' ? storeId : null,
-          quantity,
+          productId: parseInt(productId),
+          storeId: storeId ? parseInt(storeId) : null,
+          supplierId: supplierId ? parseInt(supplierId) : null,
+          quantity: parseInt(quantity),
           location,
           inventoryType,
-          centerId,
           updatedAt: new Date(),
         })
         .where(eq(inventory.id, parseInt(id)))
         .returning();
 
-      if (!updatedInventory) {
-        return res.status(404).send("Inventory item not found");
-      }
-
-      // Fetch the complete inventory item with related data
-      const inventoryWithDetails = await db.query.inventory.findFirst({
+      // Fetch complete inventory item with relations
+      const inventoryWithRelations = await db.query.inventory.findFirst({
         where: eq(inventory.id, updatedInventory.id),
         with: {
           product: true,
           store: true,
+          supplier: true,
         },
       });
 
       res.json({
         message: "Inventory item updated successfully",
-        inventory: inventoryWithDetails,
+        inventory: inventoryWithRelations,
       });
     } catch (error) {
-      console.error('Error updating inventory item:', error);
+      console.error('Error updating inventory:', error);
       res.status(500).send("Failed to update inventory item");
     }
   });
