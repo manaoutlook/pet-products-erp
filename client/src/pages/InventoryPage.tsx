@@ -49,6 +49,7 @@ import { usePermissions } from "@/hooks/use-permissions";
 const inventorySchema = z.object({
   productId: z.string().min(1, "Product is required"),
   storeId: z.string().optional(),
+  supplierId: z.string().optional(),
   quantity: z.string().min(1, "Quantity is required"),
   location: z.string().optional(),
   inventoryType: z.enum(["DC", "STORE"], { required_error: "Inventory type is required" }),
@@ -68,10 +69,18 @@ interface Store {
   name: string;
 }
 
+interface Supplier {
+  id: number;
+  name: string;
+  contactInfo: string;
+  address: string;
+}
+
 interface InventoryItem {
   id: number;
   productId: number;
   storeId: number | null;
+  supplierId: number | null;
   quantity: number;
   location: string | null;
   inventoryType: 'DC' | 'STORE';
@@ -79,6 +88,7 @@ interface InventoryItem {
   barcode: string;
   product: Product;
   store: Store | null;
+  supplier: Supplier | null;
 }
 
 function InventoryPage() {
@@ -97,6 +107,7 @@ function InventoryPage() {
     defaultValues: {
       productId: '',
       storeId: '',
+      supplierId: '',
       quantity: '',
       location: '',
       inventoryType: 'STORE',
@@ -115,6 +126,10 @@ function InventoryPage() {
     queryKey: ['/api/stores'],
   });
 
+  const { data: suppliers } = useQuery<Supplier[]>({
+    queryKey: ['/api/suppliers'],
+  });
+
   const createInventoryMutation = useMutation({
     mutationFn: async (data: InventoryFormValues) => {
       if (!canCreate) {
@@ -127,6 +142,7 @@ function InventoryPage() {
           ...data,
           productId: parseInt(data.productId),
           storeId: data.storeId ? parseInt(data.storeId) : null,
+          supplierId: data.supplierId ? parseInt(data.supplierId) : null,
           quantity: parseInt(data.quantity),
         }),
         credentials: 'include',
@@ -161,6 +177,7 @@ function InventoryPage() {
           ...data,
           productId: parseInt(data.productId),
           storeId: data.storeId ? parseInt(data.storeId) : null,
+          supplierId: data.supplierId ? parseInt(data.supplierId) : null,
           quantity: parseInt(data.quantity),
         }),
         credentials: 'include',
@@ -244,6 +261,7 @@ function InventoryPage() {
     form.reset({
       productId: item.productId.toString(),
       storeId: item.storeId?.toString() || '',
+      supplierId: item.supplierId?.toString() || '',
       quantity: item.quantity.toString(),
       location: item.location || '',
       inventoryType: item.inventoryType,
@@ -269,7 +287,8 @@ function InventoryPage() {
     item.product.name.toLowerCase().includes(search.toLowerCase()) ||
     item.product.sku.toLowerCase().includes(search.toLowerCase()) ||
     item.location?.toLowerCase().includes(search.toLowerCase()) ||
-    item.store?.name.toLowerCase().includes(search.toLowerCase())
+    item.store?.name.toLowerCase().includes(search.toLowerCase()) ||
+    item.supplier?.name.toLowerCase().includes(search.toLowerCase())
   );
 
   const isPending = createInventoryMutation.isPending || updateInventoryMutation.isPending;
@@ -388,6 +407,35 @@ function InventoryPage() {
 
                   <FormField
                     control={form.control}
+                    name="supplierId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Supplier</FormLabel>
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                          defaultValue={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select a supplier" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {suppliers?.map((supplier) => (
+                              <SelectItem key={supplier.id} value={supplier.id.toString()}>
+                                {supplier.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
                     name="quantity"
                     render={({ field }) => (
                       <FormItem>
@@ -459,6 +507,7 @@ function InventoryPage() {
                   <TableHead>Product</TableHead>
                   <TableHead>Location</TableHead>
                   <TableHead>Store</TableHead>
+                  <TableHead>Supplier</TableHead>
                   <TableHead>Quantity</TableHead>
                   <TableHead>Status</TableHead>
                   {(canUpdate || canDelete) && <TableHead>Actions</TableHead>}
@@ -472,6 +521,7 @@ function InventoryPage() {
                     <TableCell>{item.product.name}</TableCell>
                     <TableCell>{item.location || '-'}</TableCell>
                     <TableCell>{item.store?.name || (item.inventoryType === 'DC' ? 'DC001' : '-')}</TableCell>
+                    <TableCell>{item.supplier?.name || '-'}</TableCell>
                     <TableCell>{item.quantity}</TableCell>
                     <TableCell>
                       <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
