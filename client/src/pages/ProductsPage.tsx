@@ -38,6 +38,7 @@ import { Loader2, Search, Plus, Pencil, Trash2, AlertCircle } from "lucide-react
 import { z } from "zod";
 import { validatePrice, formatPrice, normalizePrice } from "@/utils/price";
 import { usePermissions } from "@/hooks/use-permissions";
+import BrandQuickAddModal from "@/components/QuickAdd/BrandQuickAddModal";
 import {
   Select,
   SelectContent,
@@ -46,7 +47,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-// Update the product schema to use categoryId
+// Update the product schema to include brandId
 const productSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
@@ -59,10 +60,17 @@ const productSchema = z.object({
       (val) => ({ message: validatePrice(val).error || "Invalid price" })
     ),
   categoryId: z.number().min(1, "Category is required"),
+  brandId: z.number().optional(),
   minStock: z.number().int().min(0, "Minimum stock must be positive"),
 });
 
 type ProductFormData = z.infer<typeof productSchema>;
+
+interface Brand {
+  id: number;
+  name: string;
+  description: string | null;
+}
 
 // Update Product interface to include category
 interface Product {
@@ -80,6 +88,11 @@ interface Product {
   inventory: {
     quantity: number;
   }[];
+  brandId?: number; // Add brandId to Product interface
+  brand?: {
+    id: number;
+    name: string;
+  }; // Add brand to Product interface
 }
 
 interface Category {
@@ -159,6 +172,12 @@ function ProductsPage() {
     enabled: hasPermission('products', 'read'),
   });
 
+  // Add brands query
+  const { data: brands } = useQuery<Brand[]>({
+    queryKey: ['/api/brands'],
+    enabled: hasPermission('products', 'read'),
+  });
+
   const form = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
     defaultValues: {
@@ -167,6 +186,7 @@ function ProductsPage() {
       sku: "",
       price: 0,
       categoryId: 0,
+      brandId: undefined, //Added default value for brandId
       minStock: 10,
     },
   });
@@ -333,6 +353,54 @@ function ProductsPage() {
                       </FormItem>
                     )}
                   />
+                  {/* Add Brand field after category field */}
+                  <FormField
+                    control={form.control}
+                    name="brandId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Brand</FormLabel>
+                        <div className="flex gap-2">
+                          <Select
+                            value={field.value?.toString()}
+                            onValueChange={(value) => field.onChange(parseInt(value))}
+                          >
+                            <FormControl>
+                              <SelectTrigger className="flex-1">
+                                <SelectValue placeholder="Select a brand" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {brands?.map((brand) => (
+                                <SelectItem
+                                  key={brand.id}
+                                  value={brand.id.toString()}
+                                >
+                                  {brand.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <BrandQuickAddModal
+                            onSuccess={(brand) => {
+                              // Set the newly created brand as the selected brand
+                              field.onChange(brand.id);
+                            }}
+                            trigger={
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                              >
+                                <Plus className="h-4 w-4" />
+                              </Button>
+                            }
+                          />
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                   <FormField
                     control={form.control}
                     name="minStock"
@@ -439,6 +507,7 @@ function ProductsPage() {
                                       sku: product.sku,
                                       price: Number(product.price),
                                       categoryId: product.categoryId,
+                                      brandId: product.brandId, //Added brandId to reset
                                       minStock: product.minStock,
                                     });
                                   }}
@@ -535,6 +604,53 @@ function ProductsPage() {
                                               ))}
                                             </SelectContent>
                                           </Select>
+                                          <FormMessage />
+                                        </FormItem>
+                                      )}
+                                    />
+                                    <FormField
+                                      control={form.control}
+                                      name="brandId"
+                                      render={({ field }) => (
+                                        <FormItem>
+                                          <FormLabel>Brand</FormLabel>
+                                          <div className="flex gap-2">
+                                            <Select
+                                              value={field.value?.toString()}
+                                              onValueChange={(value) => field.onChange(parseInt(value))}
+                                            >
+                                              <FormControl>
+                                                <SelectTrigger className="flex-1">
+                                                  <SelectValue placeholder="Select a brand" />
+                                                </SelectTrigger>
+                                              </FormControl>
+                                              <SelectContent>
+                                                {brands?.map((brand) => (
+                                                  <SelectItem
+                                                    key={brand.id}
+                                                    value={brand.id.toString()}
+                                                  >
+                                                    {brand.name}
+                                                  </SelectItem>
+                                                ))}
+                                              </SelectContent>
+                                            </Select>
+                                            <BrandQuickAddModal
+                                              onSuccess={(brand) => {
+                                                // Set the newly created brand as the selected brand
+                                                field.onChange(brand.id);
+                                              }}
+                                              trigger={
+                                                <Button
+                                                  type="button"
+                                                  variant="outline"
+                                                  size="icon"
+                                                >
+                                                  <Plus className="h-4 w-4" />
+                                                </Button>
+                                              }
+                                            />
+                                          </div>
                                           <FormMessage />
                                         </FormItem>
                                       )}
