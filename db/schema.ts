@@ -1,7 +1,8 @@
-import { pgTable, text, serial, integer, boolean, timestamp, decimal, jsonb, date, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, date, varchar, decimal } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
+import { jsonb } from "drizzle-orm/pg-core";
 
 // Role Types table
 export const roleTypes = pgTable("role_types", {
@@ -122,6 +123,7 @@ export const orders = pgTable("orders", {
   status: text("status").notNull().default('pending'),
   storeId: integer("store_id").references(() => stores.id),
   total: decimal("total", { precision: 15, scale: 2 }).notNull(), // VND amount
+  customerProfileId: integer("customer_profile_id").references(() => customerProfiles.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -158,6 +160,20 @@ export const purchaseOrderItems = pgTable("purchase_order_items", {
   unitPrice: decimal("unit_price", { precision: 15, scale: 2 }).notNull(), // VND amount
   totalPrice: decimal("total_price", { precision: 15, scale: 2 }).notNull(), // VND amount
   deliveredQuantity: integer("delivered_quantity").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Customer Profiles table
+export const customerProfiles = pgTable("customer_profiles", {
+  id: serial("id").primaryKey(),
+  phoneNumber: varchar("phone_number", { length: 20 }).notNull().unique(),
+  name: text("name").notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
+  address: text("address").notNull(),
+  photo: text("photo"),
+  petBirthday: date("pet_birthday"),
+  petType: varchar("pet_type", { length: 10 }).notNull(), // 'CAT' or 'DOG'
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -248,6 +264,10 @@ export const ordersRelations = relations(orders, ({ many, one }) => ({
     fields: [orders.storeId],
     references: [stores.id],
   }),
+  customerProfile: one(customerProfiles, {
+    fields: [orders.customerProfileId],
+    references: [customerProfiles.id],
+  }),
 }));
 
 export const orderItemsRelations = relations(orderItems, ({ one }) => ({
@@ -278,6 +298,11 @@ export const purchaseOrderItemsRelations = relations(purchaseOrderItems, ({ one 
     fields: [purchaseOrderItems.productId],
     references: [products.id],
   }),
+}));
+
+// Add relations for customer profiles
+export const customerProfilesRelations = relations(customerProfiles, ({ many }) => ({
+  orders: many(orders),
 }));
 
 // Export schemas
@@ -332,3 +357,9 @@ export const insertPurchaseOrderItemSchema = createInsertSchema(purchaseOrderIte
 export const selectPurchaseOrderItemSchema = createSelectSchema(purchaseOrderItems);
 export type InsertPurchaseOrderItem = typeof purchaseOrderItems.$inferInsert;
 export type SelectPurchaseOrderItem = typeof purchaseOrderItems.$inferSelect;
+
+// Add customer profile schemas
+export const insertCustomerProfileSchema = createInsertSchema(customerProfiles);
+export const selectCustomerProfileSchema = createSelectSchema(customerProfiles);
+export type InsertCustomerProfile = typeof customerProfiles.$inferInsert;
+export type SelectCustomerProfile = typeof customerProfiles.$inferSelect;

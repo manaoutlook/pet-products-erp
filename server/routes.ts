@@ -6,7 +6,7 @@ import {
   products, inventory, orders, orderItems, users,
   roles, roleTypes, stores, userStoreAssignments,
   categories, brands, suppliers, purchaseOrders,
-  purchaseOrderItems
+  purchaseOrderItems, customerProfiles
 } from "@db/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
@@ -312,7 +312,75 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Role Types endpoints - admin only
+  app.get("/api/customer-profiles", requireAuth, async (req, res) => {
+    try {
+      const allCustomerProfiles = await db.query.customerProfiles.findMany({
+        orderBy: [desc(customerProfiles.updatedAt)],
+      });
+      res.json(allCustomerProfiles);
+    } catch (error) {
+      console.error('Error fetching customer profiles:', error);
+      res.status(500).json({
+        message: "Failed to fetch customer profiles",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.post("/api/customer-profiles", requireAuth, async (req, res) => {
+    try {
+      const result = insertCustomerProfileSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({
+          message: "Invalid input",
+          errors: result.error.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message
+          }))
+        });
+      }
+
+      const { phoneNumber, name, email, address, photo, petBirthday, petType } = result.data;
+
+      // Check if customer profile exists
+      const existingProfile = await db.query.customerProfiles.findFirst({
+        where: eq(customerProfiles.phoneNumber, phoneNumber),
+      });
+
+      if (existingProfile) {
+        return res.status(400).json({
+          message: "Customer profile with this phone number already exists",
+          suggestion: "Please use a different phone number"
+        });
+      }
+
+      const [newCustomerProfile] = await db
+        .insert(customerProfiles)
+        .values({
+          phoneNumber,
+          name,
+          email,
+          address,
+          photo: photo || null,
+          petBirthday: petBirthday ? new Date(petBirthday) : null,
+          petType,
+        })
+        .returning();
+
+      res.json({
+        message: "Customer profile created successfully",
+        customerProfile: newCustomerProfile,
+      });
+    } catch (error) {
+      console.error('Error creating customer profile:', error);
+      res.status(500).json({
+        message: "Failed to create customer profile",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+
   app.get("/api/role-types", async (req, res) => {
     try {
       const roleTypes = await db.query.roleTypes.findMany();
@@ -1242,7 +1310,7 @@ export function registerRoutes(app: Express): Server {
 
   //// Orders trend for chart - admin only
   app.get("/api/stats/orders-trend", requireRole(['admin']), async (req, res) => {
-        const trend = await db
+    const trend = await db
       .select({
         date: sql<string>`date_trunc('day', created_at)::date`,
         orders: sql<number>`count(*)`,

@@ -17,6 +17,7 @@ import StoreAssignmentPage from "./pages/StoreAssignmentPage";
 import StorePerformancePage from "./pages/StorePerformancePage";
 import SuppliersPage from "./pages/SuppliersPage";
 import PurchaseOrdersPage from "./pages/PurchaseOrdersPage";
+import CustomerProfilesPage from "./pages/CustomerProfilesPage";
 import MainLayout from "./components/Layout/MainLayout";
 
 function App() {
@@ -43,6 +44,7 @@ function App() {
         <Route path="/products" component={ProductsPage} />
         <Route path="/categories" component={CategoryPage} />
         <Route path="/brands" component={BrandsPage} />
+        <Route path="/customers" component={CustomerProfilesPage} />
         <Route path="/users" component={UsersPage} />
         <Route path="/roles" component={RolesPage} />
         <Route path="/role-permissions" component={RolePermissionsPage} />
