@@ -18,7 +18,7 @@ import {
   Network,
   Folders,
   Tags,
-  Building2
+  Building2 // Add Building2 icon for Suppliers
 } from "lucide-react";
 
 interface NavItem {
@@ -37,17 +37,6 @@ function Sidebar() {
   const { hasPermission, isAdmin } = usePermissions();
   const isSystemAdmin = user?.role?.roleType?.description === 'System Administrator';
 
-  console.log('User permissions:', {
-    user,
-    isAdmin,
-    isSystemAdmin,
-    hasInventoryRead: hasPermission('inventory', 'read'),
-    hasProductsRead: hasPermission('products', 'read'),
-    hasOrdersRead: hasPermission('orders', 'read'),
-    hasUsersRead: hasPermission('users', 'read'),
-    hasStoresRead: hasPermission('stores', 'read')
-  });
-
   const navigationItems: NavItem[] = [
     { 
       name: "Dashboard", 
@@ -57,6 +46,8 @@ function Sidebar() {
     {
       name: "Master Data",
       icon: Settings,
+      module: 'products',
+      action: 'read',
       children: [
         {
           name: "Categories",
@@ -83,10 +74,18 @@ function Sidebar() {
     },
     { 
       name: "Products", 
-      href: "/products", 
       icon: Package,
       module: 'products',
-      action: 'read'
+      action: 'read',
+      children: [
+        {
+          name: "Product List",
+          href: "/products",
+          icon: Package,
+          module: 'products',
+          action: 'read'
+        }
+      ]
     },
     { 
       name: "Orders", 
@@ -105,6 +104,8 @@ function Sidebar() {
     { 
       name: "Stores", 
       icon: Store,
+      module: 'stores',
+      action: 'read',
       children: [
         { 
           name: "Store List", 
@@ -125,6 +126,8 @@ function Sidebar() {
     {
       name: "User Management",
       icon: UserCog,
+      module: 'users',
+      action: 'read',
       children: [
         { 
           name: "Users", 
@@ -140,7 +143,7 @@ function Sidebar() {
           adminOnly: true
         },
         { 
-          name: "Role Permissions", 
+          name: "Permissions", 
           href: "/role-permissions", 
           icon: Lock,
           adminOnly: true
@@ -162,55 +165,39 @@ function Sidebar() {
   ];
 
   const hasAccess = (item: NavItem): boolean => {
-    // For debugging
-    console.log('Checking access for:', item.name, {
-      isSystemAdmin,
-      isAdmin,
-      hasModule: item.module ? hasPermission(item.module, item.action || 'read') : true,
-      adminOnly: item.adminOnly
-    });
-
-    // System admins have access to everything
     if (isSystemAdmin) {
       return true;
     }
 
-    // Admin-only items are accessible only to admins
     if (item.adminOnly) {
       return isAdmin;
     }
 
-    // If the item has module and action requirements, check permissions
     if (item.module && item.action) {
       return hasPermission(item.module, item.action);
     }
 
-    // For items with children, check if at least one child is accessible
     if (item.children) {
       return item.children.some(child => hasAccess(child));
     }
 
-    // Items without specific requirements are accessible
     return true;
   };
 
   const renderNavItem = (item: NavItem) => {
-    // For debugging
-    console.log('Rendering nav item:', item.name, 'Access:', hasAccess(item));
-
     if (!hasAccess(item)) {
       return null;
     }
 
     if (item.children) {
       const accessibleChildren = item.children.filter(child => hasAccess(child));
-      if (accessibleChildren.length === 0) {
-        return null;
-      }
+      if (accessibleChildren.length === 0) return null;
 
       return (
         <div key={item.name} className="space-y-1">
-          <div className="flex items-center px-2 py-2 text-sm font-medium rounded-md text-sidebar-foreground">
+          <div className={cn(
+            "flex items-center px-2 py-2 text-sm font-medium rounded-md text-sidebar-foreground",
+          )}>
             <item.icon className="mr-3 h-5 w-5" />
             {item.name}
           </div>
@@ -221,9 +208,7 @@ function Sidebar() {
       );
     }
 
-    if (!item.href) {
-      return null;
-    }
+    if (!item.href) return null;
 
     return (
       <Link key={item.name} href={item.href}>
