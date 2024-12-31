@@ -312,6 +312,39 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  app.get("/api/purchase-orders/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const purchaseOrder = await db.query.purchaseOrders.findFirst({
+        where: eq(purchaseOrders.id, parseInt(id)),
+        with: {
+          supplier: true,
+          items: {
+            with: {
+              product: true
+            }
+          }
+        }
+      });
+
+      if (!purchaseOrder) {
+        return res.status(404).json({
+          message: "Purchase order not found",
+          suggestion: "Please verify the purchase order ID"
+        });
+      }
+
+      res.json(purchaseOrder);
+    } catch (error) {
+      console.error('Error fetching purchase order:', error);
+      res.status(500).json({
+        message: "Failed to fetch purchase order",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
   app.get("/api/customer-profiles", requireAuth, async (req, res) => {
     try {
       const allCustomerProfiles = await db.query.customerProfiles.findMany({
@@ -375,6 +408,95 @@ export function registerRoutes(app: Express): Server {
       console.error('Error creating customer profile:', error);
       res.status(500).json({
         message: "Failed to create customer profile",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.put("/api/customer-profiles/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const result = insertCustomerProfileSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({
+          message: "Invalid input",
+          errors: result.error.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message
+          }))
+        });
+      }
+
+      const { phoneNumber, name, email, address, photo, petBirthday, petType } = result.data;
+
+      // Check if phone number is already used by another profile
+      const existingProfile = await db.query.customerProfiles.findFirst({
+        where: and(
+          eq(customerProfiles.phoneNumber, phoneNumber),
+          sql`id != ${id}`
+        ),
+      });
+
+      if (existingProfile) {
+        return res.status(400).json({
+          message: "Phone number already exists",
+          suggestion: "Please use a different phone number"
+        });
+      }
+
+      const [updatedProfile] = await db
+        .update(customerProfiles)
+        .set({
+          phoneNumber,
+          name,
+          email,
+          address,
+          photo: photo || null,
+          petBirthday: petBirthday ? new Date(petBirthday) : null,
+          petType,
+          updatedAt: new Date()
+        })
+        .where(eq(customerProfiles.id, parseInt(id)))
+        .returning();
+
+      res.json({
+        message: "Customer profile updated successfully",
+        customerProfile: updatedProfile,
+      });
+    } catch (error) {
+      console.error('Error updating customer profile:', error);
+      res.status(500).json({
+        message: "Failed to update customer profile",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.delete("/api/customer-profiles/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if customer profile exists
+      const profile = await db.query.customerProfiles.findFirst({
+        where: eq(customerProfiles.id, parseInt(id)),
+      });
+
+      if (!profile) {
+        return res.status(404).json({
+          message: "Customer profile not found",
+          suggestion: "Please verify the profile ID"
+        });
+      }
+
+      await db
+        .delete(customerProfiles)
+        .where(eq(customerProfiles.id, parseInt(id)));
+
+      res.json({ message: "Customer profile deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting customer profile:', error);
+      res.status(500).json({
+        message: "Failed to delete customer profile",
         suggestion: "Please try again later"
       });
     }
