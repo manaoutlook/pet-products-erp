@@ -9,7 +9,7 @@
    - [Master Data Management](#master-data-management)
    - [Products Management](#products-management)
    - [Inventory Management](#inventory-management)
-   - [Order Processing (Sales Orders)](#order-processing-sales-orders)
+   - [Purchase Order Management](#purchase-order-management)
    - [Store Operations](#store-operations)
    - [User Management](#user-management)
 5. [Common Operations](#common-operations)
@@ -19,7 +19,7 @@
 
 The Pet Products Distribution ERP system is a comprehensive enterprise resource planning solution specialized for pet product distribution businesses. It provides integrated management of:
 - Product inventory across multiple locations
-- Order processing (both customer sales orders and supplier purchase orders)
+- Purchase order management with suppliers
 - Store operations and performance monitoring
 - User access control and permissions
 - Master data management
@@ -31,7 +31,7 @@ The Pet Products Distribution ERP system is a comprehensive enterprise resource 
 - Store performance analytics (all metrics displayed in VND)
 - Comprehensive product management
 - Secure authentication system
-- Dual order management (Sales & Purchase)
+- Purchase order management
 - VND-based pricing and transactions
 
 ## Getting Started
@@ -88,7 +88,7 @@ The system uses a hierarchical navigation structure located in the left sidebar,
    - Product List
    - Product Management (prices in VND)
 4. **Orders**
-   - Sales Order Processing (store orders)
+   - Purchase Order Management (supplier orders)
    - Order History
    - Performance Tracking
 5. **Inventory**
@@ -211,7 +211,6 @@ The dashboard provides an overview of:
    - Set quantities based on:
      * Current stock levels
      * Minimum stock requirements
-     * Outstanding customer orders
    - Specify delivery location
    - Enter pricing in VND
    - Add any supplier-specific notes
@@ -229,49 +228,62 @@ The dashboard provides an overview of:
    - Handle supplier communications
    - Update inventory values in VND
 
-### Order Processing (Sales Orders)
+### Purchase Order Management
 
-#### Creating New Sales Orders
-1. Initial Setup
-   - Select customer/store placing the order
-   - Choose order type (regular/urgent)
-   - Set delivery preferences
-   - Input store reference number if applicable
+The Purchase Order Management module helps you efficiently manage your purchase orders and track order quantities with suppliers.
 
-2. Adding Products
+#### Key Fields in Purchase Orders
+- **Purchase Order ID**: A unique identifier for each purchase order
+- **Supplier Name**: The name of the supplier from whom you are ordering products
+- **Product ID**: A unique identifier for each product being ordered
+- **Product Name**: The name of the product being ordered
+- **Quantity Ordered**: The number of units ordered for each product
+- **Order Date**: The date when the order was placed
+- **Delivery Date**: The expected date for the order to be delivered
+- **Status**: Current status of the order (e.g., "Pending", "Confirmed", "Delivered")
+- **Amount**: All amounts are in VND
+
+#### Creating Purchase Orders
+1. Navigate to Purchase Orders section
+2. Click "Create New Purchase Order"
+3. Select supplier from the master data
+4. Add products:
    - Search and select products
    - Specify quantities
-   - Apply any authorized discounts
-   - System automatically checks stock availability
-   - Prices are displayed in VND
-   - View total order value in VND
+   - System automatically shows prices in VND
+5. Set delivery date
+6. Review and submit order
 
-3. Order Review
-   - Verify product details and quantities
-   - Confirm pricing in VND
-   - Add special instructions if needed
-   - Submit order for processing
+#### Managing Purchase Orders
+1. View Orders
+   - List of all purchase orders
+   - Filter by status, date, or supplier
+   - Sort by various fields
 
-#### Order Fulfillment
-1. Picking Process
-   - Generate pick lists for warehouse staff
-   - Assign to warehouse personnel
-   - Record picked quantities
-   - Handle any stock discrepancies
+2. Track Status
+   - Monitor order progress
+   - Update order status
+   - View order history
 
-2. Packing
-   - Verify picked items against order
-   - Pack products according to guidelines
-   - Generate packing slip
-   - Record package details and weights
+3. Receive Orders
+   - Record deliveries
+   - Partial deliveries allowed
+   - System automatically updates inventory when status changes to "Delivered"
 
-3. Shipping
-   - Choose shipping method
-   - Generate shipping labels
-   - Update tracking information
-   - Send notifications to receiving store
+4. Reports
+   - Purchase order summary
+   - Supplier performance
+   - Order status reports
+   - All financial reports in VND
 
-### Store Management
+#### Important Notes
+- Once an order status is changed to "Delivered", the inventory quantity will automatically update in the Inventory module
+- All monetary values are displayed and calculated in VND
+- The system maintains a complete audit trail of all purchase order activities
+- Notifications are sent for important status changes
+
+
+### Store Operations
 
 #### Store Setup and Configuration
 1. Basic Information
@@ -295,7 +307,6 @@ The dashboard provides an overview of:
    - Daily sales (in VND)
    - Inventory turnover
    - Order fulfillment rate
-   - Customer satisfaction (measured in VND)
 
 2. Reports
    - Sales analysis (in VND)
@@ -332,7 +343,7 @@ The dashboard provides an overview of:
 3. Permission Areas
    - Products management
    - Inventory control
-   - Order processing
+   - Purchase order processing
    - User administration
    - Store operations
 
@@ -346,7 +357,7 @@ The dashboard provides an overview of:
 2. Access Control
    - Store-specific permissions
    - Inventory access levels
-   - Order management rights
+   - Purchase order management rights
    - Report access
 
 ## Common Operations

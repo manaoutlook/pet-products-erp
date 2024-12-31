@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, decimal, jsonb, date } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, decimal, jsonb, date, varchar } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -9,13 +9,20 @@ export const roleTypes = pgTable("role_types", {
   description: text("description").notNull(),
 });
 
+type Permissions = {
+  products: { create: boolean; read: boolean; update: boolean; delete: boolean };
+  orders: { create: boolean; read: boolean; update: boolean; delete: boolean };
+  inventory: { create: boolean; read: boolean; update: boolean; delete: boolean };
+  users: { create: boolean; read: boolean; update: boolean; delete: boolean };
+};
+
 // Roles table with proper JSONB handling
 export const roles = pgTable("roles", {
   id: serial("id").primaryKey(),
   name: text("name").unique().notNull(),
   description: text("description"),
   roleTypeId: integer("role_type_id").references(() => roleTypes.id).notNull(),
-  permissions: jsonb("permissions").notNull(),
+  permissions: jsonb("permissions").$type<Permissions>().notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -83,7 +90,7 @@ export const products = pgTable("products", {
   name: text("name").notNull(),
   description: text("description"),
   sku: text("sku").unique().notNull(),
-  price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  price: decimal("price", { precision: 15, scale: 2 }).notNull(), // VND amount
   categoryId: integer("category_id").references(() => categories.id).notNull(),
   brandId: integer("brand_id").references(() => brands.id),
   minStock: integer("min_stock").notNull().default(10),
@@ -114,7 +121,7 @@ export const orders = pgTable("orders", {
   customerEmail: text("customer_email").notNull(),
   status: text("status").notNull().default('pending'),
   storeId: integer("store_id").references(() => stores.id),
-  total: decimal("total", { precision: 10, scale: 2 }).notNull(),
+  total: decimal("total", { precision: 15, scale: 2 }).notNull(), // VND amount
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -125,7 +132,34 @@ export const orderItems = pgTable("order_items", {
   orderId: integer("order_id").references(() => orders.id),
   productId: integer("product_id").references(() => products.id),
   quantity: integer("quantity").notNull(),
-  price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  price: decimal("price", { precision: 15, scale: 2 }).notNull(), // VND amount
+});
+
+// Purchase Orders table
+export const purchaseOrders = pgTable("purchase_orders", {
+  id: serial("id").primaryKey(),
+  orderNumber: varchar("order_number", { length: 50 }).notNull().unique(),
+  supplierId: integer("supplier_id").references(() => suppliers.id).notNull(),
+  orderDate: timestamp("order_date").notNull().defaultNow(),
+  deliveryDate: timestamp("delivery_date"),
+  status: varchar("status", { length: 20 }).notNull().default('pending'),
+  totalAmount: decimal("total_amount", { precision: 15, scale: 2 }).notNull(), // VND amount
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Purchase Order Items table
+export const purchaseOrderItems = pgTable("purchase_order_items", {
+  id: serial("id").primaryKey(),
+  purchaseOrderId: integer("purchase_order_id").references(() => purchaseOrders.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  quantity: integer("quantity").notNull(),
+  unitPrice: decimal("unit_price", { precision: 15, scale: 2 }).notNull(), // VND amount
+  totalPrice: decimal("total_price", { precision: 15, scale: 2 }).notNull(), // VND amount
+  deliveredQuantity: integer("delivered_quantity").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 // Define relationships
@@ -135,6 +169,7 @@ export const brandsRelations = relations(brands, ({ many }) => ({
 
 export const suppliersRelations = relations(suppliers, ({ many }) => ({
   inventory: many(inventory),
+  purchaseOrders: many(purchaseOrders),
 }));
 
 export const categoriesRelations = relations(categories, ({ many }) => ({
@@ -152,6 +187,7 @@ export const productsRelations = relations(products, ({ one, many }) => ({
   }),
   inventory: many(inventory),
   orderItems: many(orderItems),
+  purchaseOrderItems: many(purchaseOrderItems)
 }));
 
 export const roleTypesRelations = relations(roleTypes, ({ many }) => ({
@@ -225,6 +261,25 @@ export const orderItemsRelations = relations(orderItems, ({ one }) => ({
   }),
 }));
 
+export const purchaseOrdersRelations = relations(purchaseOrders, ({ many, one }) => ({
+  items: many(purchaseOrderItems),
+  supplier: one(suppliers, {
+    fields: [purchaseOrders.supplierId],
+    references: [suppliers.id],
+  }),
+}));
+
+export const purchaseOrderItemsRelations = relations(purchaseOrderItems, ({ one }) => ({
+  purchaseOrder: one(purchaseOrders, {
+    fields: [purchaseOrderItems.purchaseOrderId],
+    references: [purchaseOrders.id],
+  }),
+  product: one(products, {
+    fields: [purchaseOrderItems.productId],
+    references: [products.id],
+  }),
+}));
+
 // Export schemas
 export const insertBrandSchema = createInsertSchema(brands);
 export const selectBrandSchema = createSelectSchema(brands);
@@ -267,3 +322,13 @@ export type SelectUserStoreAssignment = typeof userStoreAssignments.$inferSelect
   user?: SelectUser | null;
   store?: SelectStore | null;
 };
+
+export const insertPurchaseOrderSchema = createInsertSchema(purchaseOrders);
+export const selectPurchaseOrderSchema = createSelectSchema(purchaseOrders);
+export type InsertPurchaseOrder = typeof purchaseOrders.$inferInsert;
+export type SelectPurchaseOrder = typeof purchaseOrders.$inferSelect;
+
+export const insertPurchaseOrderItemSchema = createInsertSchema(purchaseOrderItems);
+export const selectPurchaseOrderItemSchema = createSelectSchema(purchaseOrderItems);
+export type InsertPurchaseOrderItem = typeof purchaseOrderItems.$inferInsert;
+export type SelectPurchaseOrderItem = typeof purchaseOrderItems.$inferSelect;
