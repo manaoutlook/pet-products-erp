@@ -19,7 +19,8 @@ import {
   Folders,
   Tags,
   Building2,
-  ChevronRight
+  ChevronRight,
+  ClipboardList
 } from "lucide-react";
 import { useState } from "react";
 
@@ -100,10 +101,18 @@ function Sidebar() {
     },
     { 
       name: "Orders", 
-      href: "/orders", 
       icon: ShoppingCart,
       module: 'orders',
-      action: 'read'
+      action: 'read',
+      children: [
+        {
+          name: "Purchase Orders",
+          href: "/purchase-orders",
+          icon: ClipboardList,
+          module: 'orders',
+          action: 'read'
+        }
+      ]
     },
     { 
       name: "Inventory", 

@@ -16,6 +16,7 @@ import StorePage from "./pages/StorePage";
 import StoreAssignmentPage from "./pages/StoreAssignmentPage";
 import StorePerformancePage from "./pages/StorePerformancePage";
 import SuppliersPage from "./pages/SuppliersPage";
+import PurchaseOrdersPage from "./pages/PurchaseOrdersPage";
 import MainLayout from "./components/Layout/MainLayout";
 
 function App() {
@@ -38,7 +39,7 @@ function App() {
       <Switch>
         <Route path="/" component={DashboardPage} />
         <Route path="/inventory" component={InventoryPage} />
-        <Route path="/orders" component={OrdersPage} />
+        <Route path="/purchase-orders" component={PurchaseOrdersPage} />
         <Route path="/products" component={ProductsPage} />
         <Route path="/categories" component={CategoryPage} />
         <Route path="/brands" component={BrandsPage} />
