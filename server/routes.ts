@@ -8,44 +8,12 @@ import {
   categories, brands, suppliers, purchaseOrders,
   purchaseOrderItems
 } from "@db/schema";
-import { eq, and, desc, sql, gte, lt } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
 import { z } from "zod";
-import { crypto } from "./auth"; // Import crypto utility
+import { crypto } from "./auth";
 
-// Add proper Zod schema for user validation with enhanced username requirements
-const insertUserSchema = z.object({
-  username: z.string()
-    .min(3, "Username must be at least 3 characters")
-    .regex(/^[a-z]+$/, "Username must contain only lowercase letters")
-    .transform(val => val.toLowerCase()), // Force lowercase
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  roleId: z.number().positive("Role ID must be positive")
-});
-
-// Update user schema for validation
-const updateUserSchema = z.object({
-  username: z.string()
-    .min(3, "Username must be at least 3 characters")
-    .regex(/^[a-z]+$/, "Username must contain only lowercase letters")
-    .transform(val => val.toLowerCase()) // Force lowercase
-    .optional(),
-  password: z.string().min(6, "Password must be at least 6 characters").optional(),
-  roleId: z.number().positive("Role ID must be positive").optional(),
-});
-
-// Add proper Zod schema for product validation
-const insertProductSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  sku: z.string().min(1, "SKU is required"),
-  price: z.number().positive("Price must be positive"),
-  description: z.string().optional(),
-  categoryId: z.number().positive("Category is required"),
-  minStock: z.number().positive("Minimum stock must be positive").optional(),
-  brandId: z.number().positive("Brand ID must be positive").optional(),
-});
-
-// Add Purchase Order validation schema at the top with other schemas
+// Schema validations
 const createPurchaseOrderSchema = z.object({
   supplierId: z.number().positive("Supplier ID is required"),
   deliveryDate: z.string().datetime("Valid delivery date is required"),
@@ -63,6 +31,11 @@ const updatePurchaseOrderSchema = z.object({
   notes: z.string().optional(),
 });
 
+// Helper functions
+function generateOrderNumber(): string {
+  return `PO-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
 function generateInventoryBarcode(
   inventoryType: 'DC' | 'STORE',
   productSku: string,
@@ -75,7 +48,6 @@ function generateInventoryBarcode(
 }
 
 export function registerRoutes(app: Express): Server {
-  // Set up authentication first - this adds /api/login, /api/logout, /api/user endpoints
   setupAuth(app);
 
   // Add middleware to log all API requests
@@ -84,9 +56,261 @@ export function registerRoutes(app: Express): Server {
     next();
   });
 
-  // After this point, all routes will require authentication unless explicitly marked as public
   app.use('/api', requireAuth);
 
+  // Purchase Orders endpoints
+  app.get("/api/purchase-orders", requireAuth, async (req, res) => {
+    try {
+      const allPurchaseOrders = await db.query.purchaseOrders.findMany({
+        with: {
+          supplier: true,
+          items: {
+            with: {
+              product: true
+            }
+          }
+        },
+        orderBy: [desc(purchaseOrders.updatedAt)],
+      });
+      res.json(allPurchaseOrders);
+    } catch (error) {
+      console.error('Error fetching purchase orders:', error);
+      res.status(500).json({
+        message: "Failed to fetch purchase orders",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.post("/api/purchase-orders", requireAuth, async (req, res) => {
+    try {
+      const result = createPurchaseOrderSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({
+          message: "Invalid input",
+          errors: result.error.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message
+          }))
+        });
+      }
+
+      const { supplierId, deliveryDate, notes, items } = result.data;
+
+      // Generate unique order number
+      const orderNumber = generateOrderNumber();
+
+      // Calculate total amount in VND
+      const totalAmount = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
+
+      // Create purchase order
+      const [newPurchaseOrder] = await db
+        .insert(purchaseOrders)
+        .values({
+          orderNumber,
+          supplierId,
+          deliveryDate: new Date(deliveryDate),
+          status: 'pending',
+          totalAmount: totalAmount.toString(), // Store as string for decimal
+          notes: notes || null
+        })
+        .returning();
+
+      // Create purchase order items
+      await Promise.all(items.map(item => 
+        db.insert(purchaseOrderItems)
+          .values({
+            purchaseOrderId: newPurchaseOrder.id,
+            productId: item.productId,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice.toString(), // Store as string for decimal
+            totalPrice: (item.quantity * item.unitPrice).toString(), // Store as string for decimal
+            deliveredQuantity: 0
+          })
+      ));
+
+      // Fetch the complete purchase order with items and supplier
+      const purchaseOrderWithDetails = await db.query.purchaseOrders.findFirst({
+        where: eq(purchaseOrders.id, newPurchaseOrder.id),
+        with: {
+          supplier: true,
+          items: {
+            with: {
+              product: true
+            }
+          }
+        }
+      });
+
+      res.json({
+        message: "Purchase order created successfully",
+        purchaseOrder: purchaseOrderWithDetails
+      });
+    } catch (error) {
+      console.error('Error creating purchase order:', error);
+      res.status(500).json({
+        message: "Failed to create purchase order",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.get("/api/purchase-orders/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const purchaseOrder = await db.query.purchaseOrders.findFirst({
+        where: eq(purchaseOrders.id, parseInt(id)),
+        with: {
+          supplier: true,
+          items: {
+            with: {
+              product: true
+            }
+          }
+        }
+      });
+
+      if (!purchaseOrder) {
+        return res.status(404).json({
+          message: "Purchase order not found",
+          suggestion: "Please verify the purchase order ID"
+        });
+      }
+
+      res.json(purchaseOrder);
+    } catch (error) {
+      console.error('Error fetching purchase order:', error);
+      res.status(500).json({
+        message: "Failed to fetch purchase order",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.put("/api/purchase-orders/:id/status", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const result = updatePurchaseOrderSchema.safeParse(req.body);
+
+      if (!result.success) {
+        return res.status(400).json({
+          message: "Invalid input",
+          errors: result.error.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message
+          }))
+        });
+      }
+
+      const { status, deliveryDate, notes } = result.data;
+
+      // Get the current purchase order
+      const currentPO = await db.query.purchaseOrders.findFirst({
+        where: eq(purchaseOrders.id, parseInt(id)),
+        with: {
+          items: true
+        }
+      });
+
+      if (!currentPO) {
+        return res.status(404).json({
+          message: "Purchase order not found",
+          suggestion: "Please verify the purchase order ID"
+        });
+      }
+
+      // Update purchase order
+      const [updatedPO] = await db
+        .update(purchaseOrders)
+        .set({
+          status,
+          ...(deliveryDate && { deliveryDate: new Date(deliveryDate) }),
+          ...(notes && { notes }),
+          updatedAt: new Date()
+        })
+        .where(eq(purchaseOrders.id, parseInt(id)))
+        .returning();
+
+      // If status changed to 'delivered', update inventory
+      if (status === 'delivered' && currentPO.status !== 'delivered') {
+        for (const item of currentPO.items) {
+          // Get current inventory
+          const [currentInventory] = await db
+            .select({
+              id: inventory.id,
+              quantity: inventory.quantity
+            })
+            .from(inventory)
+            .where(
+              and(
+                eq(inventory.productId, item.productId),
+                eq(inventory.inventoryType, 'DC')
+              )
+            )
+            .limit(1);
+
+          if (currentInventory) {
+            // Update existing inventory
+            const newQuantity = currentInventory.quantity + item.quantity;
+            await db
+              .update(inventory)
+              .set({
+                quantity: newQuantity,
+                updatedAt: new Date()
+              })
+              .where(eq(inventory.id, currentInventory.id));
+          } else {
+            // Create new inventory entry
+            const barcode = generateInventoryBarcode('DC', item.productId.toString());
+            await db
+              .insert(inventory)
+              .values({
+                productId: item.productId,
+                quantity: item.quantity,
+                inventoryType: 'DC',
+                barcode,
+                supplierId: currentPO.supplierId,
+                purchaseDate: new Date()
+              });
+          }
+
+          // Update delivered quantity in purchase order item
+          await db
+            .update(purchaseOrderItems)
+            .set({
+              deliveredQuantity: item.quantity,
+              updatedAt: new Date()
+            })
+            .where(eq(purchaseOrderItems.id, item.id));
+        }
+      }
+
+      // Fetch updated purchase order with all details
+      const purchaseOrderWithDetails = await db.query.purchaseOrders.findFirst({
+        where: eq(purchaseOrders.id, updatedPO.id),
+        with: {
+          supplier: true,
+          items: {
+            with: {
+              product: true
+            }
+          }
+        }
+      });
+
+      res.json({
+        message: "Purchase order updated successfully",
+        purchaseOrder: purchaseOrderWithDetails
+      });
+    } catch (error) {
+      console.error('Error updating purchase order:', error);
+      res.status(500).json({
+        message: "Failed to update purchase order",
+        suggestion: "Please try again later"
+      });
+    }
+  });
   // Role Types endpoints - admin only
   app.get("/api/role-types", async (req, res) => {
     try {
@@ -1023,9 +1247,9 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Orders trend for chart - admin only
+  //// Orders trend for chart - admin only
   app.get("/api/stats/orders-trend", requireRole(['admin']), async (req, res) => {
-    const trend = await db
+        const trend = await db
       .select({
         date: sql<string>`date_trunc('day', created_at)::date`,
         orders: sql<number>`count(*)`,
@@ -1741,477 +1965,6 @@ export function registerRoutes(app: Express): Server {
     } catch (error) {
       console.error('Error deleting supplier:', error);
       res.status(500).send("Failed to delete supplier");
-    }
-  });
-
-  // Purchase Order Management endpoints
-  app.get("/api/purchase-orders", requireAuth, async (req, res) => {
-    try {
-      const purchaseOrders = await db.query.purchaseOrders.findMany({
-        with: {
-          supplier: true,
-          items: {
-            with: {
-              product: true,
-            },
-          },
-        },
-        orderBy: [desc(purchaseOrders.createdAt)],
-      });
-
-      res.json(purchaseOrders);
-    } catch (error) {
-      console.error('Error fetching purchase orders:', error);
-      res.status(500).json({
-        message: "Failed to fetch purchase orders",
-        suggestion: "Please try again later"
-      });
-    }
-  });
-
-  app.post("/api/purchase-orders", requireAuth, async (req, res) => {
-    try {
-      const result = createPurchaseOrderSchema.safeParse(req.body);
-      if (!result.success) {
-        return res.status(400).json({
-          message: "Invalid input",
-          errors: result.error.errors
-        });
-      }
-
-      const { supplierId, deliveryDate, notes, items } = result.data;
-
-      // Generate order number (PO-YYYYMMDD-XXXX)
-      const orderNumber = `PO-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
-
-      // Calculate total amount in VND
-      const totalAmount = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-
-      // Create purchase order
-      const [purchaseOrder] = await db
-        .insert(purchaseOrders)
-        .values({
-          orderNumber,
-          supplierId,
-          deliveryDate: new Date(deliveryDate),
-          notes,
-          totalAmount,
-          status: 'pending'
-        })
-        .returning();
-
-      // Create purchase order items
-      const orderItems = await Promise.all(
-        items.map(async (item) => {
-          const [orderItem] = await db
-            .insert(purchaseOrderItems)
-            .values({
-              purchaseOrderId: purchaseOrder.id,
-              productId: item.productId,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              totalPrice: item.quantity * item.unitPrice,
-            })
-            .returning();
-          return orderItem;
-        })
-      );
-
-      // Fetch complete purchase order with related data
-      const completeOrder = await db.query.purchaseOrders.findFirst({
-        where: eq(purchaseOrders.id, purchaseOrder.id),
-        with: {
-          supplier: true,
-          items: {
-            with: {
-              product: true,
-            },
-          },
-        },
-      });
-
-      res.json({
-        message: "Purchase order created successfully",
-        purchaseOrder: completeOrder
-      });
-    } catch (error) {
-      console.error('Error creating purchase order:', error);
-      res.status(500).json({
-        message: "Failed to create purchase order",
-        suggestion: "Please try again later"
-      });
-    }
-  });
-
-  // Update purchase order status and handle inventory updates
-  app.put("/api/purchase-orders/:id/status", requireAuth, async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { status } = req.body;
-
-      if (!['pending', 'confirmed', 'delivered', 'cancelled'].includes(status)) {
-        return res.status(400).json({
-          message: "Invalid status",
-          suggestion: "Status must be one of: pending, confirmed, delivered, cancelled"
-        });
-      }
-
-      // Update purchase order status
-      const [updatedOrder] = await db
-        .update(purchaseOrders)
-        .set({
-          status,
-          updatedAt: new Date(),
-        })
-        .where(eq(purchaseOrders.id, parseInt(id)))
-        .returning();
-
-      // If status is "delivered", update inventory
-      if (status === 'delivered') {
-        const orderItems = await db.query.purchaseOrderItems.findMany({
-          where: eq(purchaseOrderItems.purchaseOrderId, parseInt(id)),
-          with: {
-            product: true,
-          },
-        });
-
-        // Update inventory for each item
-        await Promise.all(
-          orderItems.map(async (item) => {
-            // Check if inventory record exists
-            const [existingInventory] = await db
-              .select()
-              .from(inventory)
-              .where(and(
-                eq(inventory.productId, item.productId),
-                eq(inventory.inventoryType, 'DC')
-              ))
-              .limit(1);
-
-            if (existingInventory) {
-              // Update existing inventory
-              await db
-                .update(inventory)
-                .set({
-                  quantity: sql`${inventory.quantity} + ${item.quantity}`,
-                  updatedAt: new Date(),
-                })
-                .where(eq(inventory.id, existingInventory.id));
-            } else {
-              // Create new inventory record
-              await db
-                .insert(inventory)
-                .values({
-                  productId: item.productId,
-                  quantity: item.quantity,
-                  inventoryType: 'DC',
-                  supplierId: updatedOrder.supplierId,
-                  purchaseDate: new Date(),
-                });
-            }
-          })
-        );
-      }
-
-      // Fetch updated purchase order with related data
-      const completeOrder = await db.query.purchaseOrders.findFirst({
-        where: eq(purchaseOrders.id, updatedOrder.id),
-        with: {
-          supplier: true,
-          items: {
-            with: {
-              product: true,
-            },
-          },
-        },
-      });
-
-      res.json({
-        message: `Purchase order ${status} successfully`,
-        purchaseOrder: completeOrder
-      });
-    } catch (error) {
-      console.error('Error updating purchase order status:', error);
-      res.status(500).json({
-        message: "Failed to update purchase order status",
-        suggestion: "Please try again later"
-      });
-    }
-  });
-
-  // Get single purchase order
-  app.get("/api/purchase-orders/:id", requireAuth, async (req, res) => {
-    try {
-      const { id } = req.params;
-
-      const purchaseOrder = await db.query.purchaseOrders.findFirst({
-        where: eq(purchaseOrders.id, parseInt(id)),
-        with: {
-          supplier: true,
-          items: {
-            with: {
-              product: true,
-            },
-          },
-        },
-      });
-
-      if (!purchaseOrder) {
-        return res.status(404).json({
-          message: "Purchase order not found",
-          suggestion: "Please verify the purchase order ID"
-        });
-      }
-
-      res.json(purchaseOrder);
-    } catch (error) {
-      console.error('Error fetching purchase order:', error);
-      res.status(500).json({
-        message: "Failed to fetch purchase order",
-        suggestion: "Please try again later"
-      });
-    }
-  });
-
-  // Purchase Orders endpoints
-  app.get("/api/purchase-orders", requireAuth, async (req, res) => {
-    try {
-      const allPurchaseOrders = await db.query.purchaseOrders.findMany({
-        with: {
-          supplier: true,
-          items: {
-            with: {
-              product: true
-            }
-          }
-        },
-        orderBy: [desc(purchaseOrders.updatedAt)],
-      });
-      res.json(allPurchaseOrders);
-    } catch (error) {
-      console.error('Error fetching purchase orders:', error);
-      res.status(500).send("Failed to fetch purchase orders");
-    }
-  });
-
-  app.post("/api/purchase-orders", requireAuth, async (req, res) => {
-    try {
-      const result = createPurchaseOrderSchema.safeParse(req.body);
-      if (!result.success) {
-        return res.status(400).json({
-          message: "Invalid input",
-          errors: result.error.errors.map(err => ({
-            field: err.path.join('.'),
-            message: err.message
-          }))
-        });
-      }
-
-      const { supplierId, deliveryDate, notes, items } = result.data;
-
-      // Generate unique order number (PO-YYYYMMDD-XXXX)
-      const orderNumber = `PO-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-      // Calculate total amount
-      const totalAmount = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-
-      // Create purchase order
-      const [newPurchaseOrder] = await db
-        .insert(purchaseOrders)
-        .values({
-          orderNumber,
-          supplierId,
-          deliveryDate: new Date(deliveryDate),
-          status: 'pending',
-          totalAmount,
-          notes
-        })
-        .returning();
-
-      // Create purchase order items
-      const orderItems = await Promise.all(
-        items.map(async (item) => {
-          const [orderItem] = await db
-            .insert(purchaseOrderItems)
-            .values({
-              purchaseOrderId: newPurchaseOrder.id,
-              productId: item.productId,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              totalPrice: item.quantity * item.unitPrice,
-            })
-            .returning();
-          return orderItem;
-        })
-      );
-
-      // Fetch the complete purchase order with items and supplier
-      const purchaseOrderWithDetails = await db.query.purchaseOrders.findFirst({
-        where: eq(purchaseOrders.id, newPurchaseOrder.id),
-        with: {
-          supplier: true,
-          items: {
-            with: {
-              product: true
-            }
-          }
-        }
-      });
-
-      res.json({
-        message: "Purchase order created successfully",
-        purchaseOrder: purchaseOrderWithDetails
-      });
-    } catch (error) {
-      console.error('Error creating purchase order:', error);
-      res.status(500).send("Failed to create purchase order");
-    }
-  });
-
-  app.put("/api/purchase-orders/:id/status", requireAuth, async (req, res) => {
-    try {
-      const { id } = req.params;
-      const result = updatePurchaseOrderSchema.safeParse(req.body);
-
-      if (!result.success) {
-        return res.status(400).json({
-          message: ""Invalid input",
-          errors: result.error.errors.map(err => ({
-            field: err.path.join('.'),
-            message: err.message
-          }))
-        });
-      }
-
-      const { status, deliveryDate, notes } = result.data;
-
-      // Get the current purchase order
-      const currentPO = await db.query.purchaseOrders.findFirst({
-        where: eq(purchaseOrders.id, parseInt(id)),
-        with: {
-          items: true
-        }
-      });
-
-      if (!currentPO) {
-        return res.status(404).send("Purchase order not found");
-      }
-
-      // Update purchase order
-      const [updatedPO] = await db
-        .update(purchaseOrders)
-        .set({
-          status,
-          ...(deliveryDate && { deliveryDate: new Date(deliveryDate) }),
-          ...(notes && { notes }),
-          updatedAt: new Date()
-        })
-        .where(eq(purchaseOrders.id, parseInt(id)))
-        .returning();
-
-      // If status changed to 'delivered', update inventory
-      if (status === 'delivered' && currentPO.status !== 'delivered') {
-        for (const item of currentPO.items) {
-          // Get current inventory
-          const [currentInventory] = await db
-            .select()
-            .from(inventory)
-            .where(
-              and(
-                eq(inventory.productId, item.productId),
-                eq(inventory.inventoryType, 'DC')
-              )
-            )
-            .limit(1);
-
-          if (currentInventory) {
-            // Update existing inventory
-            await db
-              .update(inventory)
-              .set({
-                quantity: sql`${inventory.quantity} + ${item.quantity}`,
-                updatedAt: new Date()
-              })
-              .where(eq(inventory.id, currentInventory.id));
-          } else {
-            // Create new inventory entry
-            await db
-              .insert(inventory)
-              .values({
-                productId: item.productId,
-                quantity: item.quantity,
-                inventoryType: 'DC',
-                barcode: generateInventoryBarcode('DC', item.productId.toString()),
-                supplierId: currentPO.supplierId,
-                purchaseDate: new Date()
-              });
-          }
-
-          // Update delivered quantity in purchase order item
-          await db
-            .update(purchaseOrderItems)
-            .set({
-              deliveredQuantity: item.quantity,
-              updatedAt: new Date()
-            })
-            .where(eq(purchaseOrderItems.id, item.id));
-        }
-      }
-
-      // Fetch updated purchase order with all details
-      const purchaseOrderWithDetails = await db.query.purchaseOrders.findFirst({
-        where: eq(purchaseOrders.id, updatedPO.id),
-        with: {
-          supplier: true,
-          items: {
-            with: {
-              product: true
-            }
-          }
-        }
-      });
-
-      res.json({
-        message: "Purchase order updated successfully",
-        purchaseOrder: purchaseOrderWithDetails
-      });
-    } catch (error) {
-      console.error('Error updating purchase order:', error);
-      res.status(500).send("Failed to update purchase order");
-    }
-  });
-
-  // Get single purchase order
-  app.get("/api/purchase-orders/:id", requireAuth, async (req, res) => {
-    try {
-      const { id } = req.params;
-
-      const purchaseOrder = await db.query.purchaseOrders.findFirst({
-        where: eq(purchaseOrders.id, parseInt(id)),
-        with: {
-          supplier: true,
-          items: {
-            with: {
-              product: true,
-            },
-          },
-        },
-      });
-
-      if (!purchaseOrder) {
-        return res.status(404).json({
-          message: "Purchase order not found",
-          suggestion: "Please verify the purchase order ID"
-        });
-      }
-
-      res.json(purchaseOrder);
-    } catch (error) {
-      console.error('Error fetching purchase order:', error);
-      res.status(500).json({
-        message: "Failed to fetch purchase order",
-        suggestion: "Please try again later"
-      });
     }
   });
 
