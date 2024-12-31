@@ -40,7 +40,7 @@ import {
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Plus, Search, Pencil, Trash2 } from "lucide-react";
-import { useForm } from "react-hook-form";
+import { useForm, FormProvider } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Barcode } from "@/components/ui/barcode";
@@ -136,6 +136,15 @@ function InventoryPage() {
       quantity: '',
       location: '',
       inventoryType: 'DC',
+    },
+  });
+
+  const filterForm = useForm({
+    defaultValues: {
+      inventoryType: '',
+      storeId: '',
+      supplierId: '',
+      stockStatus: '',
     },
   });
 
@@ -338,6 +347,7 @@ function InventoryPage() {
       stockStatus: '',
     });
     setSearch('');
+    filterForm.reset();
   };
 
   const isPending = createInventoryMutation.isPending || updateInventoryMutation.isPending;
@@ -545,100 +555,143 @@ function InventoryPage() {
                   </div>
                 </AccordionTrigger>
                 <AccordionContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 p-4">
-                    <div className="space-y-2">
-                      <FormLabel>Inventory Type</FormLabel>
-                      <Select
-                        value={filters.inventoryType}
-                        onValueChange={(value) => handleFilterChange('inventoryType', value)}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="All Types" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="">All Types</SelectItem>
-                          <SelectItem value="DC">Distribution Center</SelectItem>
-                          <SelectItem value="STORE">Store</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <FormProvider {...filterForm}>
+                    <form className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 p-4">
+                        <FormField
+                          control={filterForm.control}
+                          name="inventoryType"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Inventory Type</FormLabel>
+                              <Select
+                                value={field.value}
+                                onValueChange={(value) => {
+                                  field.onChange(value);
+                                  handleFilterChange('inventoryType', value);
+                                }}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="All Types" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="">All Types</SelectItem>
+                                  <SelectItem value="DC">Distribution Center</SelectItem>
+                                  <SelectItem value="STORE">Store</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </FormItem>
+                          )}
+                        />
 
-                    <div className="space-y-2">
-                      <FormLabel>Store</FormLabel>
-                      <Select
-                        value={filters.storeId}
-                        onValueChange={(value) => handleFilterChange('storeId', value)}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="All Stores" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="">All Stores</SelectItem>
-                          {stores?.map((store) => (
-                            <SelectItem key={store.id} value={store.id.toString()}>
-                              {store.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                        <FormField
+                          control={filterForm.control}
+                          name="storeId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Store</FormLabel>
+                              <Select
+                                value={field.value}
+                                onValueChange={(value) => {
+                                  field.onChange(value);
+                                  handleFilterChange('storeId', value);
+                                }}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="All Stores" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="">All Stores</SelectItem>
+                                  {stores?.map((store) => (
+                                    <SelectItem key={store.id} value={store.id.toString()}>
+                                      {store.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </FormItem>
+                          )}
+                        />
 
-                    <div className="space-y-2">
-                      <FormLabel>Supplier</FormLabel>
-                      <Select
-                        value={filters.supplierId}
-                        onValueChange={(value) => handleFilterChange('supplierId', value)}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="All Suppliers" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="">All Suppliers</SelectItem>
-                          {suppliers?.map((supplier) => (
-                            <SelectItem key={supplier.id} value={supplier.id.toString()}>
-                              {supplier.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                        <FormField
+                          control={filterForm.control}
+                          name="supplierId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Supplier</FormLabel>
+                              <Select
+                                value={field.value}
+                                onValueChange={(value) => {
+                                  field.onChange(value);
+                                  handleFilterChange('supplierId', value);
+                                }}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="All Suppliers" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="">All Suppliers</SelectItem>
+                                  {suppliers?.map((supplier) => (
+                                    <SelectItem key={supplier.id} value={supplier.id.toString()}>
+                                      {supplier.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </FormItem>
+                          )}
+                        />
 
-                    <div className="space-y-2">
-                      <FormLabel>Stock Status</FormLabel>
-                      <Select
-                        value={filters.stockStatus}
-                        onValueChange={(value) => handleFilterChange('stockStatus', value)}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="All Status" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="">All Status</SelectItem>
-                          <SelectItem value="low">Low Stock</SelectItem>
-                          <SelectItem value="inStock">In Stock</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
+                        <FormField
+                          control={filterForm.control}
+                          name="stockStatus"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Stock Status</FormLabel>
+                              <Select
+                                value={field.value}
+                                onValueChange={(value) => {
+                                  field.onChange(value);
+                                  handleFilterChange('stockStatus', value);
+                                }}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="All Status" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="">All Status</SelectItem>
+                                  <SelectItem value="low">Low Stock</SelectItem>
+                                  <SelectItem value="inStock">In Stock</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </FormItem>
+                          )}
+                        />
+                      </div>
 
-                  <div className="flex justify-end px-4 pt-2">
-                    <Button
-                      variant="outline"
-                      onClick={clearFilters}
-                      className="flex items-center gap-2"
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                      Clear Filters
-                    </Button>
-                  </div>
+                      <div className="flex justify-end px-4 pt-2">
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            clearFilters();
+                            filterForm.reset();
+                          }}
+                          className="flex items-center gap-2"
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                          Clear Filters
+                        </Button>
+                      </div>
+                    </form>
+                  </FormProvider>
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
