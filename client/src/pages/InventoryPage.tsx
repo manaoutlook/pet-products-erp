@@ -141,10 +141,10 @@ function InventoryPage() {
 
   const filterForm = useForm({
     defaultValues: {
-      inventoryType: '',
-      storeId: '',
-      supplierId: '',
-      stockStatus: '',
+      inventoryType: 'all',
+      storeId: 'all',
+      supplierId: 'all',
+      stockStatus: 'all',
     },
   });
 
@@ -336,7 +336,8 @@ function InventoryPage() {
   });
 
   const handleFilterChange = (key: keyof FilterState, value: string) => {
-    setFilters(prev => ({ ...prev, [key]: value }));
+    const actualValue = value === 'all' ? '' : value;
+    setFilters(prev => ({ ...prev, [key]: actualValue }));
   };
 
   const clearFilters = () => {
@@ -347,7 +348,12 @@ function InventoryPage() {
       stockStatus: '',
     });
     setSearch('');
-    filterForm.reset();
+    filterForm.reset({
+      inventoryType: 'all',
+      storeId: 'all',
+      supplierId: 'all',
+      stockStatus: 'all',
+    });
   };
 
   const isPending = createInventoryMutation.isPending || updateInventoryMutation.isPending;
@@ -577,7 +583,7 @@ function InventoryPage() {
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                  <SelectItem value="">All Types</SelectItem>
+                                  <SelectItem value="all">All Types</SelectItem>
                                   <SelectItem value="DC">Distribution Center</SelectItem>
                                   <SelectItem value="STORE">Store</SelectItem>
                                 </SelectContent>
@@ -605,7 +611,7 @@ function InventoryPage() {
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                  <SelectItem value="">All Stores</SelectItem>
+                                  <SelectItem value="all">All Stores</SelectItem>
                                   {stores?.map((store) => (
                                     <SelectItem key={store.id} value={store.id.toString()}>
                                       {store.name}
@@ -636,7 +642,7 @@ function InventoryPage() {
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                  <SelectItem value="">All Suppliers</SelectItem>
+                                  <SelectItem value="all">All Suppliers</SelectItem>
                                   {suppliers?.map((supplier) => (
                                     <SelectItem key={supplier.id} value={supplier.id.toString()}>
                                       {supplier.name}
@@ -667,7 +673,7 @@ function InventoryPage() {
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                  <SelectItem value="">All Status</SelectItem>
+                                  <SelectItem value="all">All Status</SelectItem>
                                   <SelectItem value="low">Low Stock</SelectItem>
                                   <SelectItem value="inStock">In Stock</SelectItem>
                                 </SelectContent>
@@ -682,7 +688,12 @@ function InventoryPage() {
                           variant="outline"
                           onClick={() => {
                             clearFilters();
-                            filterForm.reset();
+                            filterForm.reset({
+                              inventoryType: 'all',
+                              storeId: 'all',
+                              supplierId: 'all',
+                              stockStatus: 'all',
+                            });
                           }}
                           className="flex items-center gap-2"
                         >
