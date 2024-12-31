@@ -62,9 +62,11 @@ export function CreatePurchaseOrderDialog() {
       const response = await fetch('/api/purchase-orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
-          ...data,
           supplierId: parseInt(data.supplierId),
+          deliveryDate: new Date(data.deliveryDate).toISOString(),
+          notes: data.notes,
           items: data.items.map(item => ({
             productId: parseInt(item.productId),
             quantity: parseInt(item.quantity),
@@ -75,6 +77,11 @@ export function CreatePurchaseOrderDialog() {
 
       if (!response.ok) {
         const errorData = await response.json();
+        if (errorData.errors) {
+          throw new Error(
+            errorData.errors.map((err: any) => `${err.field}: ${err.message}`).join('\n')
+          );
+        }
         throw new Error(errorData.message || 'Failed to create purchase order');
       }
 
@@ -154,9 +161,9 @@ export function CreatePurchaseOrderDialog() {
                 <FormItem>
                   <FormLabel>Delivery Date</FormLabel>
                   <FormControl>
-                    <Input 
-                      type="datetime-local" 
-                      {...field} 
+                    <Input
+                      type="datetime-local"
+                      {...field}
                       min={new Date().toISOString().slice(0, 16)}
                     />
                   </FormControl>

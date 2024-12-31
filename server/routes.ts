@@ -108,7 +108,7 @@ export function registerRoutes(app: Express): Server {
         .insert(purchaseOrders)
         .values({
           orderNumber,
-          supplierId,
+          supplierId: parseInt(supplierId),
           deliveryDate: new Date(deliveryDate),
           status: 'pending',
           totalAmount: totalAmount.toString(), // Store as string for decimal
@@ -117,14 +117,14 @@ export function registerRoutes(app: Express): Server {
         .returning();
 
       // Create purchase order items
-      await Promise.all(items.map(item => 
+      await Promise.all(items.map(item =>
         db.insert(purchaseOrderItems)
           .values({
             purchaseOrderId: newPurchaseOrder.id,
-            productId: item.productId,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice.toString(), // Store as string for decimal
-            totalPrice: (item.quantity * item.unitPrice).toString(), // Store as string for decimal
+            productId: parseInt(item.productId),
+            quantity: parseInt(item.quantity),
+            unitPrice: parseFloat(item.unitPrice).toString(), // Store as string for decimal
+            totalPrice: (parseInt(item.quantity) * parseFloat(item.unitPrice)).toString(), // Store as string for decimal
             deliveredQuantity: 0
           })
       ));
@@ -311,6 +311,7 @@ export function registerRoutes(app: Express): Server {
       });
     }
   });
+
   // Role Types endpoints - admin only
   app.get("/api/role-types", async (req, res) => {
     try {
@@ -1060,16 +1061,8 @@ export function registerRoutes(app: Express): Server {
     try {
       const assignments = await db.query.userStoreAssignments.findMany({
         with: {
-          user: {
-            with: {
-              role: {
-                with: {
-                  roleType: true
-                }
-              }
-            }
-          },
-          store: true
+          user: true,
+          store: true,
         },
       });
       res.json(assignments);
