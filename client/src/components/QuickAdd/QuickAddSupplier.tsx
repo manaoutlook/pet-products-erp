@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { useForm, FormProvider } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -36,7 +36,7 @@ export function QuickAddSupplier() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const form = useForm<SupplierFormValues>({
+  const methods = useForm<SupplierFormValues>({
     resolver: zodResolver(supplierSchema),
     defaultValues: {
       name: "",
@@ -59,7 +59,7 @@ export function QuickAddSupplier() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/suppliers'] });
       setOpen(false);
-      form.reset();
+      methods.reset();
       toast({ title: "Success", description: "Supplier created successfully" });
     },
     onError: (error: Error) => {
@@ -95,10 +95,10 @@ export function QuickAddSupplier() {
         <DialogHeader>
           <DialogTitle>Add New Supplier</DialogTitle>
         </DialogHeader>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <FormProvider {...methods}>
+          <form onSubmit={methods.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
-              control={form.control}
+              control={methods.control}
               name="name"
               render={({ field }) => (
                 <FormItem>
@@ -112,7 +112,7 @@ export function QuickAddSupplier() {
             />
 
             <FormField
-              control={form.control}
+              control={methods.control}
               name="contactInfo"
               render={({ field }) => (
                 <FormItem>
@@ -126,7 +126,7 @@ export function QuickAddSupplier() {
             />
 
             <FormField
-              control={form.control}
+              control={methods.control}
               name="address"
               render={({ field }) => (
                 <FormItem>
@@ -150,7 +150,7 @@ export function QuickAddSupplier() {
               Create Supplier
             </Button>
           </form>
-        </Form>
+        </FormProvider>
       </DialogContent>
     </Dialog>
   );

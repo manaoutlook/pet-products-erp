@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { useForm, FormProvider } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -51,7 +51,7 @@ export function QuickAddProduct() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const form = useForm<ProductFormValues>({
+  const methods = useForm<ProductFormValues>({
     resolver: zodResolver(productSchema),
     defaultValues: {
       name: "",
@@ -86,7 +86,7 @@ export function QuickAddProduct() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/products'] });
       setOpen(false);
-      form.reset();
+      methods.reset();
       toast({ title: "Success", description: "Product created successfully" });
     },
     onError: (error: Error) => {
@@ -122,10 +122,10 @@ export function QuickAddProduct() {
         <DialogHeader>
           <DialogTitle>Add New Product</DialogTitle>
         </DialogHeader>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <FormProvider {...methods}>
+          <form onSubmit={methods.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
-              control={form.control}
+              control={methods.control}
               name="name"
               render={({ field }) => (
                 <FormItem>
@@ -139,7 +139,7 @@ export function QuickAddProduct() {
             />
 
             <FormField
-              control={form.control}
+              control={methods.control}
               name="sku"
               render={({ field }) => (
                 <FormItem>
@@ -153,7 +153,7 @@ export function QuickAddProduct() {
             />
 
             <FormField
-              control={form.control}
+              control={methods.control}
               name="price"
               render={({ field }) => (
                 <FormItem>
@@ -167,7 +167,7 @@ export function QuickAddProduct() {
             />
 
             <FormField
-              control={form.control}
+              control={methods.control}
               name="categoryId"
               render={({ field }) => (
                 <FormItem>
@@ -195,7 +195,7 @@ export function QuickAddProduct() {
             />
 
             <FormField
-              control={form.control}
+              control={methods.control}
               name="minStock"
               render={({ field }) => (
                 <FormItem>
@@ -209,7 +209,7 @@ export function QuickAddProduct() {
             />
 
             <FormField
-              control={form.control}
+              control={methods.control}
               name="description"
               render={({ field }) => (
                 <FormItem>
@@ -233,7 +233,7 @@ export function QuickAddProduct() {
               Create Product
             </Button>
           </form>
-        </Form>
+        </FormProvider>
       </DialogContent>
     </Dialog>
   );
