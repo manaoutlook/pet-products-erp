@@ -5,8 +5,8 @@
 // Constants for price validation
 export const PRICE_CONSTRAINTS = {
   MIN_PRICE: 0,
-  MAX_PRICE: 999999.99,
-  DECIMAL_PLACES: 2,
+  MAX_PRICE: 999999999999, // Increased for VND amounts
+  DECIMAL_PLACES: 0, // VND doesn't use decimal places
 } as const;
 
 /**
@@ -33,7 +33,7 @@ export function validatePrice(price: number | string): { isValid: boolean; error
 }
 
 /**
- * Formats a price value with proper currency symbol and decimal places
+ * Formats a price value with proper currency symbol and grouping
  * @param price - The price to format
  * @param options - Formatting options
  * @returns Formatted price string
@@ -48,14 +48,14 @@ export function formatPrice(
   } = {}
 ): string {
   const numericPrice = typeof price === 'string' ? parseFloat(price) : price;
-  
+
   if (isNaN(numericPrice)) {
-    return '$0.00';
+    return '0 ₫';
   }
 
   const {
-    currency = 'USD',
-    locale = 'en-US',
+    currency = 'VND',
+    locale = 'vi-VN',
     minimumFractionDigits = PRICE_CONSTRAINTS.DECIMAL_PLACES,
     maximumFractionDigits = PRICE_CONSTRAINTS.DECIMAL_PLACES,
   } = options;
@@ -77,19 +77,19 @@ export function parsePrice(price: string): number {
   // Remove currency symbols and other non-numeric characters except decimal point
   const cleanPrice = price.replace(/[^\d.-]/g, '');
   const numericPrice = parseFloat(cleanPrice);
-  
+
   return isNaN(numericPrice) ? 0 : numericPrice;
 }
 
 /**
- * Normalizes a price value by ensuring consistent decimal places
+ * Normalizes a price value by removing decimal places for VND
  * @param price - The price to normalize
  * @returns Normalized price number
  */
 export function normalizePrice(price: number | string): number {
   const numericPrice = typeof price === 'string' ? parseFloat(price) : price;
   if (isNaN(numericPrice)) return 0;
-  
-  // Round to specified decimal places
-  return Number(numericPrice.toFixed(PRICE_CONSTRAINTS.DECIMAL_PLACES));
+
+  // Round to whole numbers since VND doesn't use decimal places
+  return Math.round(numericPrice);
 }

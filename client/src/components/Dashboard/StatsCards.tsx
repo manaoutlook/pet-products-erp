@@ -6,6 +6,7 @@ import {
 } from "@/components/ui/card";
 import { useQuery } from "@tanstack/react-query";
 import { Package, ShoppingCart, TrendingUp, DollarSign } from "lucide-react";
+import { formatPrice } from "@/utils/price";
 
 function StatsCards() {
   const { data: stats } = useQuery({
@@ -21,7 +22,7 @@ function StatsCards() {
     },
     {
       title: "Revenue",
-      value: `$${stats?.revenue?.toFixed(2) || '0.00'}`,
+      value: formatPrice(stats?.revenue || 0),
       icon: DollarSign,
       description: "Revenue this month",
     },

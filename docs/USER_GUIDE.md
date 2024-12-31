@@ -105,14 +105,14 @@ The system uses a hierarchical navigation structure located in the left sidebar,
 
 ## Modules
 
-### 1. Dashboard
+### Dashboard
 The dashboard provides an overview of:
 - Recent orders
 - Low stock alerts
 - Key performance indicators
 - Quick access to common tasks
 
-### 2. Master Data Management
+### Master Data Management
 
 #### Categories
 - View all product categories
@@ -132,7 +132,7 @@ The dashboard provides an overview of:
 - Update supplier information
 - View supplier-wise inventory
 
-### 3. Products Management
+### Products Management
 
 #### Product List
 - Comprehensive product catalog
@@ -152,7 +152,7 @@ The dashboard provides an overview of:
    - Minimum stock level
 3. Save the product
 
-### 4. Inventory Management
+### Inventory Management
 
 #### Stock Management
 - View current stock levels
@@ -205,7 +205,7 @@ The dashboard provides an overview of:
    - Provide reason and documentation
    - Submit for approval
 
-### 5. Order Processing
+### Order Processing
 
 #### Creating New Orders
 1. Initial Setup
@@ -243,7 +243,7 @@ The dashboard provides an overview of:
    - Update tracking information
    - Send notifications
 
-### 6. Store Management
+### Store Management
 
 #### Store Setup and Configuration
 1. Basic Information
@@ -275,7 +275,7 @@ The dashboard provides an overview of:
    - Staff performance
    - Profit margins
 
-### 7. User Management
+### User Management
 
 #### Users
 - Create new users

@@ -66,11 +66,11 @@ function StorePerformancePage() {
   const historicalData = data?.historicalData || [];
   const inventoryStatus = data?.inventoryStatus || [];
 
-  // Format currency
+  // Format currency for VND
   const formatCurrency = (value: number) => 
-    new Intl.NumberFormat('en-US', {
+    new Intl.NumberFormat('vi-VN', {
       style: 'currency',
-      currency: 'USD'
+      currency: 'VND'
     }).format(value);
 
   // Format percentage
