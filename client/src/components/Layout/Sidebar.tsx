@@ -20,7 +20,8 @@ import {
   Tags,
   Building2,
   ChevronRight,
-  ClipboardList
+  ClipboardList,
+  UserCircle
 } from "lucide-react";
 import { useState } from "react";
 
@@ -119,6 +120,13 @@ function Sidebar() {
       href: "/inventory", 
       icon: PackageSearch,
       module: 'inventory',
+      action: 'read'
+    },
+    { 
+      name: "Customer Profiles", 
+      href: "/customers", 
+      icon: UserCircle,
+      module: 'users',
       action: 'read'
     },
     { 

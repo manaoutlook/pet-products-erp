@@ -6,7 +6,7 @@ import {
   products, inventory, orders, orderItems, users,
   roles, roleTypes, stores, userStoreAssignments,
   categories, brands, suppliers, purchaseOrders,
-  purchaseOrderItems, customerProfiles
+  purchaseOrderItems, customerProfiles, insertCustomerProfileSchema
 } from "@db/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";

@@ -15,6 +15,7 @@ type Permissions = {
   orders: { create: boolean; read: boolean; update: boolean; delete: boolean };
   inventory: { create: boolean; read: boolean; update: boolean; delete: boolean };
   users: { create: boolean; read: boolean; update: boolean; delete: boolean };
+  stores: { create: boolean; read: boolean; update: boolean; delete: boolean };
 };
 
 // Roles table with proper JSONB handling
