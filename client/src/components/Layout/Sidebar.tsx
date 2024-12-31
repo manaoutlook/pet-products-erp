@@ -18,7 +18,7 @@ import {
   Network,
   Folders,
   Tags,
-  Building2 // Add Building2 icon for Suppliers
+  Building2
 } from "lucide-react";
 
 interface NavItem {
@@ -46,8 +46,6 @@ function Sidebar() {
     {
       name: "Master Data",
       icon: Settings,
-      module: 'products',
-      action: 'read',
       children: [
         {
           name: "Categories",
@@ -75,8 +73,6 @@ function Sidebar() {
     { 
       name: "Products", 
       icon: Package,
-      module: 'products',
-      action: 'read',
       children: [
         {
           name: "Product List",
@@ -104,8 +100,6 @@ function Sidebar() {
     { 
       name: "Stores", 
       icon: Store,
-      module: 'stores',
-      action: 'read',
       children: [
         { 
           name: "Store List", 
@@ -126,8 +120,6 @@ function Sidebar() {
     {
       name: "User Management",
       icon: UserCog,
-      module: 'users',
-      action: 'read',
       children: [
         { 
           name: "Users", 
@@ -165,33 +157,42 @@ function Sidebar() {
   ];
 
   const hasAccess = (item: NavItem): boolean => {
+    // System admins have access to everything
     if (isSystemAdmin) {
       return true;
     }
 
+    // Admin-only items are accessible only to admins
     if (item.adminOnly) {
       return isAdmin;
     }
 
+    // If the item has module and action requirements, check permissions
     if (item.module && item.action) {
       return hasPermission(item.module, item.action);
     }
 
+    // For items with children, check if at least one child is accessible
     if (item.children) {
       return item.children.some(child => hasAccess(child));
     }
 
+    // Items without specific requirements are accessible
     return true;
   };
 
   const renderNavItem = (item: NavItem) => {
+    // Skip rendering if user doesn't have access
     if (!hasAccess(item)) {
       return null;
     }
 
+    // Handle items with children (submenus)
     if (item.children) {
       const accessibleChildren = item.children.filter(child => hasAccess(child));
-      if (accessibleChildren.length === 0) return null;
+      if (accessibleChildren.length === 0) {
+        return null;
+      }
 
       return (
         <div key={item.name} className="space-y-1">
@@ -208,8 +209,12 @@ function Sidebar() {
       );
     }
 
-    if (!item.href) return null;
+    // Skip rendering items without href
+    if (!item.href) {
+      return null;
+    }
 
+    // Render regular menu items
     return (
       <Link key={item.name} href={item.href}>
         <a
