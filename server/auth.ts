@@ -16,14 +16,14 @@ const crypto = {
   hash: async (password: string) => {
     try {
       const salt = randomBytes(16).toString("hex");
-      console.log(`Generated salt for password hashing: ${salt}`);
+      console.log(`Generating hash for password with salt: ${salt}`);
       const derivedKey = (await scryptAsync(password, salt, 64)) as Buffer;
       const hashedPassword = `${derivedKey.toString("hex")}.${salt}`;
-      console.log(`Successfully hashed password. Hash length: ${hashedPassword.length}`);
+      console.log(`Successfully generated password hash. Length: ${hashedPassword.length}`);
       return hashedPassword;
     } catch (error) {
-      console.error('Error hashing password:', error);
-      throw new Error('Error securing password. Please try again.');
+      console.error('Error in password hashing:', error);
+      throw new Error('Failed to secure password. Please try again.');
     }
   },
   compare: async (suppliedPassword: string, storedPassword: string) => {
@@ -33,10 +33,11 @@ const crypto = {
       // Split stored password into hash and salt
       const [storedHash, salt] = storedPassword.split(".");
       if (!storedHash || !salt) {
+        console.error('Invalid stored password format:', { storedPassword });
         throw new Error('Invalid stored password format');
       }
 
-      // Generate hash of supplied password using same salt
+      console.log('Generating hash with stored salt for comparison');
       const derivedKey = (await scryptAsync(suppliedPassword, salt, 64)) as Buffer;
       const suppliedHash = derivedKey.toString("hex");
 
@@ -44,9 +45,10 @@ const crypto = {
       const storedBuffer = Buffer.from(storedHash, "hex");
       const suppliedBuffer = Buffer.from(suppliedHash, "hex");
 
-      console.log('Comparing password hashes...');
-      console.log('Supplied hash:', suppliedHash);
-      console.log('Stored hash:', storedHash);
+      console.log('Comparing password hashes...', {
+        storedHashLength: storedHash.length,
+        suppliedHashLength: suppliedHash.length
+      });
 
       const isMatch = timingSafeEqual(storedBuffer, suppliedBuffer);
       console.log(`Password comparison result: ${isMatch}`);
@@ -54,7 +56,9 @@ const crypto = {
       return isMatch;
     } catch (error) {
       console.error('Error comparing passwords:', error);
-      console.error('Stored password format:', storedPassword);
+      if (error.message === 'Invalid stored password format') {
+        throw error;
+      }
       throw new Error('Error verifying password. Please try again.');
     }
   },
@@ -68,7 +72,14 @@ declare global {
       role: {
         id: number;
         name: string;
-        permissions: Record<string, Record<string, boolean>>;
+        permissions: {
+          [key: string]: {
+            create?: boolean;
+            read?: boolean;
+            update?: boolean;
+            delete?: boolean;
+          };
+        };
       };
     }
   }
@@ -266,32 +277,62 @@ export function setupAuth(app: Express) {
   });
 
   app.post("/api/login", (req, res, next) => {
-    console.log('Login request received:', { username: req.body.username });
+    console.log('Login request received:', {
+      username: req.body.username,
+      hasPassword: !!req.body.password
+    });
 
     passport.authenticate("local", (err: any, user: Express.User | false, info: any) => {
       if (err) {
-        console.error('Login authentication error:', err);
-        return next(err);
-      }
-      if (!user) {
-        console.log('Login failed:', info);
-        return res.status(400).json({
-          message: info.message || "Login failed",
-          suggestion: "Please check your credentials and try again"
+        console.error('Login authentication error:', {
+          error: err.message,
+          stack: err.stack
+        });
+        return res.status(500).json({
+          message: "Internal server error",
+          suggestion: "Please try again later. If the problem persists, contact support."
         });
       }
+
+      if (!user) {
+        console.log('Login failed:', {
+          reason: info.message,
+          username: req.body.username
+        });
+        return res.status(400).json({
+          message: info.message || "Invalid credentials",
+          suggestion: info.message?.includes("password")
+            ? "Please check your password and try again"
+            : "Please check your username and try again"
+        });
+      }
+
       req.logIn(user, (err) => {
         if (err) {
-          console.error('Login session error:', err);
+          console.error('Login session error:', {
+            error: err.message,
+            stack: err.stack,
+            userId: user.id
+          });
           return res.status(500).json({
-            message: "Internal server error",
-            suggestion: "Please try again later"
+            message: "Failed to create session",
+            suggestion: "Please try again. If the problem persists, clear your browser cookies."
           });
         }
-        console.log('Login successful for user:', user.username);
+
+        console.log('Login successful:', {
+          userId: user.id,
+          username: user.username,
+          role: user.role.name
+        });
+
         return res.json({
           message: "Login successful",
-          user: { id: user.id, username: user.username, role: user.role },
+          user: {
+            id: user.id,
+            username: user.username,
+            role: user.role
+          }
         });
       });
     })(req, res, next);
