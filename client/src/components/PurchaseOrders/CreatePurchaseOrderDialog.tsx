@@ -11,14 +11,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 
+// Schema for the purchase order form
 const purchaseOrderSchema = z.object({
   supplierId: z.string().min(1, "Supplier is required"),
-  deliveryDate: z.string().min(1, "Delivery date is required"),
+  deliveryDate: z.string().refine((date) => {
+    const deliveryDate = new Date(date);
+    const now = new Date();
+    return deliveryDate > now;
+  }, "Delivery date must be in the future"),
   notes: z.string().optional(),
   items: z.array(z.object({
     productId: z.string().min(1, "Product is required"),
-    quantity: z.string().min(1, "Quantity is required"),
-    unitPrice: z.string().min(1, "Unit price is required"),
+    quantity: z.string().min(1, "Quantity is required")
+      .refine((val) => !isNaN(parseInt(val)) && parseInt(val) > 0, "Quantity must be a positive number"),
+    unitPrice: z.string().min(1, "Unit price is required")
+      .refine((val) => !isNaN(parseFloat(val)) && parseFloat(val) > 0, "Unit price must be a positive number"),
   })).min(1, "At least one item is required"),
 });
 
@@ -29,10 +36,16 @@ export function CreatePurchaseOrderDialog() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // Set default delivery date to tomorrow
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const defaultDeliveryDate = tomorrow.toISOString().slice(0, 16); // Format: YYYY-MM-DDTHH:mm
+
   const form = useForm<FormData>({
     resolver: zodResolver(purchaseOrderSchema),
     defaultValues: {
       items: [{ productId: "", quantity: "", unitPrice: "" }],
+      deliveryDate: defaultDeliveryDate,
     },
   });
 
@@ -61,7 +74,8 @@ export function CreatePurchaseOrderDialog() {
       });
 
       if (!response.ok) {
-        throw new Error(await response.text());
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to create purchase order');
       }
 
       return response.json();
@@ -73,7 +87,10 @@ export function CreatePurchaseOrderDialog() {
         description: "Purchase order created successfully",
       });
       setOpen(false);
-      form.reset();
+      form.reset({
+        items: [{ productId: "", quantity: "", unitPrice: "" }],
+        deliveryDate: defaultDeliveryDate,
+      });
     },
     onError: (error: Error) => {
       toast({
@@ -137,7 +154,11 @@ export function CreatePurchaseOrderDialog() {
                 <FormItem>
                   <FormLabel>Delivery Date</FormLabel>
                   <FormControl>
-                    <Input type="datetime-local" {...field} />
+                    <Input 
+                      type="datetime-local" 
+                      {...field} 
+                      min={new Date().toISOString().slice(0, 16)}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -215,6 +236,7 @@ export function CreatePurchaseOrderDialog() {
                           <Input
                             type="number"
                             placeholder="Quantity"
+                            min="1"
                             {...field}
                           />
                         </FormControl>
@@ -232,6 +254,8 @@ export function CreatePurchaseOrderDialog() {
                           <Input
                             type="number"
                             placeholder="Unit Price (VND)"
+                            min="0.01"
+                            step="0.01"
                             {...field}
                           />
                         </FormControl>
