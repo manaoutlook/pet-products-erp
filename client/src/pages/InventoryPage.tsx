@@ -47,6 +47,16 @@ import { Barcode } from "@/components/ui/barcode";
 import { usePermissions } from "@/hooks/use-permissions";
 import { QuickAddProduct } from "@/components/QuickAdd/QuickAddProduct";
 import { QuickAddSupplier } from "@/components/QuickAdd/QuickAddSupplier";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
+  Filter,
+  RefreshCw,
+} from "lucide-react";
 
 const inventorySchema = z.object({
   productId: z.string().min(1, "Product is required"),
@@ -93,12 +103,25 @@ interface InventoryItem {
   supplier: Supplier | null;
 }
 
+interface FilterState {
+  inventoryType: string;
+  storeId: string;
+  supplierId: string;
+  stockStatus: string;
+}
+
 function InventoryPage() {
   const [search, setSearch] = useState("");
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const { toast } = useToast();
   const { hasPermission } = usePermissions();
+  const [filters, setFilters] = useState<FilterState>({
+    inventoryType: '',
+    storeId: '',
+    supplierId: '',
+    stockStatus: '',
+  });
 
   const canCreate = hasPermission('inventory', 'create');
   const canUpdate = hasPermission('inventory', 'update');
@@ -285,13 +308,37 @@ function InventoryPage() {
     }
   };
 
-  const filteredInventory = inventory?.filter(item =>
-    item.product.name.toLowerCase().includes(search.toLowerCase()) ||
-    item.product.sku.toLowerCase().includes(search.toLowerCase()) ||
-    item.location?.toLowerCase().includes(search.toLowerCase()) ||
-    item.store?.name.toLowerCase().includes(search.toLowerCase()) ||
-    item.supplier?.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredInventory = inventory?.filter(item => {
+    const matchesSearch = search.toLowerCase().trim() === '' ||
+      item.product.name.toLowerCase().includes(search.toLowerCase()) ||
+      item.product.sku.toLowerCase().includes(search.toLowerCase()) ||
+      item.location?.toLowerCase().includes(search.toLowerCase()) ||
+      item.store?.name.toLowerCase().includes(search.toLowerCase()) ||
+      item.supplier?.name.toLowerCase().includes(search.toLowerCase());
+
+    const matchesType = !filters.inventoryType || item.inventoryType === filters.inventoryType;
+    const matchesStore = !filters.storeId || item.storeId?.toString() === filters.storeId;
+    const matchesSupplier = !filters.supplierId || item.supplierId?.toString() === filters.supplierId;
+    const matchesStockStatus = !filters.stockStatus ||
+      (filters.stockStatus === 'low' && item.quantity <= item.product.minStock) ||
+      (filters.stockStatus === 'inStock' && item.quantity > item.product.minStock);
+
+    return matchesSearch && matchesType && matchesStore && matchesSupplier && matchesStockStatus;
+  });
+
+  const handleFilterChange = (key: keyof FilterState, value: string) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+  };
+
+  const clearFilters = () => {
+    setFilters({
+      inventoryType: '',
+      storeId: '',
+      supplierId: '',
+      stockStatus: '',
+    });
+    setSearch('');
+  };
 
   const isPending = createInventoryMutation.isPending || updateInventoryMutation.isPending;
 
@@ -488,15 +535,124 @@ function InventoryPage() {
       <Card>
         <CardHeader>
           <CardTitle>Inventory List</CardTitle>
-          <div className="flex items-center gap-4">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search inventory..."
-                className="pl-8"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+          <div className="space-y-4">
+            <Accordion type="single" collapsible className="w-full">
+              <AccordionItem value="filters">
+                <AccordionTrigger>
+                  <div className="flex items-center gap-2">
+                    <Filter className="h-4 w-4" />
+                    Advanced Filters
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 p-4">
+                    <div className="space-y-2">
+                      <FormLabel>Inventory Type</FormLabel>
+                      <Select
+                        value={filters.inventoryType}
+                        onValueChange={(value) => handleFilterChange('inventoryType', value)}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="All Types" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="">All Types</SelectItem>
+                          <SelectItem value="DC">Distribution Center</SelectItem>
+                          <SelectItem value="STORE">Store</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <FormLabel>Store</FormLabel>
+                      <Select
+                        value={filters.storeId}
+                        onValueChange={(value) => handleFilterChange('storeId', value)}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="All Stores" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="">All Stores</SelectItem>
+                          {stores?.map((store) => (
+                            <SelectItem key={store.id} value={store.id.toString()}>
+                              {store.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <FormLabel>Supplier</FormLabel>
+                      <Select
+                        value={filters.supplierId}
+                        onValueChange={(value) => handleFilterChange('supplierId', value)}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="All Suppliers" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="">All Suppliers</SelectItem>
+                          {suppliers?.map((supplier) => (
+                            <SelectItem key={supplier.id} value={supplier.id.toString()}>
+                              {supplier.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <FormLabel>Stock Status</FormLabel>
+                      <Select
+                        value={filters.stockStatus}
+                        onValueChange={(value) => handleFilterChange('stockStatus', value)}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="All Status" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="">All Status</SelectItem>
+                          <SelectItem value="low">Low Stock</SelectItem>
+                          <SelectItem value="inStock">In Stock</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end px-4 pt-2">
+                    <Button
+                      variant="outline"
+                      onClick={clearFilters}
+                      className="flex items-center gap-2"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      Clear Filters
+                    </Button>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+
+            <div className="flex items-center gap-4">
+              <div className="relative flex-1 max-w-sm">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search inventory..."
+                  className="pl-8"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
             </div>
           </div>
         </CardHeader>
