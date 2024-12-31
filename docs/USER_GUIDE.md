@@ -9,7 +9,7 @@
    - [Master Data Management](#master-data-management)
    - [Products Management](#products-management)
    - [Inventory Management](#inventory-management)
-   - [Order Processing](#order-processing)
+   - [Order Processing (Sales Orders)](#order-processing-sales-orders)
    - [Store Operations](#store-operations)
    - [User Management](#user-management)
 5. [Common Operations](#common-operations)
@@ -19,7 +19,7 @@
 
 The Pet Products Distribution ERP system is a comprehensive enterprise resource planning solution specialized for pet product distribution businesses. It provides integrated management of:
 - Product inventory across multiple locations
-- Order processing and tracking
+- Order processing (both customer sales orders and supplier purchase orders)
 - Store operations and performance monitoring
 - User access control and permissions
 - Master data management
@@ -28,9 +28,11 @@ The Pet Products Distribution ERP system is a comprehensive enterprise resource 
 - Multi-location inventory tracking
 - Role-based access control
 - Real-time inventory updates
-- Store performance analytics
+- Store performance analytics (all metrics displayed in VND)
 - Comprehensive product management
 - Secure authentication system
+- Dual order management (Sales & Purchase)
+- VND-based pricing and transactions
 
 ## Getting Started
 
@@ -42,12 +44,21 @@ The Pet Products Distribution ERP system is a comprehensive enterprise resource 
    - Password
 4. Click "Login" to access the system
 
+### Username Requirements
+- Usernames must be in lowercase letters only
+- Minimum length: 3 characters
+- The system automatically converts all usernames to lowercase
+- No special characters or numbers allowed in usernames
+- Examples of valid usernames: admin, storemanager, inventoryuser
+- Examples of invalid usernames: Admin123, store.manager, inventory_user
+
 ### First-time Setup
 - Default admin credentials:
   - Username: admin
   - Password: admin123
 - It's recommended to change the default password after first login
 - System administrators can create additional user accounts
+- All new usernames will be automatically converted to lowercase
 
 ### Security Best Practices
 1. Password Management
@@ -68,35 +79,23 @@ The system uses a hierarchical navigation structure located in the left sidebar,
 1. **Dashboard**
    - Overview of key metrics and activities
    - Quick access to common functions
-
+   - Revenue metrics in VND
 2. **Master Data**
    - Categories
    - Brands
-   - Suppliers
-
+   - Suppliers (for purchase order management)
 3. **Products**
    - Product List
-   - Product Management
-
+   - Product Management (prices in VND)
 4. **Orders**
-   - Order Processing
+   - Sales Order Processing (store orders)
    - Order History
-
+   - Performance Tracking
 5. **Inventory**
    - Stock Management
    - Stock Transfers
    - Inventory Reports
-
-6. **Stores**
-   - Store List
-   - Store Performance
-
-7. **User Management**
-   - Users
-   - Roles
-   - Permissions
-   - Store Assignments
-   - Role Mapping
+   - Purchase Order Management (supplier orders)
 
 ### User Interface Elements
 - **Collapsible Sidebar**: Click menu items with arrows to expand/collapse sub-menus
@@ -147,7 +146,7 @@ The dashboard provides an overview of:
    - SKU
    - Category
    - Brand
-   - Price
+   - Price (in VND)
    - Description
    - Minimum stock level
 3. Save the product
@@ -205,43 +204,72 @@ The dashboard provides an overview of:
    - Provide reason and documentation
    - Submit for approval
 
-### Order Processing
+#### Purchase Orders (Supplier Orders)
+1. Creating Purchase Orders
+   - Select supplier from master data
+   - Choose products to order
+   - Set quantities based on:
+     * Current stock levels
+     * Minimum stock requirements
+     * Outstanding customer orders
+   - Specify delivery location
+   - Enter pricing in VND
+   - Add any supplier-specific notes
 
-#### Creating New Orders
+2. Purchase Order Approval
+   - Review order details
+   - Check budget allocation in VND
+   - Verify supplier terms
+   - Submit for approval based on amount thresholds
+
+3. Order Tracking
+   - Monitor order status
+   - Track shipment details
+   - Record partial deliveries
+   - Handle supplier communications
+   - Update inventory values in VND
+
+### Order Processing (Sales Orders)
+
+#### Creating New Sales Orders
 1. Initial Setup
-   - Select customer/store
-   - Choose order type
+   - Select customer/store placing the order
+   - Choose order type (regular/urgent)
    - Set delivery preferences
+   - Input store reference number if applicable
 
 2. Adding Products
    - Search and select products
    - Specify quantities
-   - Apply any discounts
-   - Check stock availability
+   - Apply any authorized discounts
+   - System automatically checks stock availability
+   - Prices are displayed in VND
+   - View total order value in VND
 
 3. Order Review
-   - Verify product details
-   - Confirm pricing
-   - Add special instructions
-   - Submit order
+   - Verify product details and quantities
+   - Confirm pricing in VND
+   - Add special instructions if needed
+   - Submit order for processing
 
 #### Order Fulfillment
 1. Picking Process
-   - Generate pick lists
-   - Assign to warehouse staff
+   - Generate pick lists for warehouse staff
+   - Assign to warehouse personnel
    - Record picked quantities
+   - Handle any stock discrepancies
 
 2. Packing
-   - Verify picked items
-   - Pack products
+   - Verify picked items against order
+   - Pack products according to guidelines
    - Generate packing slip
-   - Record package details
+   - Record package details and weights
 
 3. Shipping
    - Choose shipping method
    - Generate shipping labels
    - Update tracking information
-   - Send notifications
+   - Send notifications to receiving store
 
 ### Store Management
 
@@ -264,16 +292,17 @@ The dashboard provides an overview of:
 
 #### Store Performance Monitoring
 1. Key Metrics
-   - Daily sales
+   - Daily sales (in VND)
    - Inventory turnover
    - Order fulfillment rate
-   - Customer satisfaction
+   - Customer satisfaction (measured in VND)
 
 2. Reports
-   - Sales analysis
+   - Sales analysis (in VND)
    - Stock movement
    - Staff performance
-   - Profit margins
+   - Profit margins (in VND)
+
 
 ### User Management
 
@@ -357,7 +386,7 @@ The dashboard provides an overview of:
 ### Common Issues and Solutions
 
 1. **Login Issues**
-   - Verify username and password
+   - Verify username (remember it's case-insensitive and always lowercase)
    - Check Caps Lock status
    - Contact administrator for password reset
 

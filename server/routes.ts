@@ -8,19 +8,21 @@ import { requireRole, requireAuth } from "./middleware";
 import { z } from "zod";
 import { crypto } from "./auth"; // Import crypto utility
 
-// Create proper Zod schema for user validation
+// Add proper Zod schema for user validation with enhanced username requirements
 const insertUserSchema = z.object({
   username: z.string()
     .min(3, "Username must be at least 3 characters")
+    .regex(/^[a-z]+$/, "Username must contain only lowercase letters")
     .transform(val => val.toLowerCase()), // Force lowercase
   password: z.string().min(6, "Password must be at least 6 characters"),
   roleId: z.number().positive("Role ID must be positive")
 });
 
-// Add update user schema for validation
+// Update user schema for validation
 const updateUserSchema = z.object({
   username: z.string()
     .min(3, "Username must be at least 3 characters")
+    .regex(/^[a-z]+$/, "Username must contain only lowercase letters")
     .transform(val => val.toLowerCase()) // Force lowercase
     .optional(),
   password: z.string().min(6, "Password must be at least 6 characters").optional(),
