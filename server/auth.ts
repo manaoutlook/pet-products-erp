@@ -11,14 +11,45 @@ import { eq } from "drizzle-orm";
 
 const scryptAsync = promisify(scrypt);
 
-// Improved crypto functions with better error handling
-const crypto = {
+interface Permission {
+  create?: boolean;
+  read?: boolean;
+  update?: boolean;
+  delete?: boolean;
+}
+
+interface Permissions {
+  [key: string]: Permission;
+}
+
+declare global {
+  namespace Express {
+    interface User {
+      id: number;
+      username: string;
+      role: {
+        id: number;
+        name: string;
+        permissions: Permissions;
+      };
+    }
+  }
+}
+
+// Improved crypto functions with better error handling and logging
+export const crypto = {
   hash: async (password: string) => {
     try {
+      if (!password) {
+        throw new Error('Password is required');
+      }
+
       const salt = randomBytes(16).toString("hex");
       console.log(`Generating hash for password with salt: ${salt}`);
+
       const derivedKey = (await scryptAsync(password, salt, 64)) as Buffer;
       const hashedPassword = `${derivedKey.toString("hex")}.${salt}`;
+
       console.log(`Successfully generated password hash. Length: ${hashedPassword.length}`);
       return hashedPassword;
     } catch (error) {
@@ -26,9 +57,15 @@ const crypto = {
       throw new Error('Failed to secure password. Please try again.');
     }
   },
+
   compare: async (suppliedPassword: string, storedPassword: string) => {
     try {
       console.log('Starting password comparison...');
+
+      // Validate inputs
+      if (!suppliedPassword || !storedPassword) {
+        throw new Error('Both supplied and stored passwords are required');
+      }
 
       // Split stored password into hash and salt
       const [storedHash, salt] = storedPassword.split(".");
@@ -54,7 +91,7 @@ const crypto = {
       console.log(`Password comparison result: ${isMatch}`);
 
       return isMatch;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error comparing passwords:', error);
       if (error.message === 'Invalid stored password format') {
         throw error;
@@ -63,27 +100,6 @@ const crypto = {
     }
   },
 };
-
-declare global {
-  namespace Express {
-    interface User {
-      id: number;
-      username: string;
-      role: {
-        id: number;
-        name: string;
-        permissions: {
-          [key: string]: {
-            create?: boolean;
-            read?: boolean;
-            update?: boolean;
-            delete?: boolean;
-          };
-        };
-      };
-    }
-  }
-}
 
 export async function setupAdmin() {
   try {
@@ -232,7 +248,7 @@ export function setupAuth(app: Express) {
         // Don't include password in the user object
         const { password: _, ...userWithoutPassword } = user;
         console.log('Login successful:', userWithoutPassword);
-        return done(null, userWithoutPassword);
+        return done(null, userWithoutPassword as Express.User);
       } catch (err) {
         console.error('Login error:', err);
         return done(err);
@@ -269,7 +285,7 @@ export function setupAuth(app: Express) {
       }
 
       console.log('User deserialized:', user);
-      done(null, user);
+      done(null, user as Express.User);
     } catch (err) {
       console.error('Deserialization error:', err);
       done(err);

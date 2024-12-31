@@ -6,6 +6,7 @@ import { products, inventory, orders, orderItems, users, roles, roleTypes, store
 import { eq, and, desc, sql, gte, lt } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
 import { z } from "zod";
+import { crypto } from "./auth"; // Import crypto utility
 
 // Create proper Zod schema for user validation
 const insertUserSchema = z.object({
@@ -17,6 +18,7 @@ const insertUserSchema = z.object({
 // Add update user schema for validation
 const updateUserSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters").optional(),
+  password: z.string().min(6, "Password must be at least 6 characters").optional(),
   roleId: z.number().positive("Role ID must be positive").optional(),
 });
 
@@ -43,8 +45,17 @@ function generateInventoryBarcode(
 }
 
 export function registerRoutes(app: Express): Server {
-  // Set up authentication and create admin user if needed
+  // Set up authentication first - this adds /api/login, /api/logout, /api/user endpoints
   setupAuth(app);
+
+  // Add middleware to log all API requests
+  app.use('/api', (req, res, next) => {
+    console.log(`${req.method} ${req.path}`);
+    next();
+  });
+
+  // After this point, all routes will require authentication unless explicitly marked as public
+  app.use('/api', requireAuth);
 
   // Role Types endpoints - admin only
   app.get("/api/role-types", async (req, res) => {
@@ -493,6 +504,7 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).send("Username already exists");
       }
 
+      // Hash password using the crypto utility
       const hashedPassword = await crypto.hash(password);
 
       const [newUser] = await db
@@ -538,9 +550,9 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { username, roleId } = result.data;
+      const { username, roleId, password } = result.data;
 
-      if (!username && !roleId) {
+      if (!username && !roleId && !password) {
         return res.status(400).json({
           message: "No updates provided",
           suggestion: "Provide either username or roleId to update"
@@ -579,6 +591,10 @@ export function registerRoutes(app: Express): Server {
         }
       }
 
+      //If password provided, hash it
+      const hashedPassword = password ? await crypto.hash(password) : existingUser.password;
+
+
       // If roleId provided, verify it exists
       if (roleId) {
         const role = await db.query.roles.findFirst({
@@ -599,6 +615,7 @@ export function registerRoutes(app: Express): Server {
         .set({
           ...(username && { username }),
           ...(roleId && { roleId }),
+          ...(password && { password: hashedPassword }),
           updatedAt: new Date(),
         })
         .where(eq(users.id, parseInt(id)))
@@ -1009,8 +1026,7 @@ export function registerRoutes(app: Express): Server {
   // Products API - available to all authenticated users
   app.get("/api/products", requireAuth, async (req, res) => {
     try {
-      const allProducts = await db.query.products.findMany({
-        with: {
+      const allProducts = await db.query.products.findMany({        with: {
           category: true,
           inventory: true,
           brand: true,
@@ -1025,7 +1041,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Products API - Create product (admin only)
-  app.post("/api/products", requireRole(['admin']), async (req, res) => {
+  app.post("/api/products", requireRole(['admin']), async(req, res) => {
     try {
       const result = insertProductSchema.safeParse(req.body);
       if (!result.success) {
@@ -1715,15 +1731,3 @@ export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
   return httpServer;
 }
-
-const crypto = {
-  hash: async (password: string) => {
-    const salt = randomBytes(16).toString("hex");
-    const buf = (await scryptAsync(password, salt, 64)) as Buffer;
-    return `${buf.toString("hex")}.${salt}`;
-  },
-};
-
-import { scrypt, randomBytes } from "crypto";
-import { promisify } from "util";
-const scryptAsync = promisify(scrypt);
