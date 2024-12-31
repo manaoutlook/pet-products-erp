@@ -37,6 +37,17 @@ function Sidebar() {
   const { hasPermission, isAdmin } = usePermissions();
   const isSystemAdmin = user?.role?.roleType?.description === 'System Administrator';
 
+  console.log('User permissions:', {
+    user,
+    isAdmin,
+    isSystemAdmin,
+    hasInventoryRead: hasPermission('inventory', 'read'),
+    hasProductsRead: hasPermission('products', 'read'),
+    hasOrdersRead: hasPermission('orders', 'read'),
+    hasUsersRead: hasPermission('users', 'read'),
+    hasStoresRead: hasPermission('stores', 'read')
+  });
+
   const navigationItems: NavItem[] = [
     { 
       name: "Dashboard", 
@@ -72,16 +83,10 @@ function Sidebar() {
     },
     { 
       name: "Products", 
+      href: "/products", 
       icon: Package,
-      children: [
-        {
-          name: "Product List",
-          href: "/products",
-          icon: Package,
-          module: 'products',
-          action: 'read'
-        }
-      ]
+      module: 'products',
+      action: 'read'
     },
     { 
       name: "Orders", 
@@ -135,7 +140,7 @@ function Sidebar() {
           adminOnly: true
         },
         { 
-          name: "Permissions", 
+          name: "Role Permissions", 
           href: "/role-permissions", 
           icon: Lock,
           adminOnly: true
@@ -157,6 +162,14 @@ function Sidebar() {
   ];
 
   const hasAccess = (item: NavItem): boolean => {
+    // For debugging
+    console.log('Checking access for:', item.name, {
+      isSystemAdmin,
+      isAdmin,
+      hasModule: item.module ? hasPermission(item.module, item.action || 'read') : true,
+      adminOnly: item.adminOnly
+    });
+
     // System admins have access to everything
     if (isSystemAdmin) {
       return true;
@@ -182,12 +195,13 @@ function Sidebar() {
   };
 
   const renderNavItem = (item: NavItem) => {
-    // Skip rendering if user doesn't have access
+    // For debugging
+    console.log('Rendering nav item:', item.name, 'Access:', hasAccess(item));
+
     if (!hasAccess(item)) {
       return null;
     }
 
-    // Handle items with children (submenus)
     if (item.children) {
       const accessibleChildren = item.children.filter(child => hasAccess(child));
       if (accessibleChildren.length === 0) {
@@ -196,9 +210,7 @@ function Sidebar() {
 
       return (
         <div key={item.name} className="space-y-1">
-          <div className={cn(
-            "flex items-center px-2 py-2 text-sm font-medium rounded-md text-sidebar-foreground",
-          )}>
+          <div className="flex items-center px-2 py-2 text-sm font-medium rounded-md text-sidebar-foreground">
             <item.icon className="mr-3 h-5 w-5" />
             {item.name}
           </div>
@@ -209,12 +221,10 @@ function Sidebar() {
       );
     }
 
-    // Skip rendering items without href
     if (!item.href) {
       return null;
     }
 
-    // Render regular menu items
     return (
       <Link key={item.name} href={item.href}>
         <a
