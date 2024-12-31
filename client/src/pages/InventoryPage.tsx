@@ -45,6 +45,8 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Barcode } from "@/components/ui/barcode";
 import { usePermissions } from "@/hooks/use-permissions";
+import { QuickAddProduct } from "@/components/QuickAdd/QuickAddProduct";
+import { QuickAddSupplier } from "@/components/QuickAdd/QuickAddSupplier";
 
 const inventorySchema = z.object({
   productId: z.string().min(1, "Product is required"),
@@ -297,90 +299,37 @@ function InventoryPage() {
     <div className="space-y-6 p-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Inventory Management</h1>
-        {canCreate && (
-          <Dialog open={dialogOpen} onOpenChange={(open) => {
-            setDialogOpen(open);
-            if (!open) {
-              setSelectedItem(null);
-              form.reset();
-            }
-          }}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="mr-2 h-4 w-4" />
-                Add Inventory
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>
-                  {selectedItem ? 'Edit Inventory Item' : 'Add Inventory Item'}
-                </DialogTitle>
-              </DialogHeader>
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="inventoryType"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Inventory Type</FormLabel>
-                        <Select
-                          value={field.value}
-                          onValueChange={field.onChange}
-                          defaultValue={field.value}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select inventory type" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="DC">Distribution Center</SelectItem>
-                            <SelectItem value="STORE">Store</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="productId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Product</FormLabel>
-                        <Select
-                          value={field.value}
-                          onValueChange={field.onChange}
-                          defaultValue={field.value}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select a product" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {products?.map((product) => (
-                              <SelectItem key={product.id} value={product.id.toString()}>
-                                {product.name} ({product.sku})
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  {form.watch('inventoryType') === 'STORE' && (
+        <div className="flex items-center gap-2">
+          <QuickAddProduct />
+          <QuickAddSupplier />
+          {canCreate && (
+            <Dialog open={dialogOpen} onOpenChange={(open) => {
+              setDialogOpen(open);
+              if (!open) {
+                setSelectedItem(null);
+                form.reset();
+              }
+            }}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Inventory
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>
+                    {selectedItem ? 'Edit Inventory Item' : 'Add Inventory Item'}
+                  </DialogTitle>
+                </DialogHeader>
+                <Form {...form}>
+                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                     <FormField
                       control={form.control}
-                      name="storeId"
+                      name="inventoryType"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Store</FormLabel>
+                          <FormLabel>Inventory Type</FormLabel>
                           <Select
                             value={field.value}
                             onValueChange={field.onChange}
@@ -388,13 +337,39 @@ function InventoryPage() {
                           >
                             <FormControl>
                               <SelectTrigger>
-                                <SelectValue placeholder="Select a store" />
+                                <SelectValue placeholder="Select inventory type" />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              {stores?.map((store) => (
-                                <SelectItem key={store.id} value={store.id.toString()}>
-                                  {store.name}
+                              <SelectItem value="DC">Distribution Center</SelectItem>
+                              <SelectItem value="STORE">Store</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="productId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Product</FormLabel>
+                          <Select
+                            value={field.value}
+                            onValueChange={field.onChange}
+                            defaultValue={field.value}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select a product" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {products?.map((product) => (
+                                <SelectItem key={product.id} value={product.id.toString()}>
+                                  {product.name} ({product.sku})
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -403,80 +378,111 @@ function InventoryPage() {
                         </FormItem>
                       )}
                     />
-                  )}
 
-                  <FormField
-                    control={form.control}
-                    name="supplierId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Supplier</FormLabel>
-                        <Select
-                          value={field.value}
-                          onValueChange={field.onChange}
-                          defaultValue={field.value}
-                        >
+                    {form.watch('inventoryType') === 'STORE' && (
+                      <FormField
+                        control={form.control}
+                        name="storeId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Store</FormLabel>
+                            <Select
+                              value={field.value}
+                              onValueChange={field.onChange}
+                              defaultValue={field.value}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select a store" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {stores?.map((store) => (
+                                  <SelectItem key={store.id} value={store.id.toString()}>
+                                    {store.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
+
+                    <FormField
+                      control={form.control}
+                      name="supplierId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Supplier</FormLabel>
+                          <Select
+                            value={field.value}
+                            onValueChange={field.onChange}
+                            defaultValue={field.value}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select a supplier" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {suppliers?.map((supplier) => (
+                                <SelectItem key={supplier.id} value={supplier.id.toString()}>
+                                  {supplier.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="quantity"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Quantity</FormLabel>
                           <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select a supplier" />
-                            </SelectTrigger>
+                            <Input type="number" min="0" {...field} />
                           </FormControl>
-                          <SelectContent>
-                            {suppliers?.map((supplier) => (
-                              <SelectItem key={supplier.id} value={supplier.id.toString()}>
-                                {supplier.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-                  <FormField
-                    control={form.control}
-                    name="quantity"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Quantity</FormLabel>
-                        <FormControl>
-                          <Input type="number" min="0" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                    <FormField
+                      control={form.control}
+                      name="location"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Location</FormLabel>
+                          <FormControl>
+                            <Input {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-                  <FormField
-                    control={form.control}
-                    name="location"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Location</FormLabel>
-                        <FormControl>
-                          <Input {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={isPending}
-                  >
-                    {isPending && (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    )}
-                    {selectedItem ? 'Update' : 'Create'} Inventory Item
-                  </Button>
-                </form>
-              </Form>
-            </DialogContent>
-          </Dialog>
-        )}
+                    <Button
+                      type="submit"
+                      className="w-full"
+                      disabled={isPending}
+                    >
+                      {isPending && (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      )}
+                      {selectedItem ? 'Update' : 'Create'} Inventory Item
+                    </Button>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+          )}
+        </div>
       </div>
 
       <Card>
