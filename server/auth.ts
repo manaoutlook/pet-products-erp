@@ -215,6 +215,9 @@ export function setupAuth(app: Express) {
       try {
         console.log(`Attempting login for user: ${username}`);
 
+        // Convert username to lowercase for consistency
+        const normalizedUsername = username.toLowerCase();
+
         // Include role information in the login query
         const [user] = await db
           .select({
@@ -229,7 +232,7 @@ export function setupAuth(app: Express) {
           })
           .from(users)
           .innerJoin(roles, eq(users.roleId, roles.id))
-          .where(eq(users.username, username))
+          .where(eq(users.username, normalizedUsername))
           .limit(1);
 
         if (!user) {
