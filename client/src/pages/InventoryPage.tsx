@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Table,
   TableBody,
@@ -39,14 +39,12 @@ import {
 } from "@/components/ui/card";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Plus, Search, Pencil, Trash2 } from "lucide-react";
+import { Loader2, Plus, Search, Pencil, Trash2, Filter, RefreshCw } from "lucide-react";
 import { useForm, FormProvider } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Barcode } from "@/components/ui/barcode";
 import { usePermissions } from "@/hooks/use-permissions";
-import { QuickAddProduct } from "@/components/QuickAdd/QuickAddProduct";
-import { QuickAddSupplier } from "@/components/QuickAdd/QuickAddSupplier";
 import {
   Accordion,
   AccordionContent,
@@ -54,9 +52,10 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import {
-  Filter,
-  RefreshCw,
-} from "lucide-react";
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 
 const inventorySchema = z.object({
   productId: z.string().min(1, "Product is required"),
@@ -67,7 +66,24 @@ const inventorySchema = z.object({
   inventoryType: z.enum(["DC", "STORE"], { required_error: "Inventory type is required" }),
 });
 
+const productSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  sku: z.string().min(1, "SKU is required"),
+  price: z.string().min(1, "Price is required"),
+  categoryId: z.string().min(1, "Category is required"),
+  minStock: z.string().optional(),
+  description: z.string().optional(),
+});
+
+const supplierSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  contactInfo: z.string().min(1, "Contact information is required"),
+  address: z.string().min(1, "Address is required"),
+});
+
 type InventoryFormValues = z.infer<typeof inventorySchema>;
+type ProductFormValues = z.infer<typeof productSchema>;
+type SupplierFormValues = z.infer<typeof supplierSchema>;
 
 interface Product {
   id: number;
@@ -110,6 +126,11 @@ interface FilterState {
   stockStatus: string;
 }
 
+interface Category {
+  id: number;
+  name: string;
+}
+
 function InventoryPage() {
   const [search, setSearch] = useState("");
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
@@ -122,6 +143,9 @@ function InventoryPage() {
     supplierId: '',
     stockStatus: '',
   });
+  const [showQuickAddProduct, setShowQuickAddProduct] = useState(false);
+  const [showQuickAddSupplier, setShowQuickAddSupplier] = useState(false);
+  const queryClient = useQueryClient();
 
   const canCreate = hasPermission('inventory', 'create');
   const canUpdate = hasPermission('inventory', 'update');
@@ -139,12 +163,24 @@ function InventoryPage() {
     },
   });
 
-  const filterForm = useForm({
+  const productForm = useForm<ProductFormValues>({
+    resolver: zodResolver(productSchema),
     defaultValues: {
-      inventoryType: 'all',
-      storeId: 'all',
-      supplierId: 'all',
-      stockStatus: 'all',
+      name: "",
+      sku: "",
+      price: "",
+      categoryId: "",
+      minStock: "10",
+      description: "",
+    },
+  });
+
+  const supplierForm = useForm<SupplierFormValues>({
+    resolver: zodResolver(supplierSchema),
+    defaultValues: {
+      name: "",
+      contactInfo: "",
+      address: "",
     },
   });
 
@@ -162,6 +198,10 @@ function InventoryPage() {
 
   const { data: suppliers } = useQuery<Supplier[]>({
     queryKey: ['/api/suppliers'],
+  });
+
+  const { data: categories } = useQuery<Category[]>({
+    queryKey: ['/api/categories'],
   });
 
   const createInventoryMutation = useMutation({
@@ -260,6 +300,65 @@ function InventoryPage() {
     },
   });
 
+  const createProductMutation = useMutation({
+    mutationFn: async (data: ProductFormValues) => {
+      const res = await fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...data,
+          price: parseFloat(data.price),
+          minStock: data.minStock ? parseInt(data.minStock) : 10,
+          categoryId: parseInt(data.categoryId),
+        }),
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/products'] });
+      setShowQuickAddProduct(false);
+      productForm.reset();
+      form.setValue('productId', data.id.toString());
+      toast({ title: "Success", description: "Product created successfully" });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+    },
+  });
+
+  const createSupplierMutation = useMutation({
+    mutationFn: async (data: SupplierFormValues) => {
+      const res = await fetch('/api/suppliers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/suppliers'] });
+      setShowQuickAddSupplier(false);
+      supplierForm.reset();
+      form.setValue('supplierId', data.id.toString());
+      toast({ title: "Success", description: "Supplier created successfully" });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+    },
+  });
+
   const onSubmit = async (data: InventoryFormValues) => {
     try {
       if (selectedItem) {
@@ -279,6 +378,22 @@ function InventoryPage() {
         description: error.message,
         variant: "destructive"
       });
+    }
+  };
+
+  const onSubmitProduct = async (data: ProductFormValues) => {
+    try {
+      await createProductMutation.mutateAsync(data);
+    } catch (error: any) {
+      // Error is handled by the mutation
+    }
+  };
+
+  const onSubmitSupplier = async (data: SupplierFormValues) => {
+    try {
+      await createSupplierMutation.mutateAsync(data);
+    } catch (error: any) {
+      // Error is handled by the mutation
     }
   };
 
@@ -357,20 +472,29 @@ function InventoryPage() {
   };
 
   const isPending = createInventoryMutation.isPending || updateInventoryMutation.isPending;
+  const filterForm = useForm({
+    defaultValues: {
+      inventoryType: 'all',
+      storeId: 'all',
+      supplierId: 'all',
+      stockStatus: 'all',
+    },
+  });
+
 
   return (
     <div className="space-y-6 p-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Inventory Management</h1>
         <div className="flex items-center gap-2">
-          <QuickAddProduct />
-          <QuickAddSupplier />
           {canCreate && (
             <Dialog open={dialogOpen} onOpenChange={(open) => {
               setDialogOpen(open);
               if (!open) {
                 setSelectedItem(null);
                 form.reset();
+                setShowQuickAddProduct(false);
+                setShowQuickAddSupplier(false);
               }
             }}>
               <DialogTrigger asChild>
@@ -419,25 +543,142 @@ function InventoryPage() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Product</FormLabel>
-                          <Select
-                            value={field.value}
-                            onValueChange={field.onChange}
-                            defaultValue={field.value}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select a product" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {products?.map((product) => (
-                                <SelectItem key={product.id} value={product.id.toString()}>
-                                  {product.name} ({product.sku})
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
+                          <div className="space-y-4">
+                            <div className="flex items-center gap-2">
+                              <Select
+                                value={field.value}
+                                onValueChange={field.onChange}
+                                defaultValue={field.value}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select a product" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {products?.map((product) => (
+                                    <SelectItem key={product.id} value={product.id.toString()}>
+                                      {product.name} ({product.sku})
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                onClick={() => setShowQuickAddProduct(!showQuickAddProduct)}
+                              >
+                                <Plus className="h-4 w-4" />
+                              </Button>
+                            </div>
+
+                            <Collapsible open={showQuickAddProduct} onOpenChange={setShowQuickAddProduct}>
+                              <CollapsibleContent>
+                                <div className="space-y-4 border rounded-md p-4">
+                                  <h4 className="font-medium">Quick Add Product</h4>
+                                  <FormProvider {...productForm}>
+                                    <form onSubmit={productForm.handleSubmit(onSubmitProduct)} className="space-y-4">
+                                      <FormField
+                                        control={productForm.control}
+                                        name="name"
+                                        render={({ field }) => (
+                                          <FormItem>
+                                            <FormLabel>Name</FormLabel>
+                                            <FormControl>
+                                              <Input {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                          </FormItem>
+                                        )}
+                                      />
+
+                                      <FormField
+                                        control={productForm.control}
+                                        name="sku"
+                                        render={({ field }) => (
+                                          <FormItem>
+                                            <FormLabel>SKU</FormLabel>
+                                            <FormControl>
+                                              <Input {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                          </FormItem>
+                                        )}
+                                      />
+
+                                      <FormField
+                                        control={productForm.control}
+                                        name="price"
+                                        render={({ field }) => (
+                                          <FormItem>
+                                            <FormLabel>Price</FormLabel>
+                                            <FormControl>
+                                              <Input type="number" min="0" step="0.01" {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                          </FormItem>
+                                        )}
+                                      />
+
+                                      <FormField
+                                        control={productForm.control}
+                                        name="categoryId"
+                                        render={({ field }) => (
+                                          <FormItem>
+                                            <FormLabel>Category</FormLabel>
+                                            <Select
+                                              value={field.value}
+                                              onValueChange={field.onChange}
+                                            >
+                                              <FormControl>
+                                                <SelectTrigger>
+                                                  <SelectValue placeholder="Select a category" />
+                                                </SelectTrigger>
+                                              </FormControl>
+                                              <SelectContent>
+                                                {categories?.map((category) => (
+                                                  <SelectItem key={category.id} value={category.id.toString()}>
+                                                    {category.name}
+                                                  </SelectItem>
+                                                ))}
+                                              </SelectContent>
+                                            </Select>
+                                            <FormMessage />
+                                          </FormItem>
+                                        )}
+                                      />
+
+                                      <FormField
+                                        control={productForm.control}
+                                        name="minStock"
+                                        render={({ field }) => (
+                                          <FormItem>
+                                            <FormLabel>Minimum Stock</FormLabel>
+                                            <FormControl>
+                                              <Input type="number" min="0" {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                          </FormItem>
+                                        )}
+                                      />
+
+                                      <Button
+                                        type="submit"
+                                        className="w-full"
+                                        disabled={createProductMutation.isPending}
+                                      >
+                                        {createProductMutation.isPending && (
+                                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        )}
+                                        Create Product
+                                      </Button>
+                                    </form>
+                                  </FormProvider>
+                                </div>
+                              </CollapsibleContent>
+                            </Collapsible>
+                          </div>
                         </FormItem>
                       )}
                     />
@@ -479,25 +720,100 @@ function InventoryPage() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Supplier</FormLabel>
-                          <Select
-                            value={field.value}
-                            onValueChange={field.onChange}
-                            defaultValue={field.value}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select a supplier" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {suppliers?.map((supplier) => (
-                                <SelectItem key={supplier.id} value={supplier.id.toString()}>
-                                  {supplier.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
+                          <div className="space-y-4">
+                            <div className="flex items-center gap-2">
+                              <Select
+                                value={field.value}
+                                onValueChange={field.onChange}
+                                defaultValue={field.value}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select a supplier" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {suppliers?.map((supplier) => (
+                                    <SelectItem key={supplier.id} value={supplier.id.toString()}>
+                                      {supplier.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                onClick={() => setShowQuickAddSupplier(!showQuickAddSupplier)}
+                              >
+                                <Plus className="h-4 w-4" />
+                              </Button>
+                            </div>
+
+                            <Collapsible open={showQuickAddSupplier} onOpenChange={setShowQuickAddSupplier}>
+                              <CollapsibleContent>
+                                <div className="space-y-4 border rounded-md p-4">
+                                  <h4 className="font-medium">Quick Add Supplier</h4>
+                                  <FormProvider {...supplierForm}>
+                                    <form onSubmit={supplierForm.handleSubmit(onSubmitSupplier)} className="space-y-4">
+                                      <FormField
+                                        control={supplierForm.control}
+                                        name="name"
+                                        render={({ field }) => (
+                                          <FormItem>
+                                            <FormLabel>Name</FormLabel>
+                                            <FormControl>
+                                              <Input {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                          </FormItem>
+                                        )}
+                                      />
+
+                                      <FormField
+                                        control={supplierForm.control}
+                                        name="contactInfo"
+                                        render={({ field }) => (
+                                          <FormItem>
+                                            <FormLabel>Contact Information</FormLabel>
+                                            <FormControl>
+                                              <Input {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                          </FormItem>
+                                        )}
+                                      />
+
+                                      <FormField
+                                        control={supplierForm.control}
+                                        name="address"
+                                        render={({ field }) => (
+                                          <FormItem>
+                                            <FormLabel>Address</FormLabel>
+                                            <FormControl>
+                                              <Input {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                          </FormItem>
+                                        )}
+                                      />
+
+                                      <Button
+                                        type="submit"
+                                        className="w-full"
+                                        disabled={createSupplierMutation.isPending}
+                                      >
+                                        {createSupplierMutation.isPending && (
+                                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        )}
+                                        Create Supplier
+                                      </Button>
+                                    </form>
+                                  </FormProvider>
+                                </div>
+                              </CollapsibleContent>
+                            </Collapsible>
+                          </div>
                         </FormItem>
                       )}
                     />
@@ -735,7 +1051,6 @@ function InventoryPage() {
                   <TableHead>Store</TableHead>
                   <TableHead>Supplier</TableHead>
                   <TableHead>Quantity</TableHead>
-                  <TableHead>Status</TableHead>
                   {(canUpdate || canDelete) && <TableHead>Actions</TableHead>}
                   <TableHead>Barcode</TableHead>
                 </TableRow>
@@ -746,18 +1061,9 @@ function InventoryPage() {
                     <TableCell>{item.inventoryType === 'DC' ? 'Distribution Center' : 'Store'}</TableCell>
                     <TableCell>{item.product.name}</TableCell>
                     <TableCell>{item.location || '-'}</TableCell>
-                    <TableCell>{item.store?.name || (item.inventoryType === 'DC' ? 'DC001' : '-')}</TableCell>
+                    <TableCell>{item.store?.name || '-'}</TableCell>
                     <TableCell>{item.supplier?.name || '-'}</TableCell>
                     <TableCell>{item.quantity}</TableCell>
-                    <TableCell>
-                      <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        item.quantity <= item.product.minStock
-                          ? 'bg-red-100 text-red-800'
-                          : 'bg-green-100 text-green-800'
-                      }`}>
-                        {item.quantity <= item.product.minStock ? 'Low Stock' : 'In Stock'}
-                      </div>
-                    </TableCell>
                     {(canUpdate || canDelete) && (
                       <TableCell>
                         <div className="flex items-center gap-2">
@@ -774,8 +1080,8 @@ function InventoryPage() {
                             <Button
                               variant="outline"
                               size="icon"
-                              className="text-destructive"
                               onClick={() => handleDelete(item.id)}
+                              className="text-destructive"
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
@@ -783,8 +1089,8 @@ function InventoryPage() {
                         </div>
                       </TableCell>
                     )}
-                    <TableCell className="min-w-[200px]">
-                      {item.barcode && <Barcode value={item.barcode} height={50} fontSize={12} margin={5} />}
+                    <TableCell>
+                      <Barcode value={item.barcode} />
                     </TableCell>
                   </TableRow>
                 ))}
