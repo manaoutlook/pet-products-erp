@@ -99,7 +99,7 @@ export const inventory = pgTable("inventory", {
   supplierId: integer("supplier_id").references(() => suppliers.id),
   quantity: integer("quantity").notNull().default(0),
   location: text("location"),
-  inventoryType: text("inventory_type").notNull().default('STORE'),
+  inventoryType: text("inventory_type").notNull().default('DC'),
   centerId: text("center_id").default('DC001'),
   barcode: text("barcode").unique(),
   purchaseDate: date("purchase_date"),

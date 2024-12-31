@@ -110,7 +110,7 @@ function InventoryPage() {
       supplierId: '',
       quantity: '',
       location: '',
-      inventoryType: 'STORE',
+      inventoryType: 'DC',
     },
   });
 
