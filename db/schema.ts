@@ -4,12 +4,53 @@ import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 import { jsonb } from "drizzle-orm/pg-core";
 
-// Distribution Centers table
-export const distributionCenters = pgTable("distribution_centers", {
+// Role Types table
+export const roleTypes = pgTable("role_types", {
   id: serial("id").primaryKey(),
-  name: varchar("name", { length: 255 }).notNull(),
-  location: varchar("location", { length: 255 }),
+  description: text("description").notNull(),
 });
+
+type Permissions = {
+  products: { create: boolean; read: boolean; update: boolean; delete: boolean };
+  orders: { create: boolean; read: boolean; update: boolean; delete: boolean };
+  inventory: { create: boolean; read: boolean; update: boolean; delete: boolean };
+  users: { create: boolean; read: boolean; update: boolean; delete: boolean };
+  stores: { create: boolean; read: boolean; update: boolean; delete: boolean };
+};
+
+// Roles table with proper JSONB handling
+export const roles = pgTable("roles", {
+  id: serial("id").primaryKey(),
+  name: text("name").unique().notNull(),
+  description: text("description"),
+  roleTypeId: integer("role_type_id").references(() => roleTypes.id).notNull(),
+  permissions: jsonb("permissions").$type<Permissions>().notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Users table with complete schema and validation
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  username: text("username").unique().notNull(),
+  password: text("password").notNull(),
+  roleId: integer("role_id").references(() => roles.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// After users table definition, add the schema validation
+export const insertUserSchema = z.object({
+  username: z.string().min(1, "Username is required"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  roleId: z.number().int().positive("Role ID is required"),
+});
+
+export const selectUserSchema = createSelectSchema(users);
+export type InsertUser = typeof users.$inferInsert;
+export type SelectUser = typeof users.$inferSelect & {
+  role?: SelectRole | null;
+};
 
 // Stores table
 export const stores = pgTable("stores", {
@@ -17,6 +58,15 @@ export const stores = pgTable("stores", {
   name: text("name").notNull(),
   location: text("location").notNull(),
   contactInfo: text("contact_info").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// User Store Assignments table
+export const userStoreAssignments = pgTable("user_store_assignments", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -170,9 +220,41 @@ export const productsRelations = relations(products, ({ one, many }) => ({
   purchaseOrderItems: many(purchaseOrderItems)
 }));
 
+export const roleTypesRelations = relations(roleTypes, ({ many }) => ({
+  roles: many(roles),
+}));
+
+export const rolesRelations = relations(roles, ({ many, one }) => ({
+  users: many(users),
+  roleType: one(roleTypes, {
+    fields: [roles.roleTypeId],
+    references: [roleTypes.id],
+  }),
+}));
+
+export const usersRelations = relations(users, ({ one, many }) => ({
+  role: one(roles, {
+    fields: [users.roleId],
+    references: [roles.id],
+  }),
+  storeAssignments: many(userStoreAssignments),
+}));
+
 export const storesRelations = relations(stores, ({ many }) => ({
   inventory: many(inventory),
   orders: many(orders),
+  userAssignments: many(userStoreAssignments),
+}));
+
+export const userStoreAssignmentsRelations = relations(userStoreAssignments, ({ one }) => ({
+  user: one(users, {
+    fields: [userStoreAssignments.userId],
+    references: [users.id],
+  }),
+  store: one(stores, {
+    fields: [userStoreAssignments.storeId],
+    references: [stores.id],
+  }),
 }));
 
 export const inventoryRelations = relations(inventory, ({ one }) => ({
@@ -232,6 +314,11 @@ export const purchaseOrderItemsRelations = relations(purchaseOrderItems, ({ one 
   }),
 }));
 
+// Add relations for customer profiles
+export const customerProfilesRelations = relations(customerProfiles, ({ many }) => ({
+  orders: many(orders),
+}));
+
 // Export schemas
 export const insertBrandSchema = createInsertSchema(brands);
 export const selectBrandSchema = createSelectSchema(brands);
@@ -243,10 +330,31 @@ export const selectSupplierSchema = createSelectSchema(suppliers);
 export type InsertSupplier = typeof suppliers.$inferInsert;
 export type SelectSupplier = typeof suppliers.$inferSelect;
 
+export const insertRoleTypeSchema = createInsertSchema(roleTypes);
+export const selectRoleTypeSchema = createSelectSchema(roleTypes);
+export type InsertRoleType = typeof roleTypes.$inferInsert;
+export type SelectRoleType = typeof roleTypes.$inferSelect;
+
+export const insertRoleSchema = createInsertSchema(roles);
+export const selectRoleSchema = createSelectSchema(roles);
+export type InsertRole = typeof roles.$inferInsert;
+export type SelectRole = typeof roles.$inferSelect & {
+  roleType?: SelectRoleType | null;
+};
+
+
 export const insertStoreSchema = createInsertSchema(stores);
 export const selectStoreSchema = createSelectSchema(stores);
 export type InsertStore = typeof stores.$inferInsert;
 export type SelectStore = typeof stores.$inferSelect;
+
+export const insertUserStoreAssignmentSchema = createInsertSchema(userStoreAssignments);
+export const selectUserStoreAssignmentSchema = createSelectSchema(userStoreAssignments);
+export type InsertUserStoreAssignment = typeof userStoreAssignments.$inferInsert;
+export type SelectUserStoreAssignment = typeof userStoreAssignments.$inferSelect & {
+  user?: SelectUser | null;
+  store?: SelectStore | null;
+};
 
 export const insertPurchaseOrderSchema = createInsertSchema(purchaseOrders);
 export const selectPurchaseOrderSchema = createSelectSchema(purchaseOrders);
@@ -258,6 +366,7 @@ export const selectPurchaseOrderItemSchema = createSelectSchema(purchaseOrderIte
 export type InsertPurchaseOrderItem = typeof purchaseOrderItems.$inferInsert;
 export type SelectPurchaseOrderItem = typeof purchaseOrderItems.$inferSelect;
 
+// Add customer profile schemas
 export const insertCustomerProfileSchema = createInsertSchema(customerProfiles);
 export const selectCustomerProfileSchema = createSelectSchema(customerProfiles);
 export type InsertCustomerProfile = typeof customerProfiles.$inferInsert;
