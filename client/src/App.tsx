@@ -18,6 +18,7 @@ import StorePerformancePage from "./pages/StorePerformancePage";
 import SuppliersPage from "./pages/SuppliersPage";
 import PurchaseOrdersPage from "./pages/PurchaseOrdersPage";
 import CustomerProfilesPage from "./pages/CustomerProfilesPage";
+import TestExport from "./pages/TestExport";
 import MainLayout from "./components/Layout/MainLayout";
 
 function App() {
@@ -53,6 +54,7 @@ function App() {
         <Route path="/store-assignments" component={StoreAssignmentPage} />
         <Route path="/store-performance" component={StorePerformancePage} />
         <Route path="/suppliers" component={SuppliersPage} />
+        <Route path="/test-export" component={TestExport} />
         <Route>
           <div className="flex items-center justify-center h-full">
             <h1 className="text-2xl font-bold">404 - Page Not Found</h1>

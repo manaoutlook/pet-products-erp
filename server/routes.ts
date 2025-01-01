@@ -14,40 +14,6 @@ import { requireRole, requireAuth } from "./middleware";
 import { z } from "zod";
 import { crypto } from "./auth";
 
-// Schema validations
-const createPurchaseOrderSchema = z.object({
-  supplierId: z.number().positive("Supplier ID is required"),
-  deliveryDate: z.string().datetime("Valid delivery date is required"),
-  notes: z.string().optional(),
-  items: z.array(z.object({
-    productId: z.number().positive("Product ID is required"),
-    quantity: z.number().positive("Quantity must be positive"),
-    unitPrice: z.number().positive("Unit price must be positive"), // VND amount
-  })).min(1, "At least one item is required"),
-});
-
-const updatePurchaseOrderSchema = z.object({
-  status: z.enum(['pending', 'confirmed', 'shipped', 'delivered', 'cancelled']),
-  deliveryDate: z.string().datetime().optional(),
-  notes: z.string().optional(),
-});
-
-// Helper functions
-function generateOrderNumber(): string {
-  return `PO-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
-}
-
-function generateInventoryBarcode(
-  inventoryType: 'DC' | 'STORE',
-  productSku: string,
-  storeId?: number | null
-): string {
-  const prefix = inventoryType === 'DC' ? 'DC' : 'ST';
-  const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-  const storePrefix = storeId ? storeId.toString().padStart(3, '0') : '000';
-  return `${prefix}${storePrefix}${productSku}${randomNum}`;
-}
-
 export function registerRoutes(app: Express): Server {
   setupAuth(app);
 
@@ -58,6 +24,115 @@ export function registerRoutes(app: Express): Server {
   });
 
   app.use('/api', requireAuth);
+
+  // Stats endpoints
+  app.get("/api/stats", async (req, res) => {
+    try {
+      // Get the first day of current month
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      // Get the first day of previous month
+      const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+
+      // Get total orders this month
+      const totalOrders = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(orders)
+        .where(gte(orders.createdAt, startOfMonth))
+        .then(result => Number(result[0].count));
+
+      // Get revenue this month (sum of order items' total price)
+      const revenue = await db
+        .select({
+          sum: sql<string>`COALESCE(SUM(${orderItems.totalPrice}::numeric), 0)`
+        })
+        .from(orderItems)
+        .innerJoin(orders, eq(orders.id, orderItems.orderId))
+        .where(gte(orders.createdAt, startOfMonth))
+        .then(result => Number(result[0].sum));
+
+      // Get previous month's revenue for growth calculation
+      const prevRevenue = await db
+        .select({
+          sum: sql<string>`COALESCE(SUM(${orderItems.totalPrice}::numeric), 0)`
+        })
+        .from(orderItems)
+        .innerJoin(orders, eq(orders.id, orderItems.orderId))
+        .where(
+          and(
+            gte(orders.createdAt, startOfPrevMonth),
+            lt(orders.createdAt, startOfMonth)
+          )
+        )
+        .then(result => Number(result[0].sum));
+
+      // Calculate growth percentage
+      const growth = prevRevenue === 0
+        ? 100
+        : Math.round(((revenue - prevRevenue) / prevRevenue) * 100);
+
+      // Get total active products
+      const totalProducts = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(products)
+        .where(eq(products.isActive, true))
+        .then(result => Number(result[0].count));
+
+      // Get low stock items (less than 10 items)
+      const lowStock = await db
+        .select({
+          id: products.id,
+          name: products.name,
+          quantity: inventory.quantity
+        })
+        .from(products)
+        .innerJoin(inventory, eq(products.id, inventory.productId))
+        .where(lt(inventory.quantity, 10))
+        .limit(5);
+
+      res.json({
+        totalOrders,
+        revenue,
+        totalProducts,
+        growth,
+        lowStock
+      });
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+      res.status(500).json({
+        message: "Failed to fetch statistics",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.get("/api/stats/orders-trend", async (req, res) => {
+    try {
+      // Get orders for the last 30 days
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      const ordersByDate = await db
+        .select({
+          date: sql<string>`DATE(${orders.createdAt})::text`,
+          orders: sql<number>`count(*)`
+        })
+        .from(orders)
+        .where(gte(orders.createdAt, thirtyDaysAgo))
+        .groupBy(sql`DATE(${orders.createdAt})`)
+        .orderBy(sql`DATE(${orders.createdAt})`);
+
+      res.json(ordersByDate);
+    } catch (error) {
+      console.error('Error fetching order trends:', error);
+      res.status(500).json({
+        message: "Failed to fetch order trends",
+        suggestion: "Please try again later"
+      });
+    }
+  });
 
   // Purchase Orders endpoints
   app.get("/api/purchase-orders", requireAuth, async (req, res) => {
@@ -1052,13 +1127,15 @@ export function registerRoutes(app: Express): Server {
             message: "Invalid role ID",
             suggestion: "Please provide a valid role ID"
           });
-        }      }
+        }
+      }
 
       // Update user
       const [updatedUser] = await db
         .update(users)
         .set({
-          ...(username && { username }),          ...(roleId && { roleId }),
+          ...(username && { username }),
+          ...(roleId && { roleId }),
           ...(password && { password: hashedPassword }),
           updatedAt: new Date(),
         })
@@ -1844,10 +1921,10 @@ export function registerRoutes(app: Express): Server {
           averageOrderValue: sql<number>`coalesce(avg(${orders.total}), 0)`,
           // Order fulfillment rate (completed orders / total orders)
           fulfillmentRate: sql<number>`
-            case 
-              when count(${orders.id}) > 0 
-              then sum(case when ${orders.status} = 'completed' then 1 else 0 end)::float / count(${orders.id}) 
-              else 0 
+            case
+              when count(${orders.id}) > 0
+              then sum(case when ${orders.status} = 'completed' then 1 else 0 end)::float / count(${orders.id})
+              else 0
             end
           `,
           // Inventory turnover (items sold / average inventory)
@@ -1896,10 +1973,10 @@ export function registerRoutes(app: Express): Server {
           storeId: stores.id,
           totalItems: sql<number>`count(distinct ${inventory.productId})`,
           lowStockItems: sql<number>`
-            count(distinct case 
-              when ${inventory.quantity} <= ${products.minStock} 
-              then ${inventory.productId} 
-              else null 
+            count(distinct case
+              when ${inventory.quantity} <= ${products.minStock}
+              then ${inventory.productId}
+              else null
             end)
           `
         })
@@ -2021,8 +2098,7 @@ export function registerRoutes(app: Express): Server {
 
       // Check if brand is used by any products
       const productsWithBrand = await db.query.products.findMany({
-        where: eq(products.brandId, parseInt(id)),
-        limit: 1,
+        where: eq(products.brandId, parseInt(id)),        limit: 1,
       });
 
       if (productsWithBrand.length > 0) {
@@ -2101,7 +2177,7 @@ export function registerRoutes(app: Express): Server {
         .returning();
 
       if (!updatedSupplier) {
-                return res.status(404).send("Supplier not found");
+        return res.status(404).send("Supplier not found");
       }
 
       res.json({

@@ -86,7 +86,7 @@ export const categories = pgTable("categories", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Products table with proper category and brand relationships
+// Products table with proper category and brand relationships and isActive field
 export const products = pgTable("products", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
@@ -96,6 +96,7 @@ export const products = pgTable("products", {
   categoryId: integer("category_id").references(() => categories.id).notNull(),
   brandId: integer("brand_id").references(() => brands.id),
   minStock: integer("min_stock").notNull().default(10),
+  isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -129,13 +130,14 @@ export const orders = pgTable("orders", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Order Items table
+// Order Items table with totalPrice field
 export const orderItems = pgTable("order_items", {
   id: serial("id").primaryKey(),
   orderId: integer("order_id").references(() => orders.id),
   productId: integer("product_id").references(() => products.id),
   quantity: integer("quantity").notNull(),
   price: decimal("price", { precision: 15, scale: 2 }).notNull(), // VND amount
+  totalPrice: decimal("total_price", { precision: 15, scale: 2 }).notNull(), // VND amount
 });
 
 // Purchase Orders table
