@@ -29,7 +29,7 @@ export const roles = pgTable("roles", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Users table
+// Users table with complete schema and validation
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").unique().notNull(),
@@ -38,6 +38,19 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// After users table definition, add the schema validation
+export const insertUserSchema = z.object({
+  username: z.string().min(1, "Username is required"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  roleId: z.number().int().positive("Role ID is required"),
+});
+
+export const selectUserSchema = createSelectSchema(users);
+export type InsertUser = typeof users.$inferInsert;
+export type SelectUser = typeof users.$inferSelect & {
+  role?: SelectRole | null;
+};
 
 // Stores table
 export const stores = pgTable("stores", {
@@ -329,12 +342,6 @@ export type SelectRole = typeof roles.$inferSelect & {
   roleType?: SelectRoleType | null;
 };
 
-export const insertUserSchema = createInsertSchema(users);
-export const selectUserSchema = createSelectSchema(users);
-export type InsertUser = typeof users.$inferInsert;
-export type SelectUser = typeof users.$inferSelect & {
-  role?: SelectRole | null;
-};
 
 export const insertStoreSchema = createInsertSchema(stores);
 export const selectStoreSchema = createSelectSchema(stores);
