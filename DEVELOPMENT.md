@@ -1,13 +1,10 @@
-const onSubmit = async (data: FormData) => {
-  try {
-    await mutation.mutateAsync(data);
-    form.reset();
-    // Close dialog
-    const dialogCloseButton = document.querySelector('[data-state="open"] button[type="button"]');
-    if (dialogCloseButton instanceof HTMLElement) {
-      dialogCloseButton.click();
-    }
-  } catch (error) {
-    // Error is handled by the mutation
-  }
-};
+├── client/               # Frontend React application
+│   ├── src/
+│   │   ├── components/  # Reusable UI components
+│   │   ├── hooks/      # Custom React hooks
+│   │   ├── pages/      # Page components
+│   │   ├── types/      # TypeScript type definitions
+│   │   └── utils/      # Utility functions
+├── db/                  # Database schema and migrations
+├── server/             # Backend Express application
+└── scripts/            # Utility scripts

@@ -1047,7 +1047,7 @@ export function registerRoutes(app: Express): Server {
         });
 
         if (!role) {
-          return res.status(400).json({
+          return res.status(00).json({
             message: "Invalid role ID",
             suggestion: "Please provide a valid role ID"
           });
@@ -1849,23 +1849,23 @@ export function registerRoutes(app: Express): Server {
           storeId: stores.id,
           storeName: stores.name,
           // Monthly order count
-          orderCount: sql<number>`count(distinct ${orders.id})`,
+          orderCount: sql<number>`count(distinct ${orders.id})::int`,
           // Total revenue
-          revenue: sql<number>`coalesce(sum(${orders.total}), 0)`,
+          revenue: sql<number>`coalesce(sum(${orders.total})::numeric, 0)`,
           // Average order value
-          averageOrderValue: sql<number>`coalesce(avg(${orders.total}), 0)`,
+          averageOrderValue: sql<number>`coalesce(avg(${orders.total})::numeric, 0)`,
           // Order fulfillment rate (completed orders / total orders)
           fulfillmentRate: sql<number>`
             case 
               when count(${orders.id}) > 0 
-              then sum(case when ${orders.status} = 'completed' then 1 else 0 end)::float / count(${orders.id}) 
+              then (sum(case when ${orders.status} = 'completed' then 1 else 0 end)::float / count(${orders.id}))::numeric
               else 0 
             end
           `,
           // Inventory turnover (items sold / average inventory)
           inventoryTurnover: sql<number>`
             coalesce(
-              sum(${orderItems.quantity})::float / nullif(avg(${inventory.quantity}), 0),
+              (sum(${orderItems.quantity})::float / nullif(avg(${inventory.quantity}), 0))::numeric,
               0
             )
           `
@@ -2087,8 +2087,7 @@ export function registerRoutes(app: Express): Server {
         supplier: newSupplier,
       });
     } catch (error) {
-      console.error('Error creating supplier:', error);
-      res.status(500).send("Failed to create supplier");
+      console.error('Error creating supplier:', error);      res.status(500).send("Failed to create supplier");
     }
   });
 
@@ -2175,23 +2174,23 @@ export function registerRoutes(app: Express): Server {
           storeId: stores.id,
           storeName: stores.name,
           // Monthly order count
-          orderCount: sql<number>`count(distinct ${orders.id})`,
+          orderCount: sql<number>`count(distinct ${orders.id})::int`,
           // Total revenue
-          revenue: sql<number>`coalesce(sum(${orders.total}), 0)`,
+          revenue: sql<number>`coalesce(sum(${orders.total})::numeric, 0)`,
           // Average order value
-          averageOrderValue: sql<number>`coalesce(avg(${orders.total}), 0)`,
+          averageOrderValue: sql<number>`coalesce(avg(${orders.total})::numeric, 0)`,
           // Order fulfillment rate (completed orders / total orders)
           fulfillmentRate: sql<number>`
             case 
               when count(${orders.id}) > 0 
-              then sum(case when ${orders.status} = 'completed' then 1 else 0 end)::float / count(${orders.id}) 
+              then (sum(case when ${orders.status} = 'completed' then 1 else 0 end)::float / count(${orders.id}))::numeric
               else 0 
             end
           `,
           // Inventory turnover (items sold / average inventory)
           inventoryTurnover: sql<number>`
             coalesce(
-              sum(${orderItems.quantity})::float / nullif(avg(${inventory.quantity}), 0),
+              (sum(${orderItems.quantity})::float / nullif(avg(${inventory.quantity}), 0))::numeric,
               0
             )
           `
@@ -2485,6 +2484,76 @@ export function registerRoutes(app: Express): Server {
     } catch (error) {
       console.error('Error deleting supplier:', error);
       res.status(500).send("Failed to delete supplier");
+    }
+  });
+
+  // Dashboard Statistics API
+  app.get("/api/stats", requireAuth, async (req, res) => {
+    try {
+      // Get current month's start and end dates
+      const currentMonthStart = sql`date_trunc('month', current_date)`;
+      const lastMonthStart = sql`date_trunc('month', current_date - interval '1 month')`;
+
+      // Get current month's stats
+      const [currentStats] = await db
+        .select({
+          totalOrders: sql<number>`count(distinct ${orders.id})::int`,
+          revenue: sql<number>`coalesce(sum(${orders.total})::numeric, 0)`,
+          totalProducts: sql<number>`(select count(*)::int from ${products})`,
+        })
+        .from(orders)
+        .where(
+          and(
+            gte(orders.createdAt, currentMonthStart),
+            lt(orders.createdAt, sql`date_trunc('month', current_date + interval '1 month')`)
+          )
+        );
+
+      // Get last month's revenue for growth calculation
+      const [lastMonthStats] = await db
+        .select({
+          revenue: sql<number>`coalesce(sum(${orders.total})::numeric, 0)`,
+        })
+        .from(orders)
+        .where(
+          and(
+            gte(orders.createdAt, lastMonthStart),
+            lt(orders.createdAt, currentMonthStart)
+          )
+        );
+
+      // Calculate growth percentage
+      const growth = lastMonthStats.revenue === 0 
+        ? 0 
+        : ((currentStats.revenue - lastMonthStats.revenue) / lastMonthStats.revenue) * 100;
+
+      // Get low stock items
+      const lowStockItems = await db
+        .select({
+          id: products.id,
+          name: products.name,
+          quantity: inventory.quantity,
+        })
+        .from(products)
+        .innerJoin(inventory, eq(inventory.productId, products.id))
+        .where(
+          lt(inventory.quantity, products.minStock)
+        )
+        .limit(5);
+
+      res.json({
+        totalOrders: currentStats.totalOrders,
+        revenue: currentStats.revenue,
+        totalProducts: currentStats.totalProducts,
+        growth: parseFloat(growth.toFixed(2)),
+        lowStock: lowStockItems,
+      });
+    } catch (error) {
+      console.error('Error fetching dashboard stats:', error);
+      res.status(500).json({
+        message: "Failed to fetch dashboard statistics",
+        suggestion: "Please try again later"
+      });
     }
   });
 
