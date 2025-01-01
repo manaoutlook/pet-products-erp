@@ -7,10 +7,9 @@ import {
   roles, roleTypes, stores, userStoreAssignments,
   categories, brands, suppliers, purchaseOrders,
   purchaseOrderItems, customerProfiles, insertCustomerProfileSchema,
-  insertUserSchema, // Add this import
 } from "@db/schema";
 import { sql } from "drizzle-orm";
-import { eq, and, desc, gte, lt } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
 import { z } from "zod";
 import { crypto } from "./auth";
@@ -50,6 +49,7 @@ function generateInventoryBarcode(
 }
 
 export function registerRoutes(app: Express): Server {
+  // sets up /api/register, /api/login, /api/logout, /api/user
   setupAuth(app);
 
   // Add middleware to log all API requests
@@ -59,6 +59,9 @@ export function registerRoutes(app: Express): Server {
   });
 
   app.use('/api', requireAuth);
+
+  // Remove the duplicate POST /api/users route
+  // It's now handled in auth.ts
 
   // Purchase Orders endpoints
   app.get("/api/purchase-orders", requireAuth, async (req, res) => {
@@ -346,7 +349,6 @@ export function registerRoutes(app: Express): Server {
       });
     }
   });
-
   app.get("/api/customer-profiles", requireAuth, async (req, res) => {
     try {
       const allCustomerProfiles = await db.query.customerProfiles.findMany({
@@ -1047,7 +1049,7 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      // Check if new username is already taken by another user
+      //      // Check if new username is already taken by another user
       if (username) {
         const duplicateUser = await db.query.users.findFirst({
           where: and(            eq(users.username, username),
