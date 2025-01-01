@@ -23,7 +23,7 @@ interface RoleNode {
   id: number;
   name: string;
   description: string;
-  roleType: {
+  roleLocation: {
     id: number;
     description: string;
   };
@@ -52,40 +52,40 @@ function RoleMappingPage() {
     const newNodes: Node[] = [];
     const newEdges: Edge[] = [];
 
-    // Create nodes for role types (top level)
-    const roleTypeMap = new Map();
+    // Create nodes for role locations (top level)
+    const roleLocationMap = new Map();
     roleMapping.roles.forEach(role => {
-      if (!roleTypeMap.has(role.roleType.id)) {
-        roleTypeMap.set(role.roleType.id, {
-          ...role.roleType,
+      if (!roleLocationMap.has(role.roleLocation.id)) {
+        roleLocationMap.set(role.roleLocation.id, {
+          ...role.roleLocation,
           roles: []
         });
       }
-      roleTypeMap.get(role.roleType.id).roles.push(role);
+      roleLocationMap.get(role.roleLocation.id).roles.push(role);
     });
 
     // Calculate positions
     const verticalSpacing = 150;
     const horizontalSpacing = 300;
-    
-    // Add role type nodes
-    Array.from(roleTypeMap.entries()).forEach(([typeId, typeData]: [number, any], typeIndex) => {
-      // Role type node
+
+    // Add role location nodes
+    Array.from(roleLocationMap.entries()).forEach(([locationId, locationData]: [number, any], locationIndex) => {
+      // Role location node
       newNodes.push({
-        id: `type-${typeId}`,
-        position: { x: typeIndex * horizontalSpacing, y: 0 },
-        data: { label: typeData.description },
+        id: `location-${locationId}`,
+        position: { x: locationIndex * horizontalSpacing, y: 0 },
+        data: { label: locationData.description },
         className: 'bg-primary text-primary-foreground rounded-lg p-4 shadow-lg',
         style: { width: 200 },
       });
 
-      // Add role nodes for this type
-      typeData.roles.forEach((role: RoleNode, roleIndex: number) => {
+      // Add role nodes for this location
+      locationData.roles.forEach((role: RoleNode, roleIndex: number) => {
         const roleNodeId = `role-${role.id}`;
         newNodes.push({
           id: roleNodeId,
           position: { 
-            x: typeIndex * horizontalSpacing, 
+            x: locationIndex * horizontalSpacing, 
             y: (roleIndex + 1) * verticalSpacing 
           },
           data: { 
@@ -103,10 +103,10 @@ function RoleMappingPage() {
           className: 'border rounded-lg shadow-md bg-card',
         });
 
-        // Connect role type to role
+        // Connect role location to role
         newEdges.push({
-          id: `edge-${typeId}-${role.id}`,
-          source: `type-${typeId}`,
+          id: `edge-${locationId}-${role.id}`,
+          source: `location-${locationId}`,
           target: roleNodeId,
           type: 'smoothstep',
           markerEnd: {
@@ -121,7 +121,7 @@ function RoleMappingPage() {
           newNodes.push({
             id: userNodeId,
             position: { 
-              x: (typeIndex * horizontalSpacing) + 150, 
+              x: (locationIndex * horizontalSpacing) + 150, 
               y: ((roleIndex + 1) * verticalSpacing) + ((userIndex + 1) * 80) 
             },
             data: { 
@@ -192,7 +192,7 @@ function RoleMappingPage() {
                 <div className="text-sm space-y-2">
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded bg-primary" />
-                    <span>Role Types</span>
+                    <span>Role Locations</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded bg-card border" />
