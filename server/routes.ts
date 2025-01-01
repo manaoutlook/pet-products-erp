@@ -1,19 +1,14 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { setupAuth } from "./auth";
 import { db } from "@db";
 import {
-  products, inventory, orders, orderItems, users,
-  roles, roleTypes, stores, userStoreAssignments,
-  categories, brands, suppliers, purchaseOrders,
+  products, inventory, orders, orderItems,
+  stores, categories, brands, suppliers, purchaseOrders,
   purchaseOrderItems, customerProfiles, insertCustomerProfileSchema,
-  insertUserSchema, // Add this import
 } from "@db/schema";
 import { sql } from "drizzle-orm";
 import { eq, and, desc, gte, lt } from "drizzle-orm";
-import { requireRole, requireAuth } from "./middleware";
 import { z } from "zod";
-import { crypto } from "./auth";
 
 // Schema validations
 const createPurchaseOrderSchema = z.object({
@@ -50,18 +45,14 @@ function generateInventoryBarcode(
 }
 
 export function registerRoutes(app: Express): Server {
-  setupAuth(app);
-
   // Add middleware to log all API requests
   app.use('/api', (req, res, next) => {
     console.log(`${req.method} ${req.path}`);
     next();
   });
 
-  app.use('/api', requireAuth);
-
   // Purchase Orders endpoints
-  app.get("/api/purchase-orders", requireAuth, async (req, res) => {
+  app.get("/api/purchase-orders", async (req, res) => {
     try {
       const allPurchaseOrders = await db.query.purchaseOrders.findMany({
         with: {
@@ -84,7 +75,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/purchase-orders", requireAuth, async (req, res) => {
+  app.post("/api/purchase-orders", async (req, res) => {
     try {
       const result = createPurchaseOrderSchema.safeParse(req.body);
       if (!result.success) {
@@ -157,7 +148,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.get("/api/purchase-orders/:id", requireAuth, async (req, res) => {
+  app.get("/api/purchase-orders/:id", async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -190,7 +181,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.put("/api/purchase-orders/:id/status", requireAuth, async (req, res) => {
+  app.put("/api/purchase-orders/:id/status", async (req, res) => {
     try {
       const { id } = req.params;
       const result = updatePurchaseOrderSchema.safeParse(req.body);
@@ -314,40 +305,9 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.get("/api/purchase-orders/:id", requireAuth, async (req, res) => {
-    try {
-      const { id } = req.params;
 
-      const purchaseOrder = await db.query.purchaseOrders.findFirst({
-        where: eq(purchaseOrders.id, parseInt(id)),
-        with: {
-          supplier: true,
-          items: {
-            with: {
-              product: true
-            }
-          }
-        }
-      });
-
-      if (!purchaseOrder) {
-        return res.status(404).json({
-          message: "Purchase order not found",
-          suggestion: "Please verify the purchase order ID"
-        });
-      }
-
-      res.json(purchaseOrder);
-    } catch (error) {
-      console.error('Error fetching purchase order:', error);
-      res.status(500).json({
-        message: "Failed to fetch purchase order",
-        suggestion: "Please try again later"
-      });
-    }
-  });
-
-  app.get("/api/customer-profiles", requireAuth, async (req, res) => {
+  // Customer Profiles endpoints
+  app.get("/api/customer-profiles", async (req, res) => {
     try {
       const allCustomerProfiles = await db.query.customerProfiles.findMany({
         orderBy: [desc(customerProfiles.updatedAt)],
@@ -362,7 +322,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/customer-profiles", requireAuth, async (req, res) => {
+  app.post("/api/customer-profiles", async (req, res) => {
     try {
       const result = insertCustomerProfileSchema.safeParse(req.body);
       if (!result.success) {
@@ -415,7 +375,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.put("/api/customer-profiles/:id", requireAuth, async (req, res) => {
+  app.put("/api/customer-profiles/:id", async (req, res) => {
     try {
       const { id } = req.params;
       const result = insertCustomerProfileSchema.safeParse(req.body);
@@ -474,7 +434,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/customer-profiles/:id", requireAuth, async (req, res) => {
+  app.delete("/api/customer-profiles/:id", async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -505,271 +465,8 @@ export function registerRoutes(app: Express): Server {
   });
 
 
-  app.get("/api/role-types", async (req, res) => {
-    try {
-      const roleTypes = await db.query.roleTypes.findMany();
-      res.json(roleTypes);
-    } catch (error) {
-      console.error('Error fetching role types:', error);
-      res.status(500).send("Failed to fetch role types");
-    }
-  });
-
-  // Roles endpoints - admin only
-  app.get("/api/roles", requireRole(['admin']), async (req, res) => {
-    try {
-      const allRoles = await db
-        .select({
-          id: roles.id,
-          name: roles.name,
-          description: roles.description,
-          permissions: roles.permissions,
-          roleTypeId: roles.roleTypeId,
-          createdAt: roles.createdAt,
-          updatedAt: roles.updatedAt,
-          roleType: {
-            id: roleTypes.id,
-            description: roleTypes.description,
-          },
-        })
-        .from(roles)
-        .leftJoin(roleTypes, eq(roles.roleTypeId, roleTypes.id))
-        .orderBy(roles.name);
-
-      res.json(allRoles);
-    } catch (error) {
-      console.error('Error fetching roles:', error);
-      res.status(500).send("Failed to fetch roles");
-    }
-  });
-
-  app.post("/api/roles", requireRole(['admin']), async (req, res) => {
-    try {
-      const { name, description, roleTypeId, permissions } = req.body;
-
-      if (!name || !roleTypeId || !permissions) {
-        return res.status(400).json({
-          message: "Role name, role type and permissions are required",
-          suggestion: "Please fill in all required fields"
-        });
-      }
-
-      // Check if role exists
-      const existingRole = await db.query.roles.findFirst({
-        where: eq(roles.name, name),
-      });
-
-      if (existingRole) {
-        return res.status(400).json({
-          message: "Role name already exists",
-          suggestion: "Please use a different role name"
-        });
-      }
-
-      // Check if role type exists
-      const roleType = await db.query.roleTypes.findFirst({
-        where: eq(roleTypes.id, parseInt(roleTypeId.toString())),
-      });
-
-      if (!roleType) {
-        return res.status(400).json({
-          message: "Invalid role type",
-          suggestion: "Please select a valid role type"
-        });
-      }
-
-      // Create new role with permissions
-      const [newRole] = await db
-        .insert(roles)
-        .values({
-          name,
-          description: description || null,
-          roleTypeId: parseInt(roleTypeId.toString()),
-          permissions: permissions as any, // Type cast for now
-          createdAt: new Date(),
-          updatedAt: new Date()
-        })
-        .returning();
-
-      // Fetch the complete role with role type
-      const roleWithType = await db.query.roles.findFirst({
-        where: eq(roles.id, newRole.id),
-        with: {
-          roleType: true,
-        },
-      });
-
-      res.json({
-        message: "Role created successfully",
-        role: roleWithType,
-      });
-    } catch (error) {
-      console.error('Error creating role:', error);
-      res.status(500).json({
-        message: "Failed to create role",
-        suggestion: "Please try again later"
-      });
-    }
-  });
-
-  app.put("/api/roles/:id", requireRole(['admin']), async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { name, description, roleTypeId } = req.body;
-
-      if (!name || !roleTypeId) {
-        return res.status(400).send("Role name and role type are required");
-      }
-
-      // Check if role exists
-      const existingRole = await db.query.roles.findFirst({
-        where: and(
-          eq(roles.name, name),
-          sql`id != ${id}`
-        ),
-      });
-
-      if (existingRole) {
-        return res.status(400).send("Role name already exists");
-      }
-
-      // Check if role type exists
-      const roleType = await db.query.roleTypes.findFirst({
-        where: eq(roleTypes.id, roleTypeId),
-      });
-
-      if (!roleType) {
-        return res.status(400).send("Invalid role type");
-      }
-
-      // Prevent updating admin role name
-      const roleToUpdate = await db.query.roles.findFirst({
-        where: eq(roles.id, parseInt(id)),
-      });
-
-      if (roleToUpdate?.name === 'admin' && name !== 'admin') {
-        return res.status(400).send("Cannot modify admin role name");
-      }
-
-      const [updatedRole] = await db
-        .update(roles)
-        .set({
-          name,
-          description,
-          roleTypeId,
-          updatedAt: new Date(),
-        })
-        .where(eq(roles.id, parseInt(id)))
-        .returning();
-
-      // Fetch the complete role with role type
-      const roleWithType = await db.query.roles.findFirst({
-        where: eq(roles.id, updatedRole.id),
-        with: {
-          roleType: true,
-        },
-      });
-
-      res.json({
-        message: "Role updated successfully",
-        role: roleWithType,
-      });
-    } catch (error) {
-      console.error('Error updating role:', error);
-      res.status(500).send("Failed to update role");
-    }
-  });
-
-  app.delete("/api/roles/:id", requireRole(['admin']), async (req, res) => {
-    try {
-      const { id } = req.params;
-
-      // Check if role exists and is not admin
-      const roleToDelete = await db.query.roles.findFirst({
-        where: eq(roles.id, parseInt(id)),
-      });
-
-      if (!roleToDelete) {
-        return res.status(404).send("Role not found");
-      }
-
-      if (roleToDelete.name === 'admin') {
-        return res.status(400).send("Cannot delete admin role");
-      }
-
-      // Check if role is assigned to any users
-      const usersWithRole = await db.query.users.findMany({
-        where: eq(users.roleId, parseInt(id)),
-      });
-
-      if (usersWithRole.length > 0) {
-        return res.status(400).send("Cannot delete role that is assigned to users");
-      }
-
-      await db
-        .delete(roles)
-        .where(eq(roles.id, parseInt(id)));
-
-      res.json({ message: "Role deleted successfully" });
-    } catch (error) {
-      console.error('Error deleting role:', error);
-      res.status(500).send("Failed to delete role");
-    }
-  });
-
-  // Add new endpoint for updating role permissions
-  app.put("/api/roles/:id/permissions", requireRole(['admin']), async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { permissions } = req.body;
-
-      // Validate permissions object structure
-      if (!permissions || typeof permissions !== 'object') {
-        return res.status(400).send("Invalid permissions format");
-      }
-
-      // Prevent modifying admin role permissions
-      const roleToUpdate = await db.query.roles.findFirst({
-        where: eq(roles.id, parseInt(id)),
-      });
-
-      if (!roleToUpdate) {
-        return res.status(404).send("Role not found");
-      }
-
-      if (roleToUpdate.name === 'admin') {
-        return res.status(400).send("Cannot modify admin role permissions");
-      }
-
-      const [updatedRole] = await db
-        .update(roles)
-        .set({
-          permissions,
-          updatedAt: new Date(),
-        })
-        .where(eq(roles.id, parseInt(id)))
-        .returning();
-
-      // Fetch the complete role with updated permissions
-      const roleWithPermissions = await db.query.roles.findFirst({
-        where: eq(roles.id, updatedRole.id),
-        with: {
-          roleType: true,
-        },
-      });
-
-      res.json({
-        message: "Role permissions updated successfully",
-        role: roleWithPermissions,
-      });
-    } catch (error) {
-      console.error('Error updating role permissions:', error);
-      res.status(500).send("Failed to update role permissions");
-    }
-  });
-
-  // Category Management endpoints
-  app.get("/api/categories", requireAuth, async (req, res) => {
+  // Categories endpoints
+  app.get("/api/categories", async (req, res) => {
     try {
       const allCategories = await db.query.categories.findMany({
         orderBy: [desc(categories.updatedAt)],
@@ -781,7 +478,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/categories", requireRole(['admin']), async (req, res) => {
+  app.post("/api/categories", async (req, res) => {
     try {
       const { name, description } = req.body;
 
@@ -816,7 +513,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.put("/api/categories/:id", requireRole(['admin']), async (req, res) => {
+  app.put("/api/categories/:id", async (req, res) => {
     try {
       const { id } = req.params;
       const { name, description } = req.body;
@@ -861,7 +558,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/categories/:id", requireRole(['admin']), async (req, res) => {
+  app.delete("/api/categories/:id", async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -886,274 +583,8 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Role Mapping endpoint - admin only
-  app.get("/api/roles/mapping", requireRole(['admin']), async (req, res) => {
-    try {
-      // Fetch roles with users and role types
-      const roles = await db.query.roles.findMany({
-        with: {
-          roleType: true,
-          users: {
-            columns: {
-              id: true,
-              username: true,
-              password: false, // Exclude sensitive data
-              roleId: true,
-              createdAt: false,
-              updatedAt: false
-            }
-          }
-        },
-      });
-
-      res.json({
-        roles,
-      });
-    } catch (error) {
-      console.error('Error fetching role mapping:', error);
-      res.status(500).json({
-        message: "Failed to fetch role mapping",
-        suggestion: "Please try again later"
-      });
-    }
-  });
-
-  // User management endpoints - admin only
-  app.get("/api/users", requireRole(['admin']), async (req, res) => {
-    try {
-      const allUsers = await db.query.users.findMany({
-        with: {
-          role: {
-            with: {
-              roleType: true,
-            }
-          },
-        },
-      });
-
-      // Remove sensitive information
-      const sanitizedUsers = allUsers.map(({ password, ...user }) => user);
-      res.json(sanitizedUsers);
-    } catch (error) {
-      console.error('Error fetching users:', error);
-      res.status(500).send("Failed to fetch users");
-    }
-  });
-
-  app.post("/api/users", requireRole(['admin']), async (req, res) => {
-    try {
-      const result = insertUserSchema.safeParse(req.body);
-      if (!result.success) {
-        return res
-          .status(400)
-          .json({
-            message: "Invalid input",
-            errors: result.error.errors.map(err => ({
-              field: err.path.join('.'),
-              message: err.message
-            }))
-          });
-      }
-
-      const { username, password, roleId } = result.data;
-
-      // Check if user exists
-      const existingUser = await db.query.users.findFirst({
-        where: eq(users.username, username),
-      });
-
-      if (existingUser) {
-        return res.status(400).json({
-          message: "Username already exists",
-          suggestion: "Please choose a different username"
-        });
-      }
-
-      // Hash password using the crypto utility
-      const hashedPassword = await crypto.hash(password);
-
-      const [newUser] = await db
-        .insert(users)
-        .values({
-          username,
-          password: hashedPassword,
-          roleId,
-        })
-        .returning();
-
-      // Fetch the complete user with role
-      const userWithRole = await db.query.users.findFirst({
-        where: eq(users.id, newUser.id),
-        with: {
-          role: true,
-        },
-      });
-
-      res.status(201).json({
-        message: "User created successfully",
-        user: {
-          id: newUser.id,
-          username: newUser.username,
-          roleId: newUser.roleId,
-          role: userWithRole?.role
-        }
-      });
-    } catch (error) {
-      console.error('Error creating user:', error);
-      res.status(500).json({
-        message: "Failed to create user",
-        suggestion: "Please try again. If the problem persists, contact support."
-      });
-    }
-  });
-
-  app.put("/api/users/:id", requireRole(['admin']), async (req, res) => {
-    try {
-      const { id } = req.params;
-
-      // Validate input
-      const result = updateUserSchema.safeParse(req.body);
-      if (!result.success) {
-        return res.status(400).json({
-          message: "Invalid input",
-          errors: result.error.errors.map(err => ({
-            field: err.path.join('.'),
-            message: err.message
-          }))
-        });
-      }
-
-      const { username, roleId, password } = result.data;
-
-      if (!username && !roleId && !password) {
-        return res.status(400).json({
-          message: "No updates provided",
-          suggestion: "Provide either username or roleId to update"
-        });
-      }
-
-      // Verify user exists
-      const existingUser = await db.query.users.findFirst({
-        where: eq(users.id, parseInt(id)),
-        with: {
-          role: true,
-        },
-      });
-
-      if (!existingUser) {
-        return res.status(404).json({
-          message: "User not found",
-          suggestion: "Please verify the user ID"
-        });
-      }
-
-      // Check if new username is already taken by another user
-      if (username) {
-        const duplicateUser = await db.query.users.findFirst({
-          where: and(            eq(users.username, username),
-            sql`id != ${id}`
-          ),
-        });
-
-        if (duplicateUser) {
-          return res.status(400).json({
-            message: "Username already exists",
-            suggestion: "Please choose a different username"
-          });
-        }
-      }
-
-      //If password provided, hash it
-      const hashedPassword = password ? await crypto.hash(password) : existingUser.password;
-
-
-      // If roleId provided, verify it exists
-      if (roleId) {
-        const role = await db.query.roles.findFirst({
-          where: eq(roles.id, roleId),
-        });
-
-        if (!role) {
-          return res.status(400).json({
-            message: "Invalid role ID",
-            suggestion: "Please provide a valid role ID"
-          });
-        }
-      }
-
-      // Update user
-      const [updatedUser] = await db
-        .update(users)
-        .set({
-          ...(username && { username }),          ...(roleId && { roleId }),
-          ...(password && { password: hashedPassword }),
-          updatedAt: new Date(),
-        })
-        .where(eq(users.id, parseInt(id)))
-        .returning();
-
-      // Fetch updated user with role information
-      const userWithRole = await db.query.users.findFirst({
-        where: eq(users.id, updatedUser.id),
-        with: {
-          role: true,
-        },
-      });
-
-      res.json({
-        message: "User updated successfully",
-        user: userWithRole,
-      });
-    } catch (error) {
-      console.error('Error updating user:', error);
-      res.status(500).json({
-        message: "Failed to update user",
-        suggestion: "Please try again later"
-      });
-    }
-  });
-
-  app.delete("/api/users/:id", requireRole(['admin']), async (req, res) => {
-    try {
-      const { id } = req.params;
-
-      // Prevent deleting the last admin
-      const adminRole = await db.query.roles.findFirst({
-        where: eq(roles.name, 'admin'),
-      });
-
-      if (adminRole) {
-        const adminUsers = await db.query.users.findMany({
-          where: eq(users.roleId, adminRole.id),
-        });
-
-        if (adminUsers.length <= 1) {
-          const userToDelete = await db.query.users.findFirst({
-            where: eq(users.id, parseInt(id)),
-            with: {
-              role: true,
-            },
-          });
-
-          if (userToDelete?.role.name === 'admin') {
-            return res.status(400).send("Cannot delete the last admin user");
-          }
-        }
-      }
-
-      await db
-        .delete(users)
-        .where(eq(users.id, parseInt(id)));
-
-      res.json({ message: "User deleted successfully" });
-    } catch (error) {
-      console.error('Error deleting user:', error);
-      res.status(500).send("Failed to delete user");
-    }
-  });
-
-  // Stores endpoints - admin only
-  app.get("/api/stores", requireRole(['admin']), async (req, res) => {
+  // Stores endpoints
+  app.get("/api/stores", async (req, res) => {
     try {
       const allStores = await db.query.stores.findMany({
         orderBy: [desc(stores.updatedAt)],
@@ -1165,7 +596,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/stores", requireRole(['admin']), async (req, res) => {
+  app.post("/api/stores", async (req, res) => {
     try {
       const { name, location, contactInfo } = req.body;
 
@@ -1192,7 +623,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.put("/api/stores/:id", requireRole(['admin']), async (req, res) => {
+  app.put("/api/stores/:id", async (req, res) => {
     try {
       const { id } = req.params;
       const { name, location, contactInfo } = req.body;
@@ -1226,7 +657,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/stores/:id", requireRole(['admin']), async (req, res) => {
+  app.delete("/api/stores/:id", async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -1272,164 +703,8 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // User-Store Assignment endpoints
-  app.get("/api/store-assignments", requireRole(['admin']), async (req, res) => {
-    try {
-      const assignments = await db.query.userStoreAssignments.findMany({
-        with: {
-          user: true,
-          store: true,
-        },
-      });
-      res.json(assignments);
-    } catch (error) {
-      console.error('Error fetching store assignments:', error);
-      res.status(500).send("Failed to fetch store assignments");
-    }
-  });
-
-  app.get("/api/store-assignments/users", requireRole(['admin']), async (req, res) => {
-    try {
-      // Get unassigned users with Pet Store role type using proper joins
-      const unassignedPetStoreUsers = await db
-        .select({
-          id: users.id,
-          username: users.username,
-          role: {
-            id: roles.id,
-            name: roles.name,
-            roleType: {
-              id: roleTypes.id,
-              description: roleTypes.description
-            }
-          }
-        })
-        .from(users)
-        .innerJoin(roles, eq(users.roleId, roles.id))
-        .innerJoin(roleTypes, eq(roles.roleTypeId, roleTypes.id))
-        .leftJoin(
-          userStoreAssignments,
-          eq(users.id, userStoreAssignments.userId)
-        )
-        .where(
-          and(
-            eq(roleTypes.description, 'Pet Store'),
-            sql`${userStoreAssignments.id} IS NULL`
-          )
-        );
-
-      res.json(unassignedPetStoreUsers);
-    } catch (error) {
-      console.error('Error fetching unassigned pet store users:', error);
-      res.status(500).json({
-        message: "Failed to fetch pet store users",
-        suggestion: "Please try again later"
-      });
-    }
-  });
-
-  app.post("/api/store-assignments", requireRole(['admin']), async (req, res) => {
-    try {
-      const { userId, storeId } = req.body;
-
-      if (!userId || !storeId) {
-        return res.status(400).send("User ID and Store ID are required");
-      }
-
-      // Check if user exists and has pet store role
-      const user = await db.query.users.findFirst({
-        where: eq(users.id, userId),
-        with: {
-          role: {
-            with: {
-              roleType: true
-            }
-          }
-        }
-      });
-
-      if (!user) {
-        return res.status(404).send("User not found");
-      }
-
-      if (user.role?.roleType?.description !== 'Pet Store') {
-        return res.status(400).send("Only Pet Store users can be assigned to stores");
-      }
-
-      // Check if store exists
-      const store = await db.query.stores.findFirst({
-        where: eq(stores.id, storeId)
-      });
-
-      if (!store) {
-        return res.status(404).send("Store not found");
-      }
-
-      // Check if assignment already exists
-      const existingAssignment = await db.query.userStoreAssignments.findFirst({
-        where: and(
-          eq(userStoreAssignments.userId, userId),
-          eq(userStoreAssignments.storeId, storeId)
-        )
-      });
-
-      if (existingAssignment) {
-        return res.status(400).send("User is already assigned to this store");
-      }
-
-      const [newAssignment] = await db
-        .insert(userStoreAssignments)
-        .values({
-          userId,
-          storeId
-        })
-        .returning();
-
-      const assignmentWithDetails = await db.query.userStoreAssignments.findFirst({
-        where: eq(userStoreAssignments.id, newAssignment.id),
-        with: {
-          user: true,
-          store: true
-        }
-      });
-
-      res.json({
-        message: "Store assignment created successfully",
-        assignment: assignmentWithDetails
-      });
-    } catch (error) {
-      console.error('Error creating store assignment:', error);
-      res.status(500).send("Failed to create store assignment");
-    }
-  });
-
-  app.delete("/api/store-assignments/:id", requireRole(['admin']), async (req, res) => {
-    try {
-      const { id } = req.params;
-
-      const [assignment] = await db
-        .select()
-        .from(userStoreAssignments)
-        .where(eq(userStoreAssignments.id, parseInt(id)))
-        .limit(1);
-
-      if (!assignment) {
-        return res.status(404).send("Assignment not found");
-      }
-
-      await db
-        .delete(userStoreAssignments)
-        .where(eq(userStoreAssignments.id, parseInt(id)));
-
-      res.json({ message: "Store assignment deleted successfully" });
-    } catch (error) {
-      console.error('Error deleting store assignment:', error);
-      res.status(500).send("Failed to delete store assignment");
-    }
-  });
-
-  // Stats API - admin only
-  app.get("/api/stats", requireRole(['admin']), async (req, res) => {
+  // Stats endpoints
+  app.get("/api/stats", async (req, res) => {
     try {
       const [orderStats] = await db
         .select({
@@ -1439,8 +714,8 @@ export function registerRoutes(app: Express): Server {
         .from(orders)
         .where(
           and(
-            gte(orders.createdAt, new Date(new Date().setDate(new Date().getDate() - 30))),
-            lt(orders.createdAt, new Date())
+            sql`created_at >= current_date - interval '30 days'`,
+            sql`created_at < current_date`
           )
         );
 
@@ -1456,8 +731,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  //// Orders trend for chart - admin only
-  app.get("/api/stats/orders-trend", requireAuth, async (req, res) => {
+  app.get("/api/stats/orders-trend", async (req, res) => {
     try {
       // Get last 30 days of order trends
       const thirtyDaysAgo = new Date();
@@ -1469,7 +743,7 @@ export function registerRoutes(app: Express): Server {
           orders: sql`count(*)::int`
         })
         .from(orders)
-        .where(gte(orders.createdAt, thirtyDaysAgo))
+        .where(sql`created_at >= current_date - interval '30 days'`)
         .groupBy(sql`date_trunc('day', created_at)`)
         .orderBy(sql`date_trunc('day', created_at)`);
 
@@ -1483,8 +757,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Products API - available to all authenticated users
-  app.get("/api/products", requireAuth, async (req, res) => {
+  app.get("/api/products", async (req, res) => {
     try {
       const allProducts = await db.query.products.findMany({
         with: {
@@ -1501,8 +774,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Products API - Create product (admin only)
-  app.post("/api/products", requireRole(['admin']), async (req, res) => {
+  app.post("/api/products", async (req, res) => {
     try {
       const result = insertProductSchema.safeParse(req.body);
       if (!result.success) {
@@ -1588,8 +860,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Products API - Update product (admin only)
-  app.put("/api/products/:id", requireRole(['admin']), async (req, res) => {
+  app.put("/api/products/:id", async (req, res) => {
     try {
       const { id } = req.params;
       const { name, description, sku, price, categoryId, minStock, brandId } = req.body;
@@ -1667,49 +938,15 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Orders API - admin only
-  app.get("/api/orders", requireRole(['admin']), async (req, res) => {
+  app.get("/api/inventory", async (req, res) => {
     try {
-      const allOrders = await db.query.orders.findMany({
-        with: {
-          items: {
-            with: {
-              product: true,
-            },
-          },
-        },
-        orderBy: [desc(orders.createdAt)],
-      });
-      res.json(allOrders);
-    } catch (error) {
-      console.error('Error fetching orders:', error);
-      res.status(500).send("Failed to fetch orders");
-    }
-  });
-
-  // Inventory Management endpoints
-  // Update inventory endpoint to include supplier data
-  app.get("/api/inventory", requireAuth, async (req, res) => {
-    try {
-      const user = req.user;
-      if (!user) {
-        return res.status(401).send("Unauthorized");
-      }
-
-      console.log(`Fetching inventory for user ${user.username} with role type ${user.role?.roleType?.description}`);
-
-      let inventoryQuery = db.query.inventory.findMany({
+      const inventoryItems = await db.query.inventory.findMany({
         with: {
           product: true,
           store: true,
-          supplier: true, // Add supplier relation
+          supplier: true,
         },
       });
-
-      const inventoryItems = await inventoryQuery;
-
-      console.log(`Found ${inventoryItems.length} inventory items for admin user ${user.username}`);
-
       res.json(inventoryItems);
     } catch (error) {
       console.error('Error fetching inventory:', error);
@@ -1717,7 +954,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/inventory", requireAuth, async (req, res) => {
+  app.post("/api/inventory", async (req, res) => {
     try {
       const { productId, storeId, supplierId, quantity, location, inventoryType } = req.body;
 
@@ -1775,7 +1012,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.put("/api/inventory/:id", requireAuth, async (req, res) => {
+  app.put("/api/inventory/:id", async (req, res) => {
     try {
       const { id } = req.params;
       const { productId, storeId, supplierId, quantity, location, inventoryType } = req.body;
@@ -1808,8 +1045,7 @@ export function registerRoutes(app: Express): Server {
         .set({
           productId: parseInt(productId),
           storeId: storeId ? parseInt(storeId) : null,
-          supplierId: supplierId ? parseInt(supplierId) : null,
-          quantity: parseInt(quantity),
+          supplierId: supplierId ? parseInt(supplierId) : null,          quantity: parseInt(quantity),
           location,
           inventoryType,
           updatedAt: new Date(),
@@ -1837,7 +1073,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/inventory/:id", requireRole(['admin']), async (req, res) => {
+  app.delete("/api/inventory/:id", async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -1863,8 +1099,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Store Performance API endpoints
-  app.get("/api/stores/performance", requireAuth, async (req, res) => {
+  app.get("/api/stores/performance", async (req, res) => {
     try {
       // Get current month's start and end dates
       const currentMonthStart = sql`date_trunc('month', current_date)`;
@@ -1961,8 +1196,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Brand Management endpoints
-  app.get("/api/brands", requireAuth, async (req, res) => {
+  app.get("/api/brands", async (req, res) => {
     try {
       const allBrands = await db.query.brands.findMany({
         orderBy: [desc(brands.updatedAt)],
@@ -1974,7 +1208,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/brands", requireRole(['admin']), async (req, res) => {
+  app.post("/api/brands", async (req, res) => {
     try {
       const { name, description } = req.body;
 
@@ -2009,7 +1243,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.put("/api/brands/:id", requireRole(['admin']), async (req, res) => {
+  app.put("/api/brands/:id", async (req, res) => {
     try {
       const { id } = req.params;
       const { name, description } = req.body;
@@ -2054,7 +1288,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/brands/:id", requireRole(['admin']), async (req, res) => {
+  app.delete("/api/brands/:id", async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -2079,8 +1313,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Supplier Management endpoints - admin only
-  app.get("/api/suppliers", requireRole(['admin']), async (req, res) => {
+  app.get("/api/suppliers", async (req, res) => {
     try {
       const allSuppliers = await db.query.suppliers.findMany({
         orderBy: [desc(suppliers.updatedAt)],
@@ -2092,7 +1325,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/suppliers", requireRole(['admin']), async (req, res) => {
+  app.post("/api/suppliers", async (req, res) => {
     try {
       const { name, contactInfo, address } = req.body;
 
@@ -2119,7 +1352,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.put("/api/suppliers/:id", requireRole(['admin']), async (req, res) => {
+  app.put("/api/suppliers/:id", async (req, res) => {
     try {
       const { id } = req.params;
       const { name, contactInfo, address } = req.body;
@@ -2153,7 +1386,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/suppliers/:id", requireRole(['admin']), async (req, res) => {
+  app.delete("/api/suppliers/:id", async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -2189,334 +1422,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Store Performance API endpoints
-  app.get("/api/stores/performance", requireAuth, async (req, res) => {
-    try {
-      // Get current month's start and end dates
-      const currentMonthStart = sql`date_trunc('month', current_date)`;
-      const nextMonthStart = sql`date_trunc('month', current_date) + interval '1 month'`;
-
-      // Get performance metrics for each store
-      const storeMetrics = await db
-        .select({
-          storeId: stores.id,
-          storeName: stores.name,
-          // Monthly order count
-          orderCount: sql<number>`count(distinct ${orders.id})::int`,
-          // Total revenue
-          revenue: sql<number>`coalesce(sum(${orders.total})::numeric, 0)`,
-          // Average order value
-          averageOrderValue: sql<number>`coalesce(avg(${orders.total})::numeric, 0)`,
-          // Order fulfillment rate (completed orders / total orders)
-          fulfillmentRate: sql<number>`
-            case 
-              when count(${orders.id}) > 0 
-              then (sum(case when ${orders.status} = 'completed' then 1 else 0 end)::float / count(${orders.id}))::numeric
-              else 0 
-            end
-          `,
-          // Inventory turnover (items sold / average inventory)
-          inventoryTurnover: sql<number>`
-            coalesce(
-              (sum(${orderItems.quantity})::float / nullif(avg(${inventory.quantity}), 0))::numeric,
-              0
-            )
-          `
-        })
-        .from(stores)
-        .leftJoin(orders, eq(orders.storeId, stores.id))
-        .leftJoin(orderItems, eq(orderItems.orderId, orders.id))
-        .leftJoin(inventory, eq(inventory.storeId, stores.id))
-        .where(
-          and(
-            gte(orders.createdAt, currentMonthStart),
-            lt(orders.createdAt, nextMonthStart)
-          )
-        )
-        .groupBy(stores.id)
-        .orderBy(stores.name);
-
-      // Get historical performance data for trending
-      const historicalData = await db
-        .select({
-          storeId: stores.id,
-          month: sql<string>`date_trunc('month', ${orders.createdAt})::date`,
-          revenue: sql<number>`sum(${orders.total})`,
-          orderCount: sql<number>`count(distinct ${orders.id})`
-        })
-        .from(stores)
-        .leftJoin(orders, eq(orders.storeId, stores.id))
-        .where(
-          gte(
-            orders.createdAt,
-            sql`date_trunc('month', current_date - interval '6 months')`
-          )
-        )
-        .groupBy(stores.id, sql`date_trunc('month', ${orders.createdAt})`)
-        .orderBy([stores.id, sql`date_trunc('month', ${orders.createdAt})`]);
-
-      // Get inventory status
-      const inventoryStatus = await db
-        .select({
-          storeId: stores.id,
-          totalItems: sql<number>`count(distinct ${inventory.productId})`,
-          lowStockItems: sql<number>`
-            count(distinct case 
-              when ${inventory.quantity} <= ${products.minStock} 
-              then ${inventory.productId} 
-              else null 
-            end)
-          `
-        })
-        .from(stores)
-        .leftJoin(inventory, eq(inventory.storeId, stores.id))
-        .leftJoin(products, eq(inventory.productId, products.id))
-        .groupBy(stores.id);
-
-      res.json({
-        currentMetrics: storeMetrics,
-        historicalData,
-        inventoryStatus
-      });
-    } catch (error) {
-      console.error('Error fetching store performance:', error);
-      res.status(500).json({
-        message: "Failed to fetch store performance metrics",
-        suggestion: "Please try again later"
-      });
-    }
-  });
-
-  // Brand Management endpoints
-  app.get("/api/brands", requireAuth, async (req, res) => {
-    try {
-      const allBrands = await db.query.brands.findMany({
-        orderBy: [desc(brands.updatedAt)],
-      });
-      res.json(allBrands);
-    } catch (error) {
-      console.error('Error fetching brands:', error);
-      res.status(500).send("Failed to fetch brands");
-    }
-  });
-
-  app.post("/api/brands", requireRole(['admin']), async (req, res) => {
-    try {
-      const { name, description } = req.body;
-
-      if (!name) {
-        return res.status(400).send("Brand name is required");
-      }
-
-      // Check if brand exists
-      const existingBrand = await db.query.brands.findFirst({
-        where: eq(brands.name, name),
-      });
-
-      if (existingBrand) {
-        return res.status(400).send("Brand name already exists");
-      }
-
-      const [newBrand] = await db
-        .insert(brands)
-        .values({
-          name,
-          description,
-        })
-        .returning();
-
-      res.json({
-        message: "Brand created successfully",
-        brand: newBrand,
-      });
-    } catch (error) {
-      console.error('Error creating brand:', error);
-      res.status(500).send("Failed to create brand");
-    }
-  });
-
-  app.put("/api/brands/:id", requireRole(['admin']), async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { name, description } = req.body;
-
-      if (!name) {
-        return res.status(400).send("Brand name is required");
-      }
-
-      // Check if brand exists
-      const existingBrand = await db.query.brands.findFirst({
-        where: and(
-          eq(brands.name, name),
-          sql`id != ${id}`
-        ),
-      });
-
-      if (existingBrand) {
-        return res.status(400).send("Brand name already exists");
-      }
-
-      const [updatedBrand] = await db
-        .update(brands)
-        .set({
-          name,
-          description,
-          updatedAt: new Date(),
-        })
-        .where(eq(brands.id, parseInt(id)))
-        .returning();
-
-      if (!updatedBrand) {
-        return res.status(404).send("Brand not found");
-      }
-
-      res.json({
-        message: "Brand updated successfully",
-        brand: updatedBrand,
-      });
-    } catch (error) {
-      console.error('Error updating brand:', error);
-      res.status(500).send("Failed to update brand");
-    }
-  });
-
-  app.delete("/api/brands/:id", requireRole(['admin']), async (req, res) => {
-    try {
-      const { id } = req.params;
-
-      // Check if brand is used by any products
-      const productsWithBrand = await db.query.products.findMany({
-        where: eq(products.brandId, parseInt(id)),
-        limit: 1,
-      });
-
-      if (productsWithBrand.length > 0) {
-        return res.status(400).send("Cannot delete brand that is assigned to products");
-      }
-
-      await db
-        .delete(brands)
-        .where(eq(brands.id, parseInt(id)));
-
-      res.json({ message: "Brand deleted successfully" });
-    } catch (error) {
-      console.error('Error deleting brand:', error);
-      res.status(500).send("Failed to delete brand");
-    }
-  });
-
-  // Supplier Management endpoints - admin only
-  app.get("/api/suppliers", requireRole(['admin']), async (req, res) => {
-    try {
-      const allSuppliers = await db.query.suppliers.findMany({
-        orderBy: [desc(suppliers.updatedAt)],
-      });
-      res.json(allSuppliers);
-    } catch (error) {
-      console.error('Error fetching suppliers:', error);
-      res.status(500).send("Failed to fetch suppliers");
-    }
-  });
-
-  app.post("/api/suppliers", requireRole(['admin']), async (req, res) => {
-    try {
-      const { name, contactInfo, address } = req.body;
-
-      if (!name || !contactInfo || !address) {
-        return res.status(400).send("Name, contact information, and address are required");
-      }
-
-      const [newSupplier] = await db
-        .insert(suppliers)
-        .values({
-          name,
-          contactInfo,
-          address,
-        })
-        .returning();
-
-      res.json({
-        message: "Supplier created successfully",
-        supplier: newSupplier,
-      });
-    } catch (error) {
-      console.error('Error creating supplier:', error);
-      res.status(500).send("Failed to create supplier");
-    }
-  });
-
-  app.put("/api/suppliers/:id", requireRole(['admin']), async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { name, contactInfo, address } = req.body;
-
-      if (!name || !contactInfo || !address) {
-        return res.status(400).send("Name, contact information, and address are required");
-      }
-
-      const [updatedSupplier] = await db
-        .update(suppliers)
-        .set({
-          name,
-          contactInfo,
-          address,
-          updatedAt: new Date(),
-        })
-        .where(eq(suppliers.id, parseInt(id)))
-        .returning();
-
-      if (!updatedSupplier) {
-        return res.status(404).send("Supplier not found");
-      }
-
-      res.json({
-        message: "Supplier updated successfully",
-        supplier: updatedSupplier,
-      });
-    } catch (error) {
-      console.error('Error updating supplier:', error);
-      res.status(500).send("Failed to update supplier");
-    }
-  });
-
-  app.delete("/api/suppliers/:id", requireRole(['admin']), async (req, res) => {
-    try {
-      const { id } = req.params;
-
-      // Check if supplier exists
-      const [supplier] = await db
-        .select()
-        .from(suppliers)
-        .where(eq(suppliers.id, parseInt(id)))
-        .limit(1);
-
-      if (!supplier) {
-        return res.status(404).send("Supplier not found");
-      }
-
-      // Check if supplier has any inventory
-      const [inventoryCount] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(inventory)
-        .where(eq(inventory.supplierId, parseInt(id)));
-
-      if (inventoryCount.count > 0) {
-        return res.status(400).send("Cannot delete supplier with existing inventory");
-      }
-
-      await db
-        .delete(suppliers)
-        .where(eq(suppliers.id, parseInt(id)));
-
-      res.json({ message: "Supplier deleted successfully" });
-    } catch (error) {
-      console.error('Error deleting supplier:', error);
-      res.status(500).send("Failed to delete supplier");
-    }
-  });
-
-  // Dashboard Statistics API
-  app.get("/api/stats", requireAuth, async (req, res) => {
+  app.get("/api/stats", async (req, res) => {
     try {
       // Get current month's start and end dates
       const currentMonthStart = sql`date_trunc('month', current_date)`;
