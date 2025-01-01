@@ -4,7 +4,7 @@ import { type Express } from "express";
 import session from "express-session";
 import createMemoryStore from "memorystore";
 import bcrypt from "bcrypt";
-import { users, roles, roleTypes, type SelectUser } from "@db/schema";
+import { users, roles, roleLocations, type SelectUser } from "@db/schema";
 import { db } from "@db";
 import { eq } from "drizzle-orm";
 
@@ -151,27 +151,27 @@ export async function setupAdmin() {
   try {
     console.log('Setting up admin user...');
 
-    // Get or create System Administrator role type
-    let adminRoleType = await db.query.roleTypes.findFirst({
-      where: eq(roleTypes.description, 'System Administrator'),
+    // Get or create System Administrator role location
+    let adminRoleLocation = await db.query.roleLocations.findFirst({
+      where: eq(roleLocations.description, 'System Administrator'),
     });
 
-    if (!adminRoleType) {
-      console.log('System Administrator role type not found, creating it...');
-      const [newRoleType] = await db
-        .insert(roleTypes)
+    if (!adminRoleLocation) {
+      console.log('System Administrator role location not found, creating it...');
+      const [newRoleLocation] = await db
+        .insert(roleLocations)
         .values({
           description: 'System Administrator',
         })
         .returning();
-      adminRoleType = newRoleType;
+      adminRoleLocation = newRoleLocation;
     }
 
-    if (!adminRoleType) {
-      throw new Error('Failed to create or find System Administrator role type');
+    if (!adminRoleLocation) {
+      throw new Error('Failed to create or find System Administrator role location');
     }
 
-    console.log('Using role type:', adminRoleType);
+    console.log('Using role location:', adminRoleLocation);
 
     // Create admin role if it doesn't exist
     const [adminRole] = await db
@@ -179,7 +179,7 @@ export async function setupAdmin() {
       .values({
         name: 'admin',
         description: 'Administrator role with full access',
-        roleTypeId: adminRoleType.id,
+        roleLocationId: adminRoleLocation.id,
         permissions: {
           products: { create: true, read: true, update: true, delete: true },
           orders: { create: true, read: true, update: true, delete: true },

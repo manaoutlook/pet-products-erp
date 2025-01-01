@@ -4,8 +4,8 @@ import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 import { jsonb } from "drizzle-orm/pg-core";
 
-// Role Types table
-export const roleTypes = pgTable("role_types", {
+// Role Locations table
+export const roleLocations = pgTable("role_locations", {
   id: serial("id").primaryKey(),
   description: text("description").notNull(),
 });
@@ -23,7 +23,7 @@ export const roles = pgTable("roles", {
   id: serial("id").primaryKey(),
   name: text("name").unique().notNull(),
   description: text("description"),
-  roleTypeId: integer("role_type_id").references(() => roleTypes.id).notNull(),
+  roleLocationId: integer("role_location_id").references(() => roleLocations.id).notNull(),
   permissions: jsonb("permissions").$type<Permissions>().notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -220,15 +220,15 @@ export const productsRelations = relations(products, ({ one, many }) => ({
   purchaseOrderItems: many(purchaseOrderItems)
 }));
 
-export const roleTypesRelations = relations(roleTypes, ({ many }) => ({
+export const roleLocationsRelations = relations(roleLocations, ({ many }) => ({
   roles: many(roles),
 }));
 
 export const rolesRelations = relations(roles, ({ many, one }) => ({
   users: many(users),
-  roleType: one(roleTypes, {
-    fields: [roles.roleTypeId],
-    references: [roleTypes.id],
+  roleLocation: one(roleLocations, {
+    fields: [roles.roleLocationId],
+    references: [roleLocations.id],
   }),
 }));
 
@@ -330,18 +330,18 @@ export const selectSupplierSchema = createSelectSchema(suppliers);
 export type InsertSupplier = typeof suppliers.$inferInsert;
 export type SelectSupplier = typeof suppliers.$inferSelect;
 
-export const insertRoleTypeSchema = createInsertSchema(roleTypes);
-export const selectRoleTypeSchema = createSelectSchema(roleTypes);
-export type InsertRoleType = typeof roleTypes.$inferInsert;
-export type SelectRoleType = typeof roleTypes.$inferSelect;
+
+export const insertRoleLocationSchema = createInsertSchema(roleLocations);
+export const selectRoleLocationSchema = createSelectSchema(roleLocations);
+export type InsertRoleLocation = typeof roleLocations.$inferInsert;
+export type SelectRoleLocation = typeof roleLocations.$inferSelect;
 
 export const insertRoleSchema = createInsertSchema(roles);
 export const selectRoleSchema = createSelectSchema(roles);
 export type InsertRole = typeof roles.$inferInsert;
 export type SelectRole = typeof roles.$inferSelect & {
-  roleType?: SelectRoleType | null;
+  roleLocation?: SelectRoleLocation | null;
 };
-
 
 export const insertStoreSchema = createInsertSchema(stores);
 export const selectStoreSchema = createSelectSchema(stores);

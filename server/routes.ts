@@ -4,7 +4,7 @@ import { setupAuth } from "./auth";
 import { db } from "@db";
 import {
   products, inventory, orders, orderItems, users,
-  roles, roleTypes, stores, userStoreAssignments,
+  roles, roleLocations, stores, userStoreAssignments,
   categories, brands, suppliers, purchaseOrders,
   purchaseOrderItems, customerProfiles, insertCustomerProfileSchema,
 } from "@db/schema";
@@ -349,6 +349,7 @@ export function registerRoutes(app: Express): Server {
       });
     }
   });
+
   app.get("/api/customer-profiles", requireAuth, async (req, res) => {
     try {
       const allCustomerProfiles = await db.query.customerProfiles.findMany({
@@ -507,13 +508,14 @@ export function registerRoutes(app: Express): Server {
   });
 
 
-  app.get("/api/role-types", async (req, res) => {
+  // Update role-types endpoint to role-locations
+  app.get("/api/role-locations", async (req, res) => {
     try {
-      const roleTypes = await db.query.roleTypes.findMany();
-      res.json(roleTypes);
+      const roleLocations = await db.query.roleLocations.findMany();
+      res.json(roleLocations);
     } catch (error) {
-      console.error('Error fetching role types:', error);
-      res.status(500).send("Failed to fetch role types");
+      console.error('Error fetching role locations:', error);
+      res.status(500).send("Failed to fetch role locations");
     }
   });
 
@@ -526,16 +528,16 @@ export function registerRoutes(app: Express): Server {
           name: roles.name,
           description: roles.description,
           permissions: roles.permissions,
-          roleTypeId: roles.roleTypeId,
+          roleLocationId: roles.roleLocationId,
           createdAt: roles.createdAt,
           updatedAt: roles.updatedAt,
-          roleType: {
-            id: roleTypes.id,
-            description: roleTypes.description,
+          roleLocation: {
+            id: roleLocations.id,
+            description: roleLocations.description,
           },
         })
         .from(roles)
-        .leftJoin(roleTypes, eq(roles.roleTypeId, roleTypes.id))
+        .leftJoin(roleLocations, eq(roles.roleLocationId, roleLocations.id))
         .orderBy(roles.name);
 
       res.json(allRoles);
@@ -547,9 +549,9 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/roles", requireRole(['admin']), async (req, res) => {
     try {
-      const { name, description, roleTypeId, permissions } = req.body;
+      const { name, description, roleLocationId, permissions } = req.body;
 
-      if (!name || !roleTypeId || !permissions) {
+      if (!name || !roleLocationId || !permissions) {
         return res.status(400).json({
           message: "Role name, role type and permissions are required",
           suggestion: "Please fill in all required fields"
@@ -569,11 +571,11 @@ export function registerRoutes(app: Express): Server {
       }
 
       // Check if role type exists
-      const roleType = await db.query.roleTypes.findFirst({
-        where: eq(roleTypes.id, parseInt(roleTypeId.toString())),
+      const roleLocation = await db.query.roleLocations.findFirst({
+        where: eq(roleLocations.id, parseInt(roleLocationId.toString())),
       });
 
-      if (!roleType) {
+      if (!roleLocation) {
         return res.status(400).json({
           message: "Invalid role type",
           suggestion: "Please select a valid role type"
@@ -586,7 +588,7 @@ export function registerRoutes(app: Express): Server {
         .values({
           name,
           description: description || null,
-          roleTypeId: parseInt(roleTypeId.toString()),
+          roleLocationId: parseInt(roleLocationId.toString()),
           permissions: permissions as any, // Type cast for now
           createdAt: new Date(),
           updatedAt: new Date()
@@ -594,16 +596,16 @@ export function registerRoutes(app: Express): Server {
         .returning();
 
       // Fetch the complete role with role type
-      const roleWithType = await db.query.roles.findFirst({
+      const roleWithLocation = await db.query.roles.findFirst({
         where: eq(roles.id, newRole.id),
         with: {
-          roleType: true,
+          roleLocation: true,
         },
       });
 
       res.json({
         message: "Role created successfully",
-        role: roleWithType,
+        role: roleWithLocation,
       });
     } catch (error) {
       console.error('Error creating role:', error);
@@ -617,9 +619,9 @@ export function registerRoutes(app: Express): Server {
   app.put("/api/roles/:id", requireRole(['admin']), async (req, res) => {
     try {
       const { id } = req.params;
-      const { name, description, roleTypeId } = req.body;
+      const { name, description, roleLocationId } = req.body;
 
-      if (!name || !roleTypeId) {
+      if (!name || !roleLocationId) {
         return res.status(400).send("Role name and role type are required");
       }
 
@@ -636,11 +638,11 @@ export function registerRoutes(app: Express): Server {
       }
 
       // Check if role type exists
-      const roleType = await db.query.roleTypes.findFirst({
-        where: eq(roleTypes.id, roleTypeId),
+      const roleLocation = await db.query.roleLocations.findFirst({
+        where: eq(roleLocations.id, roleLocationId),
       });
 
-      if (!roleType) {
+      if (!roleLocation) {
         return res.status(400).send("Invalid role type");
       }
 
@@ -658,23 +660,23 @@ export function registerRoutes(app: Express): Server {
         .set({
           name,
           description,
-          roleTypeId,
+          roleLocationId,
           updatedAt: new Date(),
         })
         .where(eq(roles.id, parseInt(id)))
         .returning();
 
       // Fetch the complete role with role type
-      const roleWithType = await db.query.roles.findFirst({
+      const roleWithLocation = await db.query.roles.findFirst({
         where: eq(roles.id, updatedRole.id),
         with: {
-          roleType: true,
+          roleLocation: true,
         },
       });
 
       res.json({
         message: "Role updated successfully",
-        role: roleWithType,
+        role: roleWithLocation,
       });
     } catch (error) {
       console.error('Error updating role:', error);
@@ -756,7 +758,7 @@ export function registerRoutes(app: Express): Server {
       const roleWithPermissions = await db.query.roles.findFirst({
         where: eq(roles.id, updatedRole.id),
         with: {
-          roleType: true,
+          roleLocation: true,
         },
       });
 
@@ -894,7 +896,7 @@ export function registerRoutes(app: Express): Server {
       // Fetch roles with users and role types
       const roles = await db.query.roles.findMany({
         with: {
-          roleType: true,
+          roleLocation: true,
           users: {
             columns: {
               id: true,
@@ -927,7 +929,7 @@ export function registerRoutes(app: Express): Server {
         with: {
           role: {
             with: {
-              roleType: true,
+              roleLocation: true,
             }
           },
         },
@@ -1300,22 +1302,22 @@ export function registerRoutes(app: Express): Server {
           role: {
             id: roles.id,
             name: roles.name,
-            roleType: {
-              id: roleTypes.id,
-              description: roleTypes.description
+            roleLocation: {
+              id: roleLocations.id,
+              description: roleLocations.description
             }
           }
         })
         .from(users)
         .innerJoin(roles, eq(users.roleId, roles.id))
-        .innerJoin(roleTypes, eq(roles.roleTypeId, roleTypes.id))
+        .innerJoin(roleLocations, eq(roles.roleLocationId, roleLocations.id))
         .leftJoin(
           userStoreAssignments,
           eq(users.id, userStoreAssignments.userId)
         )
         .where(
           and(
-            eq(roleTypes.description, 'Pet Store'),
+            eq(roleLocations.description, 'Pet Store'),
             sql`${userStoreAssignments.id} IS NULL`
           )
         );
@@ -1344,7 +1346,7 @@ export function registerRoutes(app: Express): Server {
         with: {
           role: {
             with: {
-              roleType: true
+              roleLocation: true
             }
           }
         }
@@ -1354,7 +1356,7 @@ export function registerRoutes(app: Express): Server {
         return res.status(404).send("User not found");
       }
 
-      if (user.role?.roleType?.description !== 'Pet Store') {
+      if (user.role?.roleLocation?.description !== 'Pet Store') {
         return res.status(400).send("Only Pet Store users can be assigned to stores");
       }
 
@@ -1698,7 +1700,7 @@ export function registerRoutes(app: Express): Server {
         return res.status(401).send("Unauthorized");
       }
 
-      console.log(`Fetching inventory for user ${user.username} with role type ${user.role?.roleType?.description}`);
+      console.log(`Fetching inventory for user ${user.username} with role type ${user.role?.roleLocation?.description}`);
 
       let inventoryQuery = db.query.inventory.findMany({
         with: {
@@ -1862,6 +1864,332 @@ export function registerRoutes(app: Express): Server {
     } catch (error) {
       console.error('Error deleting inventory item:', error);
       res.status(500).send("Failed to delete inventory item");
+    }
+  });
+
+  // Store Performance API endpoints
+  app.get("/api/stores/performance", requireAuth, async (req, res) => {
+    try {
+      // Get current month's start and end dates
+      const currentMonthStart = sql`date_trunc('month', current_date)`;
+      const nextMonthStart = sql`date_trunc('month', current_date) + interval '1 month'`;
+
+      // Get performance metrics for each store
+      const storeMetrics = await db
+        .select({
+          storeId: stores.id,
+          storeName: stores.name,
+          // Monthly order count
+          orderCount: sql<number>`count(distinct ${orders.id})::int`,
+          // Total revenue
+          revenue: sql<number>`coalesce(sum(${orders.total})::numeric, 0)`,
+          // Average order value
+          averageOrderValue: sql<number>`coalesce(avg(${orders.total})::numeric, 0)`,
+          // Order fulfillment rate (completed orders / total orders)
+          fulfillmentRate: sql<number>`
+            case 
+              when count(${orders.id}) > 0 
+              then (sum(case when ${orders.status} = 'completed' then 1 else 0 end)::float / count(${orders.id}))::numeric
+              else 0 
+            end
+          `,
+          // Inventory turnover (items sold / average inventory)
+          inventoryTurnover: sql<number>`
+            coalesce(
+              (sum(${orderItems.quantity})::float / nullif(avg(${inventory.quantity}), 0))::numeric,
+              0
+            )
+          `
+        })
+        .from(stores)
+        .leftJoin(orders, eq(orders.storeId, stores.id))
+        .leftJoin(orderItems, eq(orderItems.orderId, orders.id))
+        .leftJoin(inventory, eq(inventory.storeId, stores.id))
+        .where(
+          and(
+            gte(orders.createdAt, currentMonthStart),
+            lt(orders.createdAt, nextMonthStart)
+          )
+        )
+        .groupBy(stores.id)
+        .orderBy(stores.name);
+
+      // Get historical performance data for trending
+      const historicalData = await db
+        .select({
+          storeId: stores.id,
+          month: sql<string>`date_trunc('month', ${orders.createdAt})::date`,
+          revenue: sql<number>`sum(${orders.total})`,
+          orderCount: sql<number>`count(distinct ${orders.id})`
+        })
+        .from(stores)
+        .leftJoin(orders, eq(orders.storeId, stores.id))
+        .where(
+          gte(
+            orders.createdAt,
+            sql`date_trunc('month', current_date - interval '6 months')`
+          )
+        )
+        .groupBy(stores.id, sql`date_trunc('month', ${orders.createdAt})`)
+        .orderBy([stores.id, sql`date_trunc('month', ${orders.createdAt})`]);
+
+      // Get inventory status
+      const inventoryStatus = await db
+        .select({
+          storeId: stores.id,
+          totalItems: sql<number>`count(distinct ${inventory.productId})`,
+          lowStockItems: sql<number>`
+            count(distinct case 
+              when ${inventory.quantity} <= ${products.minStock} 
+              then ${inventory.productId} 
+              else null 
+            end)
+          `
+        })
+        .from(stores)
+        .leftJoin(inventory, eq(inventory.storeId, stores.id))
+        .leftJoin(products, eq(inventory.productId, products.id))
+        .groupBy(stores.id);
+
+      res.json({
+        currentMetrics: storeMetrics,
+        historicalData,
+        inventoryStatus
+      });
+    } catch (error) {
+      console.error('Error fetching store performance:', error);
+      res.status(500).json({
+        message: "Failed to fetch store performance metrics",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Brand Management endpoints
+  app.get("/api/brands", requireAuth, async (req, res) => {
+    try {
+      const allBrands = await db.query.brands.findMany({
+        orderBy: [desc(brands.updatedAt)],
+      });
+      res.json(allBrands);
+    } catch (error) {
+      console.error('Error fetching brands:', error);
+      res.status(500).send("Failed to fetch brands");
+    }
+  });
+
+  app.post("/api/brands", requireRole(['admin']), async (req, res) => {
+    try {
+      const { name, description } = req.body;
+
+      if (!name) {
+        return res.status(400).send("Brand name is required");
+      }
+
+      // Check if brand exists
+      const existingBrand = await db.query.brands.findFirst({
+        where: eq(brands.name, name),
+      });
+
+      if (existingBrand) {
+        return res.status(400).send("Brand name already exists");
+      }
+
+      const [newBrand] = await db
+        .insert(brands)
+        .values({
+          name,
+          description,
+        })
+        .returning();
+
+      res.json({
+        message: "Brand created successfully",
+        brand: newBrand,
+      });
+    } catch (error) {
+      console.error('Error creating brand:', error);
+      res.status(500).send("Failed to create brand");
+    }
+  });
+
+  app.put("/api/brands/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, description } = req.body;
+
+      if (!name) {
+        return res.status(400).send("Brand name is required");
+      }
+
+      // Check if brand exists
+      const existingBrand = await db.query.brands.findFirst({
+        where: and(
+          eq(brands.name, name),
+          sql`id != ${id}`
+        ),
+      });
+
+      if (existingBrand) {
+        return res.status(400).send("Brand name already exists");
+      }
+
+      const [updatedBrand] = await db
+        .update(brands)
+        .set({
+          name,
+          description,
+          updatedAt: new Date(),
+        })
+        .where(eq(brands.id, parseInt(id)))
+        .returning();
+
+      if (!updatedBrand) {
+        return res.status(404).send("Brand not found");
+      }
+
+      res.json({
+        message: "Brand updated successfully",
+        brand: updatedBrand,
+      });
+    } catch (error) {
+      console.error('Error updating brand:', error);
+      res.status(500).send("Failed to update brand");
+    }
+  });
+
+  app.delete("/api/brands/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if brand is used by any products
+      const productsWithBrand = await db.query.products.findMany({
+        where: eq(products.brandId, parseInt(id)),
+        limit: 1,
+      });
+
+      if (productsWithBrand.length > 0) {
+        return res.status(400).send("Cannot delete brand that is assigned to products");
+      }
+
+      await db
+        .delete(brands)
+        .where(eq(brands.id, parseInt(id)));
+
+      res.json({ message: "Brand deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting brand:', error);
+      res.status(500).send("Failed to delete brand");
+    }
+  });
+
+  // Supplier Management endpoints - admin only
+  app.get("/api/suppliers", requireRole(['admin']), async (req, res) => {
+    try {
+      const allSuppliers = await db.query.suppliers.findMany({
+        orderBy: [desc(suppliers.updatedAt)],
+      });
+      res.json(allSuppliers);
+    } catch (error) {
+      console.error('Error fetching suppliers:', error);
+      res.status(500).send("Failed to fetch suppliers");
+    }
+  });
+
+  app.post("/api/suppliers", requireRole(['admin']), async (req, res) => {
+    try {
+      const { name, contactInfo, address } = req.body;
+
+      if (!name || !contactInfo || !address) {
+        return res.status(400).send("Name, contact information, and address are required");
+      }
+
+      const [newSupplier] = await db
+        .insert(suppliers)
+        .values({
+          name,
+          contactInfo,
+          address,
+        })
+        .returning();
+
+      res.json({
+        message: "Supplier created successfully",
+        supplier: newSupplier,
+      });
+    } catch (error) {
+      console.error('Error creating supplier:', error);
+      res.status(500).send("Failed to create supplier");
+    }
+  });
+
+  app.put("/api/suppliers/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, contactInfo, address } = req.body;
+
+      if (!name || !contactInfo || !address) {
+        return res.status(400).send("Name, contact information, and address are required");
+      }
+
+      const [updatedSupplier] = await db
+        .update(suppliers)
+        .set({
+          name,
+          contactInfo,
+          address,
+          updatedAt: new Date(),
+        })
+        .where(eq(suppliers.id, parseInt(id)))
+        .returning();
+
+      if (!updatedSupplier) {
+        return res.status(404).send("Supplier not found");
+      }
+
+      res.json({
+        message: "Supplier updated successfully",
+        supplier: updatedSupplier,
+      });
+    } catch (error) {
+      console.error('Error updating supplier:', error);
+      res.status(500).send("Failed to update supplier");
+    }
+  });
+
+  app.delete("/api/suppliers/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if supplier exists
+      const [supplier] = await db
+        .select()
+        .from(suppliers)
+        .where(eq(suppliers.id, parseInt(id)))
+        .limit(1);
+
+      if (!supplier) {
+        return res.status(404).send("Supplier not found");
+      }
+
+      // Check if supplier has any inventory
+      const [inventoryCount] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(inventory)
+        .where(eq(inventory.supplierId, parseInt(id)));
+
+      if (inventoryCount.count > 0) {
+        return res.status(400).send("Cannot delete supplier with existing inventory");
+      }
+
+      await db
+        .delete(suppliers)
+        .where(eq(suppliers.id, parseInt(id)));
+
+      res.json({ message: "Supplier deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting supplier:', error);
+      res.status(500).send("Failed to delete supplier");
     }
   });
 
