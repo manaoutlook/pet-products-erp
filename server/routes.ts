@@ -544,10 +544,13 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/roles", requireRole(['admin']), async (req, res) => {
     try {
-      const { name, description, roleTypeId } = req.body;
+      const { name, description, roleTypeId, permissions } = req.body;
 
-      if (!name || !roleTypeId) {
-        return res.status(400).send("Role name and role type are required");
+      if (!name || !roleTypeId || !permissions) {
+        return res.status(400).json({
+          message: "Role name, role type and permissions are required",
+          suggestion: "Please fill in all required fields"
+        });
       }
 
       // Check if role exists
@@ -556,24 +559,34 @@ export function registerRoutes(app: Express): Server {
       });
 
       if (existingRole) {
-        return res.status(400).send("Role name already exists");
+        return res.status(400).json({
+          message: "Role name already exists",
+          suggestion: "Please use a different role name"
+        });
       }
 
       // Check if role type exists
       const roleType = await db.query.roleTypes.findFirst({
-        where: eq(roleTypes.id, roleTypeId),
+        where: eq(roleTypes.id, parseInt(roleTypeId.toString())),
       });
 
       if (!roleType) {
-        return res.status(400).send("Invalid role type");
+        return res.status(400).json({
+          message: "Invalid role type",
+          suggestion: "Please select a valid role type"
+        });
       }
 
+      // Create new role with permissions
       const [newRole] = await db
         .insert(roles)
         .values({
           name,
-          description,
-          roleTypeId,
+          description: description || null,
+          roleTypeId: parseInt(roleTypeId.toString()),
+          permissions: permissions as any, // Type cast for now
+          createdAt: new Date(),
+          updatedAt: new Date()
         })
         .returning();
 
@@ -591,7 +604,10 @@ export function registerRoutes(app: Express): Server {
       });
     } catch (error) {
       console.error('Error creating role:', error);
-      res.status(500).send("Failed to create role");
+      res.status(500).json({
+        message: "Failed to create role",
+        suggestion: "Please try again later"
+      });
     }
   });
 
@@ -2087,7 +2103,8 @@ export function registerRoutes(app: Express): Server {
         supplier: newSupplier,
       });
     } catch (error) {
-      console.error('Error creating supplier:', error);      res.status(500).send("Failed to create supplier");
+      console.error('Error creating supplier:', error);
+      res.status(500).send("Failed to create supplier");
     }
   });
 
@@ -2523,8 +2540,8 @@ export function registerRoutes(app: Express): Server {
         );
 
       // Calculate growth percentage
-      const growth = lastMonthStats.revenue === 0 
-        ? 0 
+      const growth = lastMonthStats.revenue === 0
+        ? 0
         : ((currentStats.revenue - lastMonthStats.revenue) / lastMonthStats.revenue) * 100;
 
       // Get low stock items
