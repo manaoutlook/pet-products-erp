@@ -171,6 +171,12 @@ function Sidebar() {
           adminOnly: true
         },
         { 
+          name: "Role Locations", 
+          href: "/role-locations", 
+          icon: Building2,
+          adminOnly: true
+        },
+        { 
           name: "Permissions", 
           href: "/role-permissions", 
           icon: Lock,
