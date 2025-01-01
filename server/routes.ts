@@ -4,7 +4,7 @@ import { db } from "@db";
 import {
   products, inventory, orders, orderItems,
   stores, categories, brands, suppliers, purchaseOrders,
-  purchaseOrderItems, customerProfiles, insertCustomerProfileSchema,
+  purchaseOrderItems, customerProfiles,
 } from "@db/schema";
 import { sql } from "drizzle-orm";
 import { eq, and, desc, gte, lt } from "drizzle-orm";
@@ -1045,7 +1045,8 @@ export function registerRoutes(app: Express): Server {
         .set({
           productId: parseInt(productId),
           storeId: storeId ? parseInt(storeId) : null,
-          supplierId: supplierId ? parseInt(supplierId) : null,          quantity: parseInt(quantity),
+          supplierId: supplierId ? parseInt(supplierId) : null,
+          quantity: parseInt(quantity),
           location,
           inventoryType,
           updatedAt: new Date(),
