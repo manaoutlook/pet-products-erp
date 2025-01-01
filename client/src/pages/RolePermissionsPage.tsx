@@ -44,7 +44,7 @@ interface Role {
   name: string;
   description: string | null;
   permissions: Permissions;
-  roleType: {
+  roleLocation: {
     description: string;
   };
 }
@@ -224,7 +224,7 @@ function RolePermissionsPage() {
                   <TableCell className="font-medium">
                     <div>
                       <p>{role.name}</p>
-                      <p className="text-sm text-muted-foreground">{role.roleType.description}</p>
+                      <p className="text-sm text-muted-foreground">{role.roleLocation.description}</p>
                     </div>
                   </TableCell>
                   {filteredModules.map(module => (
