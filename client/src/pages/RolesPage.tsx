@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Table,
   TableBody,
@@ -14,6 +14,17 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
   Card,
   CardContent,
@@ -42,7 +53,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, Plus } from "lucide-react";
+import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
 
 // Define form schema
 const roleFormSchema = z.object({
@@ -62,12 +73,25 @@ const defaultPermissions = {
   inventory: { read: false, create: false, update: false, delete: false }
 };
 
+interface Role {
+  id: number;
+  name: string;
+  description: string | null;
+  roleLocation: {
+    id: number;
+    description: string;
+  };
+  permissions: typeof defaultPermissions;
+}
+
 function RolesPage() {
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<Role | null>(null);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  const { data: roles, isLoading, refetch } = useQuery({
+  const { data: roles, isLoading } = useQuery<Role[]>({
     queryKey: ['/api/roles'],
   });
 
@@ -104,7 +128,7 @@ function RolesPage() {
       return res.json();
     },
     onSuccess: () => {
-      refetch();
+      queryClient.invalidateQueries({ queryKey: ['/api/roles'] });
       setDialogOpen(false);
       form.reset();
       toast({ title: "Success", description: "Role created successfully" });
@@ -118,9 +142,73 @@ function RolesPage() {
     },
   });
 
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: RoleFormValues }) => {
+      const res = await fetch(`/api/roles/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...data,
+          roleLocationId: parseInt(data.roleLocationId),
+        }),
+        credentials: 'include',
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || 'Failed to update role');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/roles'] });
+      setDialogOpen(false);
+      setSelectedRole(null);
+      form.reset();
+      toast({ title: "Success", description: "Role updated successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Error", 
+        description: error.message,
+        variant: "destructive"
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/roles/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || 'Failed to delete role');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/roles'] });
+      toast({ title: "Success", description: "Role deleted successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Error", 
+        description: error.message,
+        variant: "destructive"
+      });
+    },
+  });
+
   const onSubmit = async (data: RoleFormValues) => {
     try {
-      await createMutation.mutateAsync(data);
+      if (selectedRole) {
+        await updateMutation.mutateAsync({ id: selectedRole.id, data });
+      } else {
+        await createMutation.mutateAsync(data);
+      }
     } catch (error) {
       // Error is handled by the mutation
       console.error('Form submission error:', error);
@@ -128,10 +216,21 @@ function RolesPage() {
   };
 
   const handleAddRole = () => {
+    setSelectedRole(null);
     form.reset({
       name: "",
       description: "",
       roleLocationId: "",
+    });
+    setDialogOpen(true);
+  };
+
+  const handleEditRole = (role: Role) => {
+    setSelectedRole(role);
+    form.reset({
+      name: role.name,
+      description: role.description || "",
+      roleLocationId: role.roleLocation.id.toString(),
     });
     setDialogOpen(true);
   };
@@ -154,7 +253,9 @@ function RolesPage() {
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Add New Role</DialogTitle>
+              <DialogTitle>
+                {selectedRole ? "Edit Role" : "Add New Role"}
+              </DialogTitle>
             </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -214,10 +315,10 @@ function RolesPage() {
                 <Button
                   type="submit"
                   className="w-full"
-                  loading={createMutation.isPending}
-                  loadingText="Creating Role..."
+                  loading={createMutation.isPending || updateMutation.isPending}
+                  loadingText={selectedRole ? "Updating Role..." : "Creating Role..."}
                 >
-                  Create Role
+                  {selectedRole ? "Update Role" : "Create Role"}
                 </Button>
               </form>
             </Form>
@@ -252,14 +353,56 @@ function RolesPage() {
                   <TableHead>Name</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead>Role Location</TableHead>
+                  <TableHead className="w-[100px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredRoles?.map((role: any) => (
+                {filteredRoles?.map((role) => (
                   <TableRow key={role.id}>
                     <TableCell className="font-medium">{role.name}</TableCell>
                     <TableCell>{role.description}</TableCell>
-                    <TableCell>{role.roleLocation?.description}</TableCell>
+                    <TableCell>{role.roleLocation.description}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleEditRole(role)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive hover:text-destructive"
+                              disabled={role.name === 'admin'}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete Role</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to delete this role? This action cannot be undone.
+                                Any users assigned to this role will be affected.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => deleteMutation.mutate(role.id)}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
