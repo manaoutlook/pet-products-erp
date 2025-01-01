@@ -3,13 +3,10 @@ import { Strategy as LocalStrategy } from "passport-local";
 import { type Express } from "express";
 import session from "express-session";
 import createMemoryStore from "memorystore";
-import { scrypt, randomBytes, timingSafeEqual } from "crypto";
-import { promisify } from "util";
+import bcrypt from "bcrypt";
 import { users, roles, roleTypes } from "@db/schema";
 import { db } from "@db";
 import { eq } from "drizzle-orm";
-
-const scryptAsync = promisify(scrypt);
 
 interface Permission {
   create?: boolean;
@@ -44,11 +41,8 @@ export const crypto = {
         throw new Error('Password is required');
       }
 
-      const salt = randomBytes(16).toString("hex");
-      console.log(`Generating hash for password with salt: ${salt}`);
-
-      const derivedKey = (await scryptAsync(password, salt, 64)) as Buffer;
-      const hashedPassword = `${derivedKey.toString("hex")}.${salt}`;
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(password, salt);
 
       console.log(`Successfully generated password hash. Length: ${hashedPassword.length}`);
       return hashedPassword;
@@ -67,35 +61,12 @@ export const crypto = {
         throw new Error('Both supplied and stored passwords are required');
       }
 
-      // Split stored password into hash and salt
-      const [storedHash, salt] = storedPassword.split(".");
-      if (!storedHash || !salt) {
-        console.error('Invalid stored password format:', { storedPassword });
-        throw new Error('Invalid stored password format');
-      }
-
-      console.log('Generating hash with stored salt for comparison');
-      const derivedKey = (await scryptAsync(suppliedPassword, salt, 64)) as Buffer;
-      const suppliedHash = derivedKey.toString("hex");
-
-      // Compare hashes using timing-safe comparison
-      const storedBuffer = Buffer.from(storedHash, "hex");
-      const suppliedBuffer = Buffer.from(suppliedHash, "hex");
-
-      console.log('Comparing password hashes...', {
-        storedHashLength: storedHash.length,
-        suppliedHashLength: suppliedHash.length
-      });
-
-      const isMatch = timingSafeEqual(storedBuffer, suppliedBuffer);
+      const isMatch = await bcrypt.compare(suppliedPassword, storedPassword);
       console.log(`Password comparison result: ${isMatch}`);
 
       return isMatch;
     } catch (error: any) {
       console.error('Error comparing passwords:', error);
-      if (error.message === 'Invalid stored password format') {
-        throw error;
-      }
       throw new Error('Error verifying password. Please try again.');
     }
   },
@@ -138,7 +109,8 @@ export async function setupAdmin() {
           products: { create: true, read: true, update: true, delete: true },
           orders: { create: true, read: true, update: true, delete: true },
           inventory: { create: true, read: true, update: true, delete: true },
-          users: { create: true, read: true, update: true, delete: true }
+          users: { create: true, read: true, update: true, delete: true },
+          stores: { create: true, read: true, update: true, delete: true }
         },
       })
       .onConflictDoNothing()
@@ -176,6 +148,18 @@ export async function setupAdmin() {
         .onConflictDoNothing();
 
       console.log('Admin user created successfully');
+    } else {
+      // Update existing admin password to use bcrypt
+      const hashedPassword = await crypto.hash('admin123');
+      await db
+        .update(users)
+        .set({ 
+          password: hashedPassword,
+          updatedAt: new Date()
+        })
+        .where(eq(users.id, existingAdmin.id));
+
+      console.log('Admin user password updated successfully');
     }
   } catch (error) {
     console.error('Error setting up admin user:', error);
