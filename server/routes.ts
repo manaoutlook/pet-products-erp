@@ -6,7 +6,8 @@ import {
   products, inventory, orders, orderItems, users,
   roles, roleTypes, stores, userStoreAssignments,
   categories, brands, suppliers, purchaseOrders,
-  purchaseOrderItems, customerProfiles, insertCustomerProfileSchema
+  purchaseOrderItems, customerProfiles, insertCustomerProfileSchema,
+  insertUserSchema, // Add this import
 } from "@db/schema";
 import { sql } from "drizzle-orm";
 import { eq, and, desc, gte, lt } from "drizzle-orm";
@@ -962,7 +963,10 @@ export function registerRoutes(app: Express): Server {
       });
 
       if (existingUser) {
-        return res.status(400).send("Username already exists");
+        return res.status(400).json({
+          message: "Username already exists",
+          suggestion: "Please choose a different username"
+        });
       }
 
       // Hash password using the crypto utility
@@ -985,13 +989,21 @@ export function registerRoutes(app: Express): Server {
         },
       });
 
-      res.json({
+      res.status(201).json({
         message: "User created successfully",
-        user: userWithRole,
+        user: {
+          id: newUser.id,
+          username: newUser.username,
+          roleId: newUser.roleId,
+          role: userWithRole?.role
+        }
       });
     } catch (error) {
       console.error('Error creating user:', error);
-      res.status(500).send("Failed to create user");
+      res.status(500).json({
+        message: "Failed to create user",
+        suggestion: "Please try again. If the problem persists, contact support."
+      });
     }
   });
 
@@ -1038,8 +1050,7 @@ export function registerRoutes(app: Express): Server {
       // Check if new username is already taken by another user
       if (username) {
         const duplicateUser = await db.query.users.findFirst({
-          where: and(
-            eq(users.username, username),
+          where: and(            eq(users.username, username),
             sql`id != ${id}`
           ),
         });
@@ -1063,7 +1074,7 @@ export function registerRoutes(app: Express): Server {
         });
 
         if (!role) {
-          return res.status(00).json({
+          return res.status(400).json({
             message: "Invalid role ID",
             suggestion: "Please provide a valid role ID"
           });

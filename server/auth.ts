@@ -4,9 +4,28 @@ import { type Express } from "express";
 import session from "express-session";
 import createMemoryStore from "memorystore";
 import bcrypt from "bcrypt";
-import { users, roles, roleTypes } from "@db/schema";
+import { users, roles, roleTypes, type SelectUser } from "@db/schema";
 import { db } from "@db";
 import { eq } from "drizzle-orm";
+
+// Declare global Express.User type
+declare global {
+  namespace Express {
+    interface User extends SelectUser {
+      role: {
+        id: number;
+        name: string;
+        permissions: {
+          products: { create: boolean; read: boolean; update: boolean; delete: boolean };
+          orders: { create: boolean; read: boolean; update: boolean; delete: boolean };
+          inventory: { create: boolean; read: boolean; update: boolean; delete: boolean };
+          users: { create: boolean; read: boolean; update: boolean; delete: boolean };
+          stores: { create: boolean; read: boolean; update: boolean; delete: boolean };
+        };
+      };
+    }
+  }
+}
 
 // Improved crypto functions with better error handling and logging
 export const crypto = {
@@ -53,7 +72,7 @@ export function setupUserRoutes(app: Express) {
 
       // Validate input
       if (!username || !password || !roleId) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: "Missing required fields",
           details: {
             username: !username ? "Username is required" : null,
@@ -69,7 +88,7 @@ export function setupUserRoutes(app: Express) {
       });
 
       if (existingUser) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: "Username already exists",
           suggestion: "Please choose a different username"
         });
@@ -98,7 +117,7 @@ export function setupUserRoutes(app: Express) {
       });
     } catch (error) {
       console.error('Error creating user:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to create user",
         suggestion: "Please try again. If the problem persists, contact support."
       });
@@ -120,7 +139,7 @@ export function setupUserRoutes(app: Express) {
       res.json(sanitizedUsers);
     } catch (error) {
       console.error('Error fetching users:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to fetch users",
         suggestion: "Please try again. If the problem persists, contact support."
       });
@@ -209,7 +228,7 @@ export async function setupAdmin() {
       const hashedPassword = await crypto.hash('admin123');
       await db
         .update(users)
-        .set({ 
+        .set({
           password: hashedPassword,
           updatedAt: new Date()
         })
