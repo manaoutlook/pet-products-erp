@@ -7,34 +7,35 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Package, ShoppingCart, TrendingUp, DollarSign } from "lucide-react";
 import { formatPrice } from "@/utils/price";
+import type { DashboardStats } from "@/types/stats";
 
 function StatsCards() {
-  const { data: stats } = useQuery({
+  const { data: stats } = useQuery<DashboardStats>({
     queryKey: ['/api/stats'],
   });
 
   const cards = [
     {
       title: "Total Orders",
-      value: stats?.totalOrders || 0,
+      value: stats?.totalOrders ?? 0,
       icon: ShoppingCart,
       description: "Total orders this month",
     },
     {
       title: "Revenue",
-      value: formatPrice(stats?.revenue || 0),
+      value: formatPrice(stats?.revenue ?? 0),
       icon: DollarSign,
       description: "Revenue this month",
     },
     {
       title: "Products",
-      value: stats?.totalProducts || 0,
+      value: stats?.totalProducts ?? 0,
       icon: Package,
       description: "Active products",
     },
     {
       title: "Growth",
-      value: `${stats?.growth || 0}%`,
+      value: `${stats?.growth ?? 0}%`,
       icon: TrendingUp,
       description: "Growth from last month",
     },

@@ -10,13 +10,14 @@ import {
   Tooltip,
   ResponsiveContainer
 } from "recharts";
+import type { DashboardStats, OrderTrend } from "@/types/stats";
 
 function DashboardPage() {
-  const { data: stats } = useQuery({
+  const { data: stats } = useQuery<DashboardStats>({
     queryKey: ['/api/stats'],
   });
 
-  const { data: orderTrends } = useQuery({
+  const { data: orderTrends } = useQuery<OrderTrend[]>({
     queryKey: ['/api/stats/orders-trend'],
   });
 
@@ -33,7 +34,7 @@ function DashboardPage() {
           <h2 className="text-lg font-semibold mb-4">Order Trends</h2>
           <div className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={orderTrends}>
+              <LineChart data={orderTrends ?? []}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" />
                 <YAxis />
@@ -46,12 +47,14 @@ function DashboardPage() {
 
         <Card className="p-6">
           <h2 className="text-lg font-semibold mb-4">Low Stock Alerts</h2>
-          {stats?.lowStock?.map((item: any) => (
+          {stats?.lowStock?.map((item) => (
             <div key={item.id} className="flex justify-between items-center py-2">
               <span>{item.name}</span>
               <span className="text-red-500">{item.quantity} remaining</span>
             </div>
-          ))}
+          )) ?? (
+            <p className="text-muted-foreground">No low stock items</p>
+          )}
         </Card>
       </div>
     </div>
