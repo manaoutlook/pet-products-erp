@@ -40,123 +40,83 @@ import {
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { InsertRole, SelectRole, SelectRoleType } from "@db/schema";
 import { insertRoleSchema } from "@db/schema";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
 
+// Define default permissions structure
+const defaultPermissions = {
+  users: { read: false, create: false, update: false, delete: false },
+  orders: { read: false, create: false, update: false, delete: false },
+  stores: { read: false, create: false, update: false, delete: false },
+  products: { read: false, create: false, update: false, delete: false },
+  inventory: { read: false, create: false, update: false, delete: false }
+};
+
 function RolesPage() {
   const [search, setSearch] = useState("");
-  const [editingRole, setEditingRole] = useState<SelectRole | null>(null);
+  const [editingRole, setEditingRole] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const { toast } = useToast();
 
-  const { data: roles, isLoading, refetch } = useQuery<SelectRole[]>({
+  const { data: roles, isLoading, refetch } = useQuery({
     queryKey: ['/api/roles'],
   });
 
-  const { data: roleTypes } = useQuery<SelectRoleType[]>({
+  const { data: roleTypes } = useQuery({
     queryKey: ['/api/role-types'],
   });
 
-  const createMutation = useMutation({
-    mutationFn: async (data: InsertRole) => {
-      const res = await fetch('/api/roles', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-        credentials: 'include',
-      });
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
-    },
-    onSuccess: () => {
-      refetch();
-      setDialogOpen(false);
-      toast({ title: "Success", description: "Role created successfully" });
-    },
-    onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
-        description: error.message,
-        variant: "destructive"
-      });
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Partial<InsertRole> }) => {
-      const res = await fetch(`/api/roles/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-        credentials: 'include',
-      });
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
-    },
-    onSuccess: () => {
-      refetch();
-      setDialogOpen(false);
-      toast({ title: "Success", description: "Role updated successfully" });
-    },
-    onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
-        description: error.message,
-        variant: "destructive"
-      });
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: async (id: number) => {
-      const res = await fetch(`/api/roles/${id}`, {
-        method: 'DELETE',
-        credentials: 'include',
-      });
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
-    },
-    onSuccess: () => {
-      refetch();
-      toast({ title: "Success", description: "Role deleted successfully" });
-    },
-    onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
-        description: error.message,
-        variant: "destructive"
-      });
-    },
-  });
-
-  const form = useForm<InsertRole>({
+  const form = useForm({
     resolver: zodResolver(insertRoleSchema),
     defaultValues: {
       name: "",
       description: "",
       roleTypeId: undefined,
+      permissions: defaultPermissions
     },
   });
 
-  const filteredRoles = roles?.filter(role => 
-    role.name.toLowerCase().includes(search.toLowerCase()) ||
-    role.description?.toLowerCase().includes(search.toLowerCase())
-  );
+  const createMutation = useMutation({
+    mutationFn: async (data) => {
+      const res = await fetch('/api/roles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...data,
+          roleTypeId: parseInt(data.roleTypeId as string), // Ensure roleTypeId is an integer
+          permissions: defaultPermissions // Always include default permissions
+        }),
+        credentials: 'include',
+      });
 
-  const onSubmit = async (data: InsertRole) => {
-    try {
-      if (editingRole) {
-        await updateMutation.mutateAsync({ 
-          id: editingRole.id, 
-          data
-        });
-      } else {
-        await createMutation.mutateAsync(data);
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || 'Failed to create role');
       }
+      return res.json();
+    },
+    onSuccess: () => {
+      refetch();
+      setDialogOpen(false);
+      form.reset();
+      toast({ title: "Success", description: "Role created successfully" });
+    },
+    onError: (error) => {
+      toast({ 
+        title: "Error", 
+        description: error.message,
+        variant: "destructive"
+      });
+    },
+  });
+
+  const onSubmit = async (data) => {
+    try {
+      await createMutation.mutateAsync(data);
     } catch (error) {
       // Error is handled by the mutation
+      console.error('Form submission error:', error);
     }
   };
 
@@ -166,19 +126,15 @@ function RolesPage() {
       name: "",
       description: "",
       roleTypeId: undefined,
+      permissions: defaultPermissions
     });
     setDialogOpen(true);
   };
 
-  const handleEditRole = (role: SelectRole) => {
-    setEditingRole(role);
-    form.reset({
-      name: role.name,
-      description: role.description || "",
-      roleTypeId: role.roleTypeId,
-    });
-    setDialogOpen(true);
-  };
+  const filteredRoles = roles?.filter(role => 
+    role.name.toLowerCase().includes(search.toLowerCase()) ||
+    role.description?.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <div className="space-y-6 p-6">
@@ -193,7 +149,7 @@ function RolesPage() {
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>{editingRole ? 'Edit Role' : 'Add New Role'}</DialogTitle>
+              <DialogTitle>Add New Role</DialogTitle>
             </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -217,7 +173,7 @@ function RolesPage() {
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Input {...field} value={field.value || ""} />
+                        <Input {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -230,7 +186,7 @@ function RolesPage() {
                     <FormItem>
                       <FormLabel>Role Type</FormLabel>
                       <Select 
-                        onValueChange={(value) => field.onChange(parseInt(value))}
+                        onValueChange={field.onChange}
                         value={field.value?.toString()}
                       >
                         <FormControl>
@@ -253,12 +209,16 @@ function RolesPage() {
                 <Button
                   type="submit"
                   className="w-full"
-                  disabled={form.formState.isSubmitting}
+                  disabled={createMutation.isPending || !form.formState.isValid}
                 >
-                  {form.formState.isSubmitting && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {createMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    'Create Role'
                   )}
-                  {editingRole ? 'Update Role' : 'Create Role'}
                 </Button>
               </form>
             </Form>
@@ -320,7 +280,7 @@ function RolesPage() {
                               deleteMutation.mutate(role.id);
                             }
                           }}
-                          disabled={role.name === 'admin'} // Prevent deleting admin role
+                          disabled={role.name === 'admin'}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
