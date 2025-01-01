@@ -40,9 +40,18 @@ import {
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertRoleSchema } from "@db/schema";
+import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
+import { Loader2, Search, Plus } from "lucide-react";
+
+// Define form schema
+const roleFormSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  description: z.string().optional(),
+  roleTypeId: z.string({ required_error: "Role type is required" }).min(1, "Role type is required"),
+});
+
+type RoleFormValues = z.infer<typeof roleFormSchema>;
 
 // Define default permissions structure
 const defaultPermissions = {
@@ -55,7 +64,6 @@ const defaultPermissions = {
 
 function RolesPage() {
   const [search, setSearch] = useState("");
-  const [editingRole, setEditingRole] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const { toast } = useToast();
 
@@ -67,25 +75,24 @@ function RolesPage() {
     queryKey: ['/api/role-types'],
   });
 
-  const form = useForm({
-    resolver: zodResolver(insertRoleSchema),
+  const form = useForm<RoleFormValues>({
+    resolver: zodResolver(roleFormSchema),
     defaultValues: {
       name: "",
       description: "",
-      roleTypeId: undefined,
-      permissions: defaultPermissions
+      roleTypeId: "",
     },
   });
 
   const createMutation = useMutation({
-    mutationFn: async (data) => {
+    mutationFn: async (data: RoleFormValues) => {
       const res = await fetch('/api/roles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...data,
-          roleTypeId: parseInt(data.roleTypeId as string), // Ensure roleTypeId is an integer
-          permissions: defaultPermissions // Always include default permissions
+          roleTypeId: parseInt(data.roleTypeId),
+          permissions: defaultPermissions
         }),
         credentials: 'include',
       });
@@ -102,7 +109,7 @@ function RolesPage() {
       form.reset();
       toast({ title: "Success", description: "Role created successfully" });
     },
-    onError: (error) => {
+    onError: (error: Error) => {
       toast({ 
         title: "Error", 
         description: error.message,
@@ -111,7 +118,7 @@ function RolesPage() {
     },
   });
 
-  const onSubmit = async (data) => {
+  const onSubmit = async (data: RoleFormValues) => {
     try {
       await createMutation.mutateAsync(data);
     } catch (error) {
@@ -121,19 +128,17 @@ function RolesPage() {
   };
 
   const handleAddRole = () => {
-    setEditingRole(null);
     form.reset({
       name: "",
       description: "",
-      roleTypeId: undefined,
-      permissions: defaultPermissions
+      roleTypeId: "",
     });
     setDialogOpen(true);
   };
 
   const filteredRoles = roles?.filter(role => 
     role.name.toLowerCase().includes(search.toLowerCase()) ||
-    role.description?.toLowerCase().includes(search.toLowerCase())
+    (role.description?.toLowerCase() || "").includes(search.toLowerCase())
   );
 
   return (
@@ -187,7 +192,7 @@ function RolesPage() {
                       <FormLabel>Role Type</FormLabel>
                       <Select 
                         onValueChange={field.onChange}
-                        value={field.value?.toString()}
+                        value={field.value}
                       >
                         <FormControl>
                           <SelectTrigger>
@@ -195,7 +200,7 @@ function RolesPage() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {roleTypes?.map(type => (
+                          {roleTypes?.map((type: any) => (
                             <SelectItem key={type.id} value={type.id.toString()}>
                               {type.description}
                             </SelectItem>
@@ -209,7 +214,7 @@ function RolesPage() {
                 <Button
                   type="submit"
                   className="w-full"
-                  disabled={createMutation.isPending || !form.formState.isValid}
+                  disabled={createMutation.isPending}
                 >
                   {createMutation.isPending ? (
                     <>
@@ -253,39 +258,14 @@ function RolesPage() {
                   <TableHead>Name</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead>Role Type</TableHead>
-                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredRoles?.map((role) => (
+                {filteredRoles?.map((role: any) => (
                   <TableRow key={role.id}>
                     <TableCell className="font-medium">{role.name}</TableCell>
                     <TableCell>{role.description}</TableCell>
                     <TableCell>{role.roleType?.description}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => handleEditRole(role)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="text-destructive"
-                          onClick={() => {
-                            if (confirm('Are you sure you want to delete this role?')) {
-                              deleteMutation.mutate(role.id);
-                            }
-                          }}
-                          disabled={role.name === 'admin'}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
