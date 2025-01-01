@@ -14,6 +14,9 @@ import { requireRole, requireAuth } from "./middleware";
 import { z } from "zod";
 import { crypto } from "./auth";
 
+// Add after the existing imports
+import { roleLocations } from "@db/schema";
+
 // Schema validations
 const createPurchaseOrderSchema = z.object({
   supplierId: z.number().positive("Supplier ID is required"),
@@ -62,6 +65,143 @@ export function registerRoutes(app: Express): Server {
 
   // Remove the duplicate POST /api/users route
   // It's now handled in auth.ts
+
+  // Add inside registerRoutes function, after setupAuth(app)
+
+  // Role Locations CRUD endpoints
+  app.get("/api/role-locations", requireAuth, async (req, res) => {
+    try {
+      const allRoleLocations = await db.query.roleLocations.findMany({
+        orderBy: [desc(roleLocations.id)],
+      });
+      res.json(allRoleLocations);
+    } catch (error) {
+      console.error('Error fetching role locations:', error);
+      res.status(500).json({
+        message: "Failed to fetch role locations",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.post("/api/role-locations", requireRole(['admin']), async (req, res) => {
+    try {
+      const { description } = req.body;
+
+      if (!description) {
+        return res.status(400).json({
+          message: "Description is required",
+          suggestion: "Please provide a description for the role location"
+        });
+      }
+
+      const [newRoleLocation] = await db
+        .insert(roleLocations)
+        .values({
+          description,
+        })
+        .returning();
+
+      res.json({
+        message: "Role location created successfully",
+        roleLocation: newRoleLocation,
+      });
+    } catch (error) {
+      console.error('Error creating role location:', error);
+      res.status(500).json({
+        message: "Failed to create role location",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.put("/api/role-locations/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { description } = req.body;
+
+      if (!description) {
+        return res.status(400).json({
+          message: "Description is required",
+          suggestion: "Please provide a description for the role location"
+        });
+      }
+
+      // Check if role location exists
+      const existingLocation = await db.query.roleLocations.findFirst({
+        where: eq(roleLocations.id, parseInt(id)),
+      });
+
+      if (!existingLocation) {
+        return res.status(404).json({
+          message: "Role location not found",
+          suggestion: "Please verify the role location ID"
+        });
+      }
+
+      const [updatedLocation] = await db
+        .update(roleLocations)
+        .set({
+          description,
+        })
+        .where(eq(roleLocations.id, parseInt(id)))
+        .returning();
+
+      res.json({
+        message: "Role location updated successfully",
+        roleLocation: updatedLocation,
+      });
+    } catch (error) {
+      console.error('Error updating role location:', error);
+      res.status(500).json({
+        message: "Failed to update role location",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.delete("/api/role-locations/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if role location exists
+      const location = await db.query.roleLocations.findFirst({
+        where: eq(roleLocations.id, parseInt(id)),
+      });
+
+      if (!location) {
+        return res.status(404).json({
+          message: "Role location not found",
+          suggestion: "Please verify the role location ID"
+        });
+      }
+
+      // Check if any roles are using this location
+      const rolesUsingLocation = await db.query.roles.findMany({
+        where: eq(roles.roleLocationId, parseInt(id)),
+        limit: 1,
+      });
+
+      if (rolesUsingLocation.length > 0) {
+        return res.status(400).json({
+          message: "Cannot delete role location that is assigned to roles",
+          suggestion: "Please remove all roles from this location before deleting"
+        });
+      }
+
+      await db
+        .delete(roleLocations)
+        .where(eq(roleLocations.id, parseInt(id)));
+
+      res.json({ message: "Role location deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting role location:', error);
+      res.status(500).json({
+        message: "Failed to delete role location",
+        suggestion: "Please try again later"
+      });
+    }
+  });
 
   // Purchase Orders endpoints
   app.get("/api/purchase-orders", requireAuth, async (req, res) => {
@@ -1946,6 +2086,332 @@ export function registerRoutes(app: Express): Server {
             end)
           `
         })
+                .from(stores)
+        .leftJoin(inventory, eq(inventory.storeId, stores.id))
+        .leftJoin(products, eq(inventory.productId, products.id))
+        .groupBy(stores.id);
+
+      res.json({
+        currentMetrics: storeMetrics,
+        historicalData,
+        inventoryStatus
+      });
+    } catch (error) {
+      console.error('Error fetching store performance:', error);
+      res.status(500).json({
+        message: "Failed to fetch store performance metrics",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Brand Management endpoints
+  app.get("/api/brands", requireAuth, async (req, res) => {
+    try {
+      const allBrands = await db.query.brands.findMany({
+        orderBy: [desc(brands.updatedAt)],
+      });
+      res.json(allBrands);
+    } catch (error) {
+      console.error('Error fetching brands:', error);
+      res.status(500).send("Failed to fetch brands");
+    }
+  });
+
+  app.post("/api/brands", requireRole(['admin']), async (req, res) => {
+    try {
+      const { name, description } = req.body;
+
+      if (!name) {
+        return res.status(400).send("Brand name is required");
+      }
+
+      // Check if brand exists
+      const existingBrand = await db.query.brands.findFirst({
+        where: eq(brands.name, name),
+      });
+
+      if (existingBrand) {
+        return res.status(400).send("Brand name already exists");
+      }
+
+      const [newBrand] = await db
+        .insert(brands)
+        .values({
+          name,
+          description,
+        })
+        .returning();
+
+      res.json({
+        message: "Brand created successfully",
+        brand: newBrand,
+      });
+    } catch (error) {
+      console.error('Error creating brand:', error);
+      res.status(500).send("Failed to create brand");
+    }
+  });
+
+  app.put("/api/brands/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, description } = req.body;
+
+      if (!name) {
+        return res.status(400).send("Brand name is required");
+      }
+
+      // Check if brand exists
+      const existingBrand = await db.query.brands.findFirst({
+        where: and(
+          eq(brands.name, name),
+          sql`id != ${id}`
+        ),
+      });
+
+      if (existingBrand) {
+        return res.status(400).send("Brand name already exists");
+      }
+
+      const [updatedBrand] = await db
+        .update(brands)
+        .set({
+          name,
+          description,
+          updatedAt: new Date(),
+        })
+        .where(eq(brands.id, parseInt(id)))
+        .returning();
+
+      if (!updatedBrand) {
+        return res.status(404).send("Brand not found");
+      }
+
+      res.json({
+        message: "Brand updated successfully",
+        brand: updatedBrand,
+      });
+    } catch (error) {
+      console.error('Error updating brand:', error);
+      res.status(500).send("Failed to update brand");
+    }
+  });
+
+  app.delete("/api/brands/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if brand is used by any products
+      const productsWithBrand = await db.query.products.findMany({
+        where: eq(products.brandId, parseInt(id)),
+        limit: 1,
+      });
+
+      if (productsWithBrand.length > 0) {
+        return res.status(400).send("Cannot delete brand that is assigned to products");
+      }
+
+      await db
+        .delete(brands)
+        .where(eq(brands.id, parseInt(id)));
+
+      res.json({ message: "Brand deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting brand:', error);
+      res.status(500).send("Failed to delete brand");
+    }
+  });
+
+  // Supplier Management endpoints - admin only
+  app.get("/api/suppliers", requireRole(['admin']), async (req, res) => {
+    try {
+      const allSuppliers = await db.query.suppliers.findMany({
+        orderBy: [desc(suppliers.updatedAt)],
+      });
+      res.json(allSuppliers);
+    } catch (error) {
+      console.error('Error fetching suppliers:', error);
+      res.status(500).send("Failed to fetch suppliers");
+    }
+  });
+
+  app.post("/api/suppliers", requireRole(['admin']), async (req, res) => {
+    try {
+      const { name, contactInfo, address } = req.body;
+
+      if (!name || !contactInfo || !address) {
+        return res.status(400).send("Name, contact information, and address are required");
+      }
+
+      const [newSupplier] = await db
+        .insert(suppliers)
+        .values({
+          name,
+          contactInfo,
+          address,
+        })
+        .returning();
+
+      res.json({
+        message: "Supplier created successfully",
+        supplier: newSupplier,
+      });
+    } catch (error) {
+      console.error('Error creating supplier:', error);
+      res.status(500).send("Failed to create supplier");
+    }
+  });
+
+  app.put("/api/suppliers/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, contactInfo, address } = req.body;
+
+      if (!name || !contactInfo || !address) {
+        return res.status(400).send("Name, contact information, and address are required");
+      }
+
+      const [updatedSupplier] = await db
+        .update(suppliers)
+        .set({
+          name,
+          contactInfo,
+          address,
+          updatedAt: new Date(),
+        })
+        .where(eq(suppliers.id, parseInt(id)))
+        .returning();
+
+      if (!updatedSupplier) {
+        return res.status(404).send("Supplier not found");
+      }
+
+      res.json({
+        message: "Supplier updated successfully",
+        supplier: updatedSupplier,
+      });
+    } catch (error) {
+      console.error('Error updating supplier:', error);
+      res.status(500).send("Failed to update supplier");
+    }
+  });
+
+  app.delete("/api/suppliers/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if supplier exists
+      const [supplier] = await db
+        .select()
+        .from(suppliers)
+        .where(eq(suppliers.id, parseInt(id)))
+        .limit(1);
+
+      if (!supplier) {
+        return res.status(404).send("Supplier not found");
+      }
+
+      // Check if supplier has any inventory
+      const [inventoryCount] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(inventory)
+        .where(eq(inventory.supplierId, parseInt(id)));
+
+      if (inventoryCount.count > 0) {
+        return res.status(400).send("Cannot delete supplier with existing inventory");
+      }
+
+      await db
+        .delete(suppliers)
+        .where(eq(suppliers.id, parseInt(id)));
+
+      res.json({ message: "Supplier deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting supplier:', error);
+      res.status(500).send("Failed to delete supplier");
+    }
+  });
+
+  // Store Performance API endpoints
+  app.get("/api/stores/performance", requireAuth, async (req, res) => {
+    try {
+      // Get current month's start and end dates
+      const currentMonthStart = sql`date_trunc('month', current_date)`;
+      const nextMonthStart = sql`date_trunc('month', current_date) + interval '1 month'`;
+
+      // Get performance metrics for each store
+      const storeMetrics = await db
+        .select({
+          storeId: stores.id,
+          storeName: stores.name,
+          // Monthly order count
+          orderCount: sql<number>`count(distinct ${orders.id})::int`,
+          // Total revenue
+          revenue: sql<number>`coalesce(sum(${orders.total})::numeric, 0)`,
+          // Average order value
+          averageOrderValue: sql<number>`coalesce(avg(${orders.total})::numeric, 0)`,
+          // Order fulfillment rate (completed orders / total orders)
+          fulfillmentRate: sql<number>`
+            case 
+              when count(${orders.id}) > 0 
+              then (sum(case when ${orders.status} = 'completed' then 1 else 0 end)::float / count(${orders.id}))::numeric
+              else 0 
+            end
+          `,
+          // Inventory turnover (items sold / average inventory)
+          inventoryTurnover: sql<number>`
+            coalesce(
+              (sum(${orderItems.quantity})::float / nullif(avg(${inventory.quantity}), 0))::numeric,
+              0
+            )
+          `
+        })
+        .from(stores)
+        .leftJoin(orders, eq(orders.storeId, stores.id))
+        .leftJoin(orderItems, eq(orderItems.orderId, orders.id))
+        .leftJoin(inventory, eq(inventory.storeId, stores.id))
+        .where(
+          and(
+            gte(orders.createdAt, currentMonthStart),
+            lt(orders.createdAt, nextMonthStart)
+          )
+        )
+        .groupBy(stores.id)
+        .orderBy(stores.name);
+
+      // Get historical performance data for trending
+      const historicalData = await db
+        .select({
+          storeId: stores.id,
+          month: sql<string>`date_trunc('month', ${orders.createdAt})::date`,
+          revenue: sql<number>`sum(${orders.total})`,
+          orderCount: sql<number>`count(distinct ${orders.id})`
+        })
+        .from(stores)
+        .leftJoin(orders, eq(orders.storeId, stores.id))
+        .where(
+          gte(
+            orders.createdAt,
+            sql`date_trunc('month', current_date - interval '6 months')`
+          )
+        )
+        .groupBy(stores.id, sql`date_trunc('month', ${orders.createdAt})`)
+        .orderBy([stores.id, sql`date_trunc('month', ${orders.createdAt})`]);
+
+      // Get inventory status
+      const inventoryStatus = await db
+        .select({
+          storeId: stores.id,
+          totalItems: sql<number>`count(distinct ${inventory.productId})`,
+          lowStockItems: sql<number>`
+            count(distinct case 
+              when ${inventory.quantity} <= ${products.minStock} 
+              then ${inventory.productId} 
+              else null 
+            end)
+          `
+        })
         .from(stores)
         .leftJoin(inventory, eq(inventory.storeId, stores.id))
         .leftJoin(products, eq(inventory.productId, products.id))
@@ -1961,6 +2427,658 @@ export function registerRoutes(app: Express): Server {
       res.status(500).json({
         message: "Failed to fetch store performance metrics",
         suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Brand Management endpoints
+  app.get("/api/brands", requireAuth, async (req, res) => {
+    try {
+      const allBrands = await db.query.brands.findMany({
+        orderBy: [desc(brands.updatedAt)],
+      });
+      res.json(allBrands);
+    } catch (error) {
+      console.error('Error fetching brands:', error);
+      res.status(500).send("Failed to fetch brands");
+    }
+  });
+
+  app.post("/api/brands", requireRole(['admin']), async (req, res) => {
+    try {
+      const { name, description } = req.body;
+
+      if (!name) {
+        return res.status(400).send("Brand name is required");
+      }
+
+      // Check if brand exists
+      const existingBrand = await db.query.brands.findFirst({
+        where: eq(brands.name, name),
+      });
+
+      if (existingBrand) {
+        return res.status(400).send("Brand name already exists");
+      }
+
+      const [newBrand] = await db
+        .insert(brands)
+        .values({
+          name,
+          description,
+        })
+        .returning();
+
+      res.json({
+        message: "Brand created successfully",
+        brand: newBrand,
+      });
+    } catch (error) {
+      console.error('Error creating brand:', error);
+      res.status(500).send("Failed to create brand");
+    }
+  });
+
+  app.put("/api/brands/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, description } = req.body;
+
+      if (!name) {
+        return res.status(400).send("Brand name is required");
+      }
+
+      // Check if brand exists
+      const existingBrand = await db.query.brands.findFirst({
+        where: and(
+          eq(brands.name, name),
+          sql`id != ${id}`
+        ),
+      });
+
+      if (existingBrand) {
+        return res.status(400).send("Brand name already exists");
+      }
+
+      const [updatedBrand] = await db
+        .update(brands)
+        .set({
+          name,
+          description,
+          updatedAt: new Date(),
+        })
+        .where(eq(brands.id, parseInt(id)))
+        .returning();
+
+      if (!updatedBrand) {
+        return res.status(404).send("Brand not found");
+      }
+
+      res.json({
+        message: "Brand updated successfully",
+        brand: updatedBrand,
+      });
+    } catch (error) {
+      console.error('Error updating brand:', error);
+      res.status(500).send("Failed to update brand");
+    }
+  });
+
+  app.delete("/api/brands/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if brand is used by any products
+      const productsWithBrand = await db.query.products.findMany({
+        where: eq(products.brandId, parseInt(id)),
+        limit: 1,
+      });
+
+      if (productsWithBrand.length > 0) {
+        return res.status(400).send("Cannot delete brand that is assigned to products");
+      }
+
+      await db
+        .delete(brands)
+        .where(eq(brands.id, parseInt(id)));
+
+      res.json({ message: "Brand deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting brand:', error);
+      res.status(500).send("Failed to delete brand");
+    }
+  });
+
+  // Supplier Management endpoints - admin only
+  app.get("/api/suppliers", requireRole(['admin']), async (req, res) => {
+    try {
+      const allSuppliers = await db.query.suppliers.findMany({
+        orderBy: [desc(suppliers.updatedAt)],
+      });
+      res.json(allSuppliers);
+    } catch (error) {
+      console.error('Error fetching suppliers:', error);
+      res.status(500).send("Failed to fetch suppliers");
+    }
+  });
+
+  app.post("/api/suppliers", requireRole(['admin']), async (req, res) => {
+    try {
+      const { name, contactInfo, address } = req.body;
+
+      if (!name || !contactInfo || !address) {
+        return res.status(400).send("Name, contact information, and address are required");
+      }
+
+      const [newSupplier] = await db
+        .insert(suppliers)
+        .values({
+          name,
+          contactInfo,
+          address,
+        })
+        .returning();
+
+      res.json({
+        message: "Supplier created successfully",
+        supplier: newSupplier,
+      });
+    } catch (error) {
+      console.error('Error creating supplier:', error);
+      res.status(500).send("Failed to create supplier");
+    }
+  });
+
+  app.put("/api/suppliers/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, contactInfo, address } = req.body;
+
+      if (!name || !contactInfo || !address) {
+        return res.status(400).send("Name, contact information, and address are required");
+      }
+
+      const [updatedSupplier] = await db
+        .update(suppliers)
+        .set({
+          name,
+          contactInfo,
+          address,
+          updatedAt: new Date(),
+        })
+        .where(eq(suppliers.id, parseInt(id)))
+        .returning();
+
+      if (!updatedSupplier) {
+        return res.status(404).send("Supplier not found");
+      }
+
+      res.json({
+        message: "Supplier updated successfully",
+        supplier: updatedSupplier,
+      });
+    } catch (error) {
+      console.error('Error updating supplier:', error);
+      res.status(500).send("Failed to update supplier");
+    }
+  });
+
+  app.delete("/api/suppliers/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if supplier exists
+      const [supplier] = await db
+        .select()
+        .from(suppliers)
+        .where(eq(suppliers.id, parseInt(id)))
+        .limit(1);
+
+      if (!supplier) {
+        return res.status(404).send("Supplier not found");
+      }
+
+      // Check if supplier has any inventory
+      const [inventoryCount] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(inventory)
+        .where(eq(inventory.supplierId, parseInt(id)));
+
+      if (inventoryCount.count > 0) {
+        return res.status(400).send("Cannot delete supplier with existing inventory");
+      }
+
+      await db
+        .delete(suppliers)
+        .where(eq(suppliers.id, parseInt(id)));
+
+      res.json({ message: "Supplier deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting supplier:', error);
+      res.status(500).send("Failed to delete supplier");
+    }
+  });
+
+  // Store Performance API endpoints
+  app.get("/api/stores/performance", requireAuth, async (req, res) => {
+    try {
+      // Get current month's start and end dates
+      const currentMonthStart = sql`date_trunc('month', current_date)`;
+      const nextMonthStart = sql`date_trunc('month', current_date) + interval '1 month'`;
+
+      // Get performance metrics for each store
+      const storeMetrics = await db
+        .select({
+          storeId: stores.id,
+          storeName: stores.name,
+          // Monthly order count
+          orderCount: sql<number>`count(distinct ${orders.id})::int`,
+          // Total revenue
+          revenue: sql<number>`coalesce(sum(${orders.total})::numeric, 0)`,
+          // Average order value
+          averageOrderValue: sql<number>`coalesce(avg(${orders.total})::numeric, 0)`,
+          // Order fulfillment rate (completed orders / total orders)
+          fulfillmentRate: sql<number>`
+            case 
+              when count(${orders.id}) > 0 
+              then (sum(case when ${orders.status} = 'completed' then 1 else 0 end)::float / count(${orders.id}))::numeric
+              else 0 
+            end
+          `,
+          // Inventory turnover (items sold / average inventory)
+          inventoryTurnover: sql<number>`
+            coalesce(
+              (sum(${orderItems.quantity})::float / nullif(avg(${inventory.quantity}), 0))::numeric,
+              0
+            )
+          `
+        })
+        .from(stores)
+        .leftJoin(orders, eq(orders.storeId, stores.id))
+        .leftJoin(orderItems, eq(orderItems.orderId, orders.id))
+        .leftJoin(inventory, eq(inventory.storeId, stores.id))
+        .where(
+          and(
+            gte(orders.createdAt, currentMonthStart),
+            lt(orders.createdAt, nextMonthStart)
+          )
+        )
+        .groupBy(stores.id)
+        .orderBy(stores.name);
+
+      // Get historical performance data for trending
+      const historicalData = await db
+        .select({
+          storeId: stores.id,
+          month: sql<string>`date_trunc('month', ${orders.createdAt})::date`,
+          revenue: sql<number>`sum(${orders.total})`,
+          orderCount: sql<number>`count(distinct ${orders.id})`
+        })
+        .from(stores)
+        .leftJoin(orders, eq(orders.storeId, stores.id))
+        .where(
+          gte(
+            orders.createdAt,
+            sql`date_trunc('month', current_date - interval '6 months')`
+          )
+        )
+        .groupBy(stores.id, sql`date_trunc('month', ${orders.createdAt})`)
+        .orderBy([stores.id, sql`date_trunc('month', ${orders.createdAt})`]);
+
+      // Get inventory status
+      const inventoryStatus = await db
+        .select({
+          storeId: stores.id,
+          totalItems: sql<number>`count(distinct ${inventory.productId})`,
+          lowStockItems: sql<number>`
+            count(distinct case 
+              when ${inventory.quantity} <= ${products.minStock} 
+              then ${inventory.productId} 
+              else null 
+            end)
+          `
+        })
+        .from(stores)
+        .leftJoin(inventory, eq(inventory.storeId, stores.id))
+        .leftJoin(products, eq(inventory.productId, products.id))
+        .groupBy(stores.id);
+
+      res.json({
+        currentMetrics: storeMetrics,
+        historicalData,
+        inventoryStatus
+      });
+    } catch (error) {
+      console.error('Error fetching store performance:', error);
+      res.status(500).json({
+        message: "Failed to fetch store performance metrics",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Brand Management endpoints
+  app.get("/api/brands", requireAuth, async (req, res) => {
+    try {
+      const allBrands = await db.query.brands.findMany({
+        orderBy: [desc(brands.updatedAt)],
+      });
+      res.json(allBrands);
+    } catch (error) {
+      console.error('Error fetching brands:', error);
+      res.status(500).send("Failed to fetch brands");
+    }
+  });
+
+  app.post("/api/brands", requireRole(['admin']), async (req, res) => {
+    try {
+      const { name, description } = req.body;
+
+      if (!name) {
+        return res.status(400).send("Brand name is required");
+      }
+
+      // Check if brand exists
+      const existingBrand = await db.query.brands.findFirst({
+        where: eq(brands.name, name),
+      });
+
+      if (existingBrand) {
+        return res.status(400).send("Brand name already exists");
+      }
+
+      const [newBrand] = await db
+        .insert(brands)
+        .values({
+          name,
+          description,
+        })
+        .returning();
+
+      res.json({
+        message: "Brand created successfully",
+        brand: newBrand,
+      });
+    } catch (error) {
+      console.error('Error creating brand:', error);
+      res.status(500).send("Failed to create brand");
+    }
+  });
+
+  app.put("/api/brands/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, description } = req.body;
+
+      if (!name) {
+        return res.status(400).send("Brand name is required");
+      }
+
+      // Check if brand exists
+      const existingBrand = await db.query.brands.findFirst({
+        where: and(
+          eq(brands.name, name),
+          sql`id != ${id}`
+        ),
+      });
+
+      if (existingBrand) {
+        return res.status(400).send("Brand name already exists");
+      }
+
+      const [updatedBrand] = await db
+        .update(brands)
+        .set({
+          name,
+          description,
+          updatedAt: new Date(),
+        })
+        .where(eq(brands.id, parseInt(id)))
+        .returning();
+
+      if (!updatedBrand) {
+        return res.status(404).send("Brand not found");
+      }
+
+      res.json({
+        message: "Brand updated successfully",
+        brand: updatedBrand,
+      });
+    } catch (error) {
+      console.error('Error updating brand:', error);
+      res.status(500).send("Failed to update brand");
+    }
+  });
+
+  app.delete("/api/brands/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if brand is used by any products
+      const productsWithBrand = await db.query.products.findMany({
+        where: eq(products.brandId, parseInt(id)),
+        limit: 1,
+      });
+
+      if (productsWithBrand.length > 0) {
+        return res.status(400).send("Cannot delete brand that is assigned to products");
+      }
+
+      await db
+        .delete(brands)
+        .where(eq(brands.id, parseInt(id)));
+
+      res.json({ message: "Brand deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting brand:', error);
+      res.status(500).send("Failed to delete brand");
+    }
+  });
+
+  // Supplier Management endpoints - admin only
+  app.get("/api/suppliers", requireRole(['admin']), async (req, res) => {
+    try {
+      const allSuppliers = await db.query.suppliers.findMany({
+        orderBy: [desc(suppliers.updatedAt)],
+      });
+      res.json(allSuppliers);
+    } catch (error) {
+      console.error('Error fetching suppliers:', error);
+      res.status(500).send("Failed to fetch suppliers");
+    }
+  });
+
+  app.post("/api/suppliers", requireRole(['admin']), async (req, res) => {
+    try {
+      const { name, contactInfo, address } = req.body;
+
+      if (!name || !contactInfo || !address) {
+        return res.status(400).send("Name, contact information, and address are required");
+      }
+
+      const [newSupplier] = await db
+        .insert(suppliers)
+        .values({
+          name,
+          contactInfo,
+          address,
+        })
+        .returning();
+
+      res.json({
+        message: "Supplier created successfully",
+        supplier: newSupplier,
+      });
+    } catch (error) {
+      console.error('Error creating supplier:', error);
+      res.status(500).send("Failed to create supplier");
+    }
+  });
+
+  app.put("/api/suppliers/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, contactInfo, address } = req.body;
+
+      if (!name || !contactInfo || !address) {
+        return res.status(400).send("Name, contact information, and address are required");
+      }
+
+      const [updatedSupplier] = await db
+        .update(suppliers)
+        .set({
+          name,
+          contactInfo,
+          address,
+          updatedAt: new Date(),
+        })
+        .where(eq(suppliers.id, parseInt(id)))
+        .returning();
+
+      if (!updatedSupplier) {
+        return res.status(404).send("Supplier not found");
+      }
+
+      res.json({
+        message: "Supplier updated successfully",
+        supplier: updatedSupplier,
+      });
+    } catch (error) {
+      console.error('Error updating supplier:', error);
+      res.status(500).send("Failed to update supplier");
+    }
+  });
+
+  app.delete("/api/suppliers/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if supplier exists
+      const [supplier] = await db
+        .select()
+        .from(suppliers)
+        .where(eq(suppliers.id, parseInt(id)))
+        .limit(1);
+
+      if (!supplier) {
+        return res.status(404).send("Supplier not found");
+      }
+
+      // Check if supplier has any inventory
+      const [inventoryCount] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(inventory)
+        .where(eq(inventory.supplierId, parseInt(id)));
+
+      if (inventoryCount.count > 0) {
+        return res.status(400).send("Cannot delete supplier with existing inventory");
+      }
+
+      await db
+        .delete(suppliers)
+        .where(eq(suppliers.id, parseInt(id)));
+
+      res.json({ message: "Supplier deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting supplier:', error);
+      res.status(500).send("Failed to delete supplier");
+    }
+  });
+
+  // Store Performance API endpoints
+  app.get("/api/stores/performance", requireAuth, async (req, res) => {
+    try {
+      // Get current month's start and end dates
+      const currentMonthStart = sql`date_trunc('month', current_date)`;
+      const nextMonthStart = sql`date_trunc('month', current_date) + interval '1 month'`;
+
+      // Get performance metrics for each store
+      const storeMetrics = await db
+        .select({
+          storeId: stores.id,
+          storeName: stores.name,
+          // Monthly order count
+          orderCount: sql<number>`count(distinct ${orders.id})::int`,
+          // Total revenue
+          revenue: sql<number>`coalesce(sum(${orders.total})::numeric, 0)`,
+          // Average order value
+          averageOrderValue: sql<number>`coalesce(avg(${orders.total})::numeric, 0)`,
+          // Order fulfillment rate (completed orders / total orders)
+          fulfillmentRate: sql<number>`
+            case 
+              when count(${orders.id}) > 0 
+              then (sum(case when ${orders.status} = 'completed' then 1 else 0 end)::float / count(${orders.id}))::numeric
+              else 0 
+            end
+          `,
+          // Inventory turnover (items sold / average inventory)
+          inventoryTurnover: sql<number>`
+            coalesce(
+              (sum(${orderItems.quantity})::float / nullif(avg(${inventory.quantity}), 0))::numeric,
+              0
+            )
+          `
+        })
+        .from(stores)
+        .leftJoin(orders, eq(orders.storeId, stores.id))
+        .leftJoin(orderItems, eq(orderItems.orderId, orders.id))
+        .leftJoin(inventory, eq(inventory.storeId, stores.id))
+        .where(
+          and(
+            gte(orders.createdAt, currentMonthStart),
+            lt(orders.createdAt, nextMonthStart)
+          )
+        )
+        .groupBy(stores.id)
+        .orderBy(stores.name);
+
+      // Get historical performance data for trending
+      const historicalData = await db
+        .select({
+          storeId: stores.id,
+          month: sql<string>`date_trunc('month', ${orders.createdAt})::date`,
+          revenue: sql<number>`sum(${orders.total})`,
+          orderCount: sql<number>`count(distinct ${orders.id})`
+        })
+        .from(stores)
+        .leftJoin(orders, eq(orders.storeId, stores.id))
+        .where(
+          gte(
+            orders.createdAt,
+            sql`date_trunc('month', current_date - interval '6 months')`
+          )
+        )
+        .groupBy(stores.id, sql`date_trunc('month', ${orders.createdAt})`)
+        .orderBy([stores.id, sql`date_trunc('month', ${orders.createdAt})`]);
+
+      // Get inventory status
+      const inventoryStatus = await db
+        .select({
+          storeId: stores.id,
+          totalItems: sql<number>`count(distinct ${inventory.productId})`,
+          lowStockItems: sql<number>`
+            count(distinct case 
+              when ${inventory.quantity} <= ${products.minStock} 
+              then ${inventory.productId} 
+              else null 
+            end)
+          `
+        })
+        .from(stores)
+        .leftJoin(inventory, eq(inventory.storeId, stores.id))
+        .leftJoin(products, eq(inventory.productId, products.id))
+        .groupBy(stores.id);
+
+      res.json({
+        currentMetrics: storeMetrics,
+        historicalData,
+        inventoryStatus
+      });
+    } catch (error) {
+      console.error('Error fetching store performance:', error);
+      res.status(500).json({
+        message: "Failed to fetch store performance metrics",
+        suggestion: "Pleasetry again later"
       });
     }
   });
