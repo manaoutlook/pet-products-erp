@@ -48,7 +48,7 @@ import { Loader2, Search, Plus } from "lucide-react";
 const roleFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
-  roleTypeId: z.string({ required_error: "Role type is required" }).min(1, "Role type is required"),
+  roleLocationId: z.string({ required_error: "Role location is required" }).min(1, "Role location is required"),
 });
 
 type RoleFormValues = z.infer<typeof roleFormSchema>;
@@ -71,8 +71,8 @@ function RolesPage() {
     queryKey: ['/api/roles'],
   });
 
-  const { data: roleTypes } = useQuery({
-    queryKey: ['/api/role-types'],
+  const { data: roleLocations } = useQuery({
+    queryKey: ['/api/role-locations'],
   });
 
   const form = useForm<RoleFormValues>({
@@ -80,7 +80,7 @@ function RolesPage() {
     defaultValues: {
       name: "",
       description: "",
-      roleTypeId: "",
+      roleLocationId: "",
     },
   });
 
@@ -91,7 +91,7 @@ function RolesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...data,
-          roleTypeId: parseInt(data.roleTypeId),
+          roleLocationId: parseInt(data.roleLocationId),
           permissions: defaultPermissions
         }),
         credentials: 'include',
@@ -131,7 +131,7 @@ function RolesPage() {
     form.reset({
       name: "",
       description: "",
-      roleTypeId: "",
+      roleLocationId: "",
     });
     setDialogOpen(true);
   };
@@ -186,23 +186,23 @@ function RolesPage() {
                 />
                 <FormField
                   control={form.control}
-                  name="roleTypeId"
+                  name="roleLocationId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Role Type</FormLabel>
+                      <FormLabel>Role Location</FormLabel>
                       <Select 
                         onValueChange={field.onChange}
                         value={field.value}
                       >
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select role type" />
+                            <SelectValue placeholder="Select role location" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {roleTypes?.map((type: any) => (
-                            <SelectItem key={type.id} value={type.id.toString()}>
-                              {type.description}
+                          {roleLocations?.map((location: any) => (
+                            <SelectItem key={location.id} value={location.id.toString()}>
+                              {location.description}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -251,7 +251,7 @@ function RolesPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Description</TableHead>
-                  <TableHead>Role Type</TableHead>
+                  <TableHead>Role Location</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -259,7 +259,7 @@ function RolesPage() {
                   <TableRow key={role.id}>
                     <TableCell className="font-medium">{role.name}</TableCell>
                     <TableCell>{role.description}</TableCell>
-                    <TableCell>{role.roleType?.description}</TableCell>
+                    <TableCell>{role.roleLocation?.description}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
