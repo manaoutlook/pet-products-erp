@@ -8,31 +8,6 @@ import { users, roles, roleTypes } from "@db/schema";
 import { db } from "@db";
 import { eq } from "drizzle-orm";
 
-interface Permission {
-  create?: boolean;
-  read?: boolean;
-  update?: boolean;
-  delete?: boolean;
-}
-
-interface Permissions {
-  [key: string]: Permission;
-}
-
-declare global {
-  namespace Express {
-    interface User {
-      id: number;
-      username: string;
-      role: {
-        id: number;
-        name: string;
-        permissions: Permissions;
-      };
-    }
-  }
-}
-
 // Improved crypto functions with better error handling and logging
 export const crypto = {
   hash: async (password: string) => {
@@ -54,9 +29,6 @@ export const crypto = {
 
   compare: async (suppliedPassword: string, storedPassword: string) => {
     try {
-      console.log('Starting password comparison...');
-
-      // Validate inputs
       if (!suppliedPassword || !storedPassword) {
         throw new Error('Both supplied and stored passwords are required');
       }
@@ -65,12 +37,96 @@ export const crypto = {
       console.log(`Password comparison result: ${isMatch}`);
 
       return isMatch;
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error comparing passwords:', error);
       throw new Error('Error verifying password. Please try again.');
     }
   },
 };
+
+// Add API routes for user management
+export function setupUserRoutes(app: Express) {
+  // Create new user
+  app.post("/api/users", async (req, res) => {
+    try {
+      const { username, password, roleId } = req.body;
+
+      // Validate input
+      if (!username || !password || !roleId) {
+        return res.status(400).json({ 
+          message: "Missing required fields",
+          details: {
+            username: !username ? "Username is required" : null,
+            password: !password ? "Password is required" : null,
+            roleId: !roleId ? "Role ID is required" : null
+          }
+        });
+      }
+
+      // Check if user exists
+      const existingUser = await db.query.users.findFirst({
+        where: eq(users.username, username),
+      });
+
+      if (existingUser) {
+        return res.status(400).json({ 
+          message: "Username already exists",
+          suggestion: "Please choose a different username"
+        });
+      }
+
+      // Hash password
+      const hashedPassword = await crypto.hash(password);
+
+      // Create user
+      const [newUser] = await db
+        .insert(users)
+        .values({
+          username,
+          password: hashedPassword,
+          roleId,
+        })
+        .returning();
+
+      res.status(201).json({
+        message: "User created successfully",
+        user: {
+          id: newUser.id,
+          username: newUser.username,
+          roleId: newUser.roleId
+        }
+      });
+    } catch (error) {
+      console.error('Error creating user:', error);
+      res.status(500).json({ 
+        message: "Failed to create user",
+        suggestion: "Please try again. If the problem persists, contact support."
+      });
+    }
+  });
+
+  // Get all users
+  app.get("/api/users", async (_req, res) => {
+    try {
+      const allUsers = await db.query.users.findMany({
+        with: {
+          role: true
+        }
+      });
+
+      // Remove password from response
+      const sanitizedUsers = allUsers.map(({ password, ...user }) => user);
+
+      res.json(sanitizedUsers);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      res.status(500).json({ 
+        message: "Failed to fetch users",
+        suggestion: "Please try again. If the problem persists, contact support."
+      });
+    }
+  });
+}
 
 export async function setupAdmin() {
   try {
@@ -379,4 +435,5 @@ export function setupAuth(app: Express) {
 
   // Setup admin user
   setupAdmin().catch(console.error);
+  setupUserRoutes(app); // Call the new function to set up user routes
 }
