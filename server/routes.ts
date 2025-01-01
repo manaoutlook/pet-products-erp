@@ -8,7 +8,8 @@ import {
   categories, brands, suppliers, purchaseOrders,
   purchaseOrderItems, customerProfiles, insertCustomerProfileSchema
 } from "@db/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
+import { eq, and, desc, gte, lt } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
 import { z } from "zod";
 import { crypto } from "./auth";
@@ -1051,15 +1052,13 @@ export function registerRoutes(app: Express): Server {
             message: "Invalid role ID",
             suggestion: "Please provide a valid role ID"
           });
-        }
-      }
+        }      }
 
       // Update user
       const [updatedUser] = await db
         .update(users)
         .set({
-          ...(username && { username }),
-          ...(roleId && { roleId }),
+          ...(username && { username }),          ...(roleId && { roleId }),
           ...(password && { password: hashedPassword }),
           updatedAt: new Date(),
         })
@@ -2102,7 +2101,7 @@ export function registerRoutes(app: Express): Server {
         .returning();
 
       if (!updatedSupplier) {
-        return res.status(404).send("Supplier not found");
+                return res.status(404).send("Supplier not found");
       }
 
       res.json({
