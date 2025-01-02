@@ -493,6 +493,7 @@ export function registerRoutes(app: Express): Server {
           id: users.id,
           username: users.username,
           role: {
+            id: roles.id,
             name: roles.name,
             roleLocation: {
               id: roleLocations.id,
@@ -501,13 +502,13 @@ export function registerRoutes(app: Express): Server {
           }
         })
         .from(users)
-        .leftJoin(roles, eq(users.roleId, roles.id))
-        .leftJoin(roleLocations, eq(roles.roleLocationId, roleLocations.id))
+        .innerJoin(roles, eq(users.roleId, roles.id))
+        .innerJoin(roleLocations, eq(roles.roleLocationId, roleLocations.id))
         .leftJoin(userStoreAssignments, eq(users.id, userStoreAssignments.userId))
         .where(
           and(
-            // Only include users with store-related roles
-            eq(roleLocations.description, 'Store or Shop'),
+            // Include users with store-related roles by checking the roleLocation description
+            eq(roleLocations.description, 'Pet Store'),
             // Only include users not assigned to any store
             isNull(userStoreAssignments.id)
           )
@@ -1035,7 +1036,7 @@ export function registerRoutes(app: Express): Server {
           name,
           description,
           updatedAt: new Date(),
-                })
+        })
         .where(eq(categories.id, parseInt(id)))
         .returning();
 
