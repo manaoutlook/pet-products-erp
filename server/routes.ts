@@ -482,6 +482,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+
   // Inside registerRoutes function, update the /api/users route
   app.get("/api/users", requireAuth, async (req, res) => {
     try {
@@ -1578,51 +1579,113 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Stats API - admin only
-  app.get("/api/stats", requireRole(['admin']), async (req, res) => {
+  app.get("/api/stats", requireAuth, async (req, res) => {
     try {
-      const [orderStats] = await db
+      // Get current month's start and end dates
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+      // Get previous month's start and end dates for growth calculation
+      const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+
+      // Get total orders for current month
+      const [currentMonthOrders] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(orders)
+        .where(
+          and(
+            gte(orders.createdAt, startOfMonth),
+            lt(orders.createdAt, endOfMonth)
+          )
+        );
+
+      // Get total orders for previous month
+      const [previousMonthOrders] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(orders)
+        .where(
+          and(
+            gte(orders.createdAt, startOfLastMonth),
+            lt(orders.createdAt, endOfLastMonth)
+          )
+        );
+
+      // Calculate total revenue for current month
+      const [currentMonthRevenue] = await db
         .select({
-          totalOrders: sql<number>`count(*)`,
-          revenue: sql<number>`sum(total)`,
+          total: sql<string>`COALESCE(SUM(${orders.totalAmount}), '0')`
         })
         .from(orders)
         .where(
           and(
-            gte(orders.createdAt, new Date(new Date().setDate(new Date().getDate() - 30))),
-            lt(orders.createdAt, new Date())
+            gte(orders.createdAt, startOfMonth),
+            lt(orders.createdAt, endOfMonth)
           )
         );
 
+      // Get total products count
+      const [productsCount] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(products);
+
+      // Calculate growth percentage
+      const currentOrderCount = currentMonthOrders?.count || 0;
+      const previousOrderCount = previousMonthOrders?.count || 0;
+      const growth = previousOrderCount === 0
+        ? 100
+        : ((currentOrderCount - previousOrderCount) / previousOrderCount) * 100;
+
+      // Get low stock items
+      const lowStockItems = await db
+        .select({
+          id: products.id,
+          name: products.name,
+          quantity: inventory.quantity
+        })
+        .from(products)
+        .innerJoin(inventory, eq(products.id, inventory.productId))
+        .where(
+          lt(inventory.quantity, 10) // Consider items with less than 10 units as low stock
+        )
+        .limit(5);
+
       res.json({
-        last30Days: {
-          orders: orderStats.totalOrders ?? 0,
-          revenue: orderStats.revenue ?? 0,
-        }
+        totalOrders: currentOrderCount,
+        revenue: parseInt(currentMonthRevenue.total),
+        totalProducts: productsCount.count,
+        growth: parseFloat(growth.toFixed(2)),
+        lowStock: lowStockItems
       });
     } catch (error) {
       console.error('Error fetching stats:', error);
-      res.status(500).send("Failed to fetch stats");
+      res.status(500).json({
+        message: "Failed to fetch stats",
+        suggestion: "Please try again later"
+      });
     }
   });
 
-  //// Orders trend for chart - admin only
   app.get("/api/stats/orders-trend", requireAuth, async (req, res) => {
     try {
-      // Get last 30 days of order trends
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-      const trends = await db
+      // Get orders count by date for the last 7 days
+      const result = await db
         .select({
-          date: sql`date_trunc('day', created_at)::date::text`,
-          orders: sql`count(*)::int`
+          date: sql<string>`DATE_TRUNC('day', ${orders.createdAt})::date`,
+          orders: sql<number>`count(*)`
         })
         .from(orders)
-        .where(gte(orders.createdAt, thirtyDaysAgo))
-        .groupBy(sql`date_trunc('day', created_at)`)
-        .orderBy(sql`date_trunc('day', created_at)`);
+        .where(
+          gte(
+            orders.createdAt,
+            sql`NOW() - INTERVAL '7 days'`
+          )
+        )
+        .groupBy(sql`DATE_TRUNC('day', ${orders.createdAt})`)
+        .orderBy(sql`DATE_TRUNC('day', ${orders.createdAt})`);
 
-      res.json(trends);
+      res.json(result);
     } catch (error) {
       console.error('Error fetching order trends:', error);
       res.status(500).json({
@@ -2030,7 +2093,7 @@ export function registerRoutes(app: Express): Server {
           revenue: sql<number>`coalesce(sum(${orders.total})::numeric, 0)`,
           // Average order value
           averageOrderValue: sql<number>`coalesce(avg(${orders.total})::numeric, 0)`,
-          // Order fulfillment rate (completed orders / total orders)
+                    // Order fulfillment rate (completed orders / total orders)
           fulfillmentRate: sql<number>`
             case 
               when count(${orders.id}) > 0 
@@ -2109,71 +2172,215 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Dashboard Statistics API
+  // Add stats endpoints after setupAuth(app)
   app.get("/api/stats", requireAuth, async (req, res) => {
     try {
       // Get current month's start and end dates
-      const currentMonthStart = sql`date_trunc('month', current_date)`;
-      const lastMonthStart = sql`date_trunc('month', current_date - interval '1 month')`;
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
-      // Get current month's stats
-      const [currentStats] = await db
+      // Get previous month's start and end dates for growth calculation
+      const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+
+      // Get total orders for current month
+      const [currentMonthOrders] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(orders)
+        .where(
+          and(
+            gte(orders.createdAt, startOfMonth),
+            lt(orders.createdAt, endOfMonth)
+          )
+        );
+
+      // Get total orders for previous month
+      const [previousMonthOrders] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(orders)
+        .where(
+          and(
+            gte(orders.createdAt, startOfLastMonth),
+            lt(orders.createdAt, endOfLastMonth)
+          )
+        );
+
+      // Calculate total revenue for current month
+      const [currentMonthRevenue] = await db
         .select({
-          totalOrders: sql<number>`count(distinct ${orders.id})::int`,
-          revenue: sql<number>`coalesce(sum(${orders.total})::numeric, 0)`,
-          totalProducts: sql<number>`(select count(*)::int from ${products})`,
+          total: sql<string>`COALESCE(SUM(${orders.totalAmount}), '0')`
         })
         .from(orders)
         .where(
           and(
-            gte(orders.createdAt, currentMonthStart),
-            lt(orders.createdAt, sql`date_trunc('month', current_date + interval '1 month')`)
+            gte(orders.createdAt, startOfMonth),
+            lt(orders.createdAt, endOfMonth)
           )
         );
 
-      // Get last month's revenue for growth calculation
-      const [lastMonthStats] = await db
-        .select({
-          revenue: sql<number>`coalesce(sum(${orders.total})::numeric, 0)`,
-        })
-        .from(orders)
-        .where(
-          and(
-            gte(orders.createdAt, lastMonthStart),
-            lt(orders.createdAt, currentMonthStart)
-          )
-        );
+      // Get total products count
+      const [productsCount] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(products);
 
       // Calculate growth percentage
-      const growth = lastMonthStats.revenue === 0
-        ? 0
-        : ((currentStats.revenue - lastMonthStats.revenue) / lastMonthStats.revenue) * 100;
+      const currentOrderCount = currentMonthOrders?.count || 0;
+      const previousOrderCount = previousMonthOrders?.count || 0;
+      const growth = previousOrderCount === 0
+        ? 100
+        : ((currentOrderCount - previousOrderCount) / previousOrderCount) * 100;
 
       // Get low stock items
       const lowStockItems = await db
         .select({
           id: products.id,
           name: products.name,
-          quantity: inventory.quantity,
+          quantity: inventory.quantity
         })
         .from(products)
-        .innerJoin(inventory, eq(inventory.productId, products.id))
+        .innerJoin(inventory, eq(products.id, inventory.productId))
         .where(
-          lt(inventory.quantity, products.minStock)
+          lt(inventory.quantity, 10) // Consider items with less than 10 units as low stock
         )
         .limit(5);
 
       res.json({
-        totalOrders: currentStats.totalOrders,
-        revenue: currentStats.revenue,
-        totalProducts: currentStats.totalProducts,
+        totalOrders: currentOrderCount,
+        revenue: parseInt(currentMonthRevenue.total),
+        totalProducts: productsCount.count,
         growth: parseFloat(growth.toFixed(2)),
-        lowStock: lowStockItems,
+        lowStock: lowStockItems
       });
     } catch (error) {
-      console.error('Error fetching dashboard stats:', error);
+      console.error('Error fetching stats:', error);
       res.status(500).json({
-        message: "Failed to fetch dashboard statistics",
+        message: "Failed to fetch stats",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.get("/api/stats/orders-trend", requireAuth, async (req, res) => {
+    try {
+      // Get orders count by date for the last 7 days
+      const result = await db
+        .select({
+          date: sql<string>`DATE_TRUNC('day', ${orders.createdAt})::date`,
+          orders: sql<number>`count(*)`
+        })
+        .from(orders)
+        .where(
+          gte(
+            orders.createdAt,
+            sql`NOW() - INTERVAL '7 days'`
+          )
+        )
+        .groupBy(sql`DATE_TRUNC('day', ${orders.createdAt})`)
+        .orderBy(sql`DATE_TRUNC('day', ${orders.createdAt})`);
+
+      res.json(result);
+    } catch (error) {
+      console.error('Error fetching order trends:', error);
+      res.status(500).json({
+        message: "Failed to fetch order trends",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Store Performance API endpoints
+  app.get("/api/stores/performance", requireAuth, async (req, res) => {
+    try {
+      // Get current month's start and end dates
+      const currentMonthStart = sql`date_trunc('month', current_date)`;
+      const nextMonthStart = sql`date_trunc('month', current_date) + interval '1 month'`;
+
+      // Get performance metrics for each store
+      const storeMetrics = await db
+        .select({
+          storeId: stores.id,
+          storeName: stores.name,
+          // Monthly order count
+          orderCount: sql<number>`count(distinct ${orders.id})::int`,
+          // Total revenue
+          revenue: sql<number>`coalesce(sum(${orders.total})::numeric, 0)`,
+          // Average order value
+          averageOrderValue: sql<number>`coalesce(avg(${orders.total})::numeric, 0)`,
+          // Order fulfillment rate (completed orders / total orders)
+          fulfillmentRate: sql<number>`
+            case 
+              when count(${orders.id}) > 0 
+              then (sum(case when ${orders.status} = 'completed' then 1 else 0 end)::float / count(${orders.id}))::numeric
+              else 0 
+            end
+          `,
+          // Inventory turnover (items sold / average inventory)
+          inventoryTurnover: sql<number>`
+            coalesce(
+              (sum(${orderItems.quantity})::float / nullif(avg(${inventory.quantity}), 0))::numeric,
+              0
+            )
+          `
+        })
+        .from(stores)
+        .leftJoin(orders, eq(orders.storeId, stores.id))
+        .leftJoin(orderItems, eq(orderItems.orderId, orders.id))
+        .leftJoin(inventory, eq(inventory.storeId, stores.id))
+        .where(
+          and(
+            gte(orders.createdAt, currentMonthStart),
+            lt(orders.createdAt, nextMonthStart)
+          )
+        )
+        .groupBy(stores.id)
+        .orderBy(stores.name);
+
+      // Get historical performance data for trending
+      const historicalData = await db
+        .select({
+          storeId: stores.id,
+          month: sql<string>`date_trunc('month', ${orders.createdAt})::date`,
+          revenue: sql<number>`sum(${orders.total})`,
+          orderCount: sql<number>`count(distinct ${orders.id})`
+        })
+        .from(stores)
+        .leftJoin(orders, eq(orders.storeId, stores.id))
+        .where(
+          gte(
+            orders.createdAt,
+            sql`date_trunc('month', current_date - interval '6 months')`
+          )
+        )
+        .groupBy(stores.id, sql`date_trunc('month', ${orders.createdAt})`)
+        .orderBy([stores.id, sql`date_trunc('month', ${orders.createdAt})`]);
+
+      // Get inventory status
+      const inventoryStatus = await db
+        .select({
+          storeId: stores.id,
+          totalItems: sql<number>`count(distinct ${inventory.productId})`,
+          lowStockItems: sql<number>`
+            count(distinct case 
+              when ${inventory.quantity} <= ${products.minStock} 
+              then ${inventory.productId} 
+              else null            end)
+          `
+        })
+        .from(stores)
+        .leftJoin(inventory, eq(inventory.storeId, stores.id))
+        .leftJoin(products, eq(inventory.productId, products.id))
+        .groupBy(stores.id);
+
+      res.json({
+        currentMetrics: storeMetrics,
+        historicalData,
+        inventoryStatus
+      });
+    } catch (error) {
+      console.error('Error fetching store performance:', error);
+      res.status(500).json({
+        message: "Failed to fetch store performance metrics",
         suggestion: "Please try again later"
       });
     }
