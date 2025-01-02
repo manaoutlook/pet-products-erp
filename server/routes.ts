@@ -56,6 +56,12 @@ function hasInventoryEditPermission(req: any) {
     req.user?.role?.permissions?.inventory?.update === true;
 }
 
+// Add helper function to check customer profile permissions
+function hasCustomerProfilePermission(req: any, action: 'create' | 'read' | 'update' | 'delete'): boolean {
+  return req.user?.role?.name === 'admin' ||
+    req.user?.role?.permissions?.customerProfiles?.[action] === true;
+}
+
 export function registerRoutes(app: Express): Server {
   // sets up /api/register, /api/login, /api/logout, /api/user
   setupAuth(app);
@@ -71,6 +77,13 @@ export function registerRoutes(app: Express): Server {
   // Customer Profiles endpoints
   app.get("/api/customer-profiles", requireAuth, async (req, res) => {
     try {
+      if (!hasCustomerProfilePermission(req, 'read')) {
+        return res.status(403).json({
+          message: "You don't have permission to view customer profiles",
+          suggestion: "Please contact your administrator"
+        });
+      }
+
       const allCustomerProfiles = await db.query.customerProfiles.findMany({
         orderBy: [desc(customerProfiles.updatedAt)],
       });
@@ -87,6 +100,13 @@ export function registerRoutes(app: Express): Server {
 
   app.get("/api/customer-profiles/:id", requireAuth, async (req, res) => {
     try {
+      if (!hasCustomerProfilePermission(req, 'read')) {
+        return res.status(403).json({
+          message: "You don't have permission to view customer profiles",
+          suggestion: "Please contact your administrator"
+        });
+      }
+
       const { id } = req.params;
 
       const customerProfile = await db.query.customerProfiles.findFirst({
@@ -112,6 +132,13 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/customer-profiles", requireAuth, async (req, res) => {
     try {
+      if (!hasCustomerProfilePermission(req, 'create')) {
+        return res.status(403).json({
+          message: "You don't have permission to create customer profiles",
+          suggestion: "Please contact your administrator"
+        });
+      }
+
       const result = insertCustomerProfileSchema.safeParse(req.body);
       if (!result.success) {
         return res.status(400).json({
@@ -165,6 +192,13 @@ export function registerRoutes(app: Express): Server {
 
   app.put("/api/customer-profiles/:id", requireAuth, async (req, res) => {
     try {
+      if (!hasCustomerProfilePermission(req, 'update')) {
+        return res.status(403).json({
+          message: "You don't have permission to update customer profiles",
+          suggestion: "Please contact your administrator"
+        });
+      }
+
       const { id } = req.params;
       const result = insertCustomerProfileSchema.safeParse(req.body);
       if (!result.success) {
@@ -224,6 +258,13 @@ export function registerRoutes(app: Express): Server {
 
   app.delete("/api/customer-profiles/:id", requireAuth, async (req, res) => {
     try {
+      if (!hasCustomerProfilePermission(req, 'delete')) {
+        return res.status(403).json({
+          message: "You don't have permission to delete customer profiles",
+          suggestion: "Please contact your administrator"
+        });
+      }
+
       const { id } = req.params;
 
       // Check if customer profile exists
@@ -980,7 +1021,7 @@ export function registerRoutes(app: Express): Server {
 
       // Check if role type exists
       const roleLocation = await db.query.roleLocations.findFirst({
-        where: eq(roleLocations.id, roleLocationId),
+        where: eq(roleLocationsid, roleLocationId),
       });
 
       if (!roleLocation) {
