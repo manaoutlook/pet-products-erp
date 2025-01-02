@@ -500,7 +500,8 @@ export function registerRoutes(app: Express): Server {
         })
         .from(users)
         .leftJoin(roles, eq(users.roleId, roles.id))
-        .leftJoin(roleLocations, eq(roles.roleLocationId, roleLocations.id));
+        .leftJoin(roleLocations, eq(roles.roleLocationId, roleLocations.id))
+        .orderBy(users.username);
 
       res.json(allUsers);
     } catch (error) {
