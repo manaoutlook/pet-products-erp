@@ -58,7 +58,7 @@ function RolePermissionsPage() {
 
   const { data: roles, isLoading: isLoadingRoles } = useQuery<Role[]>({
     queryKey: ['/api/roles'],
-    staleTime: 0, // Disable automatic background updates
+    staleTime: 0,
   });
 
   const updatePermissionsMutation = useMutation({
@@ -73,7 +73,6 @@ function RolePermissionsPage() {
       return res.json();
     },
     onSuccess: (data, variables) => {
-      // Update the roles cache optimistically to maintain order
       queryClient.setQueryData<Role[]>(['/api/roles'], (oldRoles) => {
         if (!oldRoles) return oldRoles;
         return oldRoles.map(role =>
@@ -90,7 +89,6 @@ function RolePermissionsPage() {
         description: error.message,
         variant: "destructive"
       });
-      // Invalidate the cache to refetch the correct data
       queryClient.invalidateQueries({ queryKey: ['/api/roles'] });
     },
   });
@@ -104,11 +102,17 @@ function RolePermissionsPage() {
     const role = roles?.find(r => r.id === roleId);
     if (!role) return;
 
-    // Create a new permissions object with the updated value
+    // Create a new permissions object with the updated value and ensure all modules exist
     const newPermissions = {
+      products: { create: false, read: false, update: false, delete: false },
+      orders: { create: false, read: false, update: false, delete: false },
+      inventory: { create: false, read: false, update: false, delete: false },
+      users: { create: false, read: false, update: false, delete: false },
+      customerProfiles: { create: false, read: false, update: false, delete: false },
       ...role.permissions,
       [module]: {
-        ...role.permissions[module],
+        ...{ create: false, read: false, update: false, delete: false },
+        ...(role.permissions[module] || {}),
         [permission]: value
       }
     };
@@ -119,7 +123,6 @@ function RolePermissionsPage() {
         permissions: newPermissions
       });
     } catch (error) {
-      // Error handling is done in mutation's onError callback
       console.error('Failed to update permissions:', error);
     }
   };
@@ -236,7 +239,7 @@ function RolePermissionsPage() {
                           <div key={permission.key} className="flex items-center justify-between gap-2">
                             <span className="text-sm">{permission.label}</span>
                             <Switch
-                              checked={role.permissions[module.key][permission.key]}
+                              checked={role.permissions[module.key]?.[permission.key] ?? false}
                               onCheckedChange={(checked) => {
                                 handlePermissionChange(role.id, module.key, permission.key, checked);
                               }}

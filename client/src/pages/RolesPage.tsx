@@ -55,22 +55,14 @@ import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
 
-// Define form schema
-const roleFormSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  description: z.string().optional(),
-  roleLocationId: z.string({ required_error: "Role location is required" }).min(1, "Role location is required"),
-});
-
-type RoleFormValues = z.infer<typeof roleFormSchema>;
-
 // Define default permissions structure
 const defaultPermissions = {
   users: { read: false, create: false, update: false, delete: false },
   orders: { read: false, create: false, update: false, delete: false },
   stores: { read: false, create: false, update: false, delete: false },
   products: { read: false, create: false, update: false, delete: false },
-  inventory: { read: false, create: false, update: false, delete: false }
+  inventory: { read: false, create: false, update: false, delete: false },
+  customerProfiles: { read: false, create: false, update: false, delete: false }
 };
 
 interface Role {
@@ -239,6 +231,15 @@ function RolesPage() {
     role.name.toLowerCase().includes(search.toLowerCase()) ||
     (role.description?.toLowerCase() || "").includes(search.toLowerCase())
   );
+
+  // Define form schema
+  const roleFormSchema = z.object({
+    name: z.string().min(1, "Name is required"),
+    description: z.string().optional(),
+    roleLocationId: z.string({ required_error: "Role location is required" }).min(1, "Role location is required"),
+  });
+
+  type RoleFormValues = z.infer<typeof roleFormSchema>;
 
   return (
     <div className="space-y-6 p-6">
