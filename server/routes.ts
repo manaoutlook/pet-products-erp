@@ -925,7 +925,10 @@ export function registerRoutes(app: Express): Server {
       res.json(allRoles);
     } catch (error) {
       console.error('Error fetching roles:', error);
-      res.status(500).send("Failed to fetch roles");
+      res.status(500).json({
+        message: "Failed to fetch roles",
+        suggestion: "Please try again later"
+      });
     }
   });
 
@@ -964,6 +967,26 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
+      // Ensure all required permission sections are present
+      const requiredPermissions = {
+        products: { create: false, read: false, update: false, delete: false },
+        orders: { create: false, read: false, update: false, delete: false },
+        inventory: { create: false, read: false, update: false, delete: false },
+        users: { create: false, read: false, update: false, delete: false },
+        stores: { create: false, read: false, update: false, delete: false },
+        customerProfiles: { create: false, read: false, update: false, delete: false }
+      };
+
+      // Merge provided permissions with default structure
+      const mergedPermissions = {
+        ...requiredPermissions,
+        ...permissions,
+        customerProfiles: {
+          ...requiredPermissions.customerProfiles,
+          ...(permissions.customerProfiles || {})
+        }
+      };
+
       // Create new role with permissions
       const [newRole] = await db
         .insert(roles)
@@ -971,7 +994,7 @@ export function registerRoutes(app: Express): Server {
           name,
           description: description || null,
           roleLocationId: parseInt(roleLocationId.toString()),
-          permissions: permissions as any, // Type cast for now
+          permissions: mergedPermissions,
           createdAt: new Date(),
           updatedAt: new Date()
         })
@@ -1001,7 +1024,7 @@ export function registerRoutes(app: Express): Server {
   app.put("/api/roles/:id", requireRole(['admin']), async (req, res) => {
     try {
       const { id } = req.params;
-      const { name, description, roleLocationId } = req.body;
+      const { name, description, roleLocationId, permissions } = req.body;
 
       if (!name || !roleLocationId) {
         return res.status(400).send("Role name and role type are required");
@@ -1021,7 +1044,7 @@ export function registerRoutes(app: Express): Server {
 
       // Check if role type exists
       const roleLocation = await db.query.roleLocations.findFirst({
-        where: eq(roleLocationsid, roleLocationId),
+        where: eq(roleLocations.id, parseInt(roleLocationId)),
       });
 
       if (!roleLocation) {
@@ -1037,12 +1060,33 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).send("Cannot modify admin role name");
       }
 
+      // Ensure all required permission sections are present
+      const requiredPermissions = {
+        products: { create: false, read: false, update: false, delete: false },
+        orders: { create: false, read: false, update: false, delete: false },
+        inventory: { create: false, read: false, update: false, delete: false },
+        users: { create: false, read: false, update: false, delete: false },
+        stores: { create: false, read: false, update: false, delete: false },
+        customerProfiles: { create: false, read: false, update: false, delete: false }
+      };
+
+      // Merge provided permissions with default structure.  If no permissions are provided, use defaults.
+      const mergedPermissions = {
+        ...requiredPermissions,
+        ...(permissions || {}) ,
+        customerProfiles: {
+          ...requiredPermissions.customerProfiles,
+          ...(permissions?.customerProfiles || {})
+        }
+      };
+
       const [updatedRole] = await db
         .update(roles)
         .set({
           name,
           description,
-          roleLocationId,
+          roleLocationId: parseInt(roleLocationId),
+          permissions: mergedPermissions,
           updatedAt: new Date(),
         })
         .where(eq(roles.id, parseInt(id)))
@@ -1070,7 +1114,7 @@ export function registerRoutes(app: Express): Server {
     try {
       const { id } = req.params;
 
-      //      // Check if role exists and is not admin
+      // Check if role exists and is not admin
       const roleToDelete = await db.query.roles.findFirst({
         where: eq(roles.id, parseInt(id)),
       });
@@ -2042,7 +2086,7 @@ export function registerRoutes(app: Express): Server {
 
       console.log(`Fetching inventory for user ${user.username} with store assignment:`, userStoreAssignment);
 
-      // Build the inventory query based on user's role and store assignment
+      // Build the inventory query based on user'srole and store assignment
       const inventoryQuery = await db.query.inventory.findMany({
         where: userStoreAssignment?.[0]?.storeId
           ? eq(inventory.storeId, userStoreAssignment[0].storeId)
@@ -2147,7 +2191,7 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { id } =req.params;
+      const { id } = req.params;
       const {
         productId,
         storeId,
