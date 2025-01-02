@@ -315,7 +315,7 @@ function UsersPage() {
                   <TableRow key={user.id}>
                     <TableCell>{user.username}</TableCell>
                     <TableCell>
-                      {user.role.name} {user.role.roleLocation?.description ? `(${user.role.roleLocation.description})` : ''}
+                      {user.role.name}{user.role.roleLocation ? ` (${user.role.roleLocation.description})` : ''}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
