@@ -37,6 +37,7 @@ interface Permissions {
   orders: Permission;
   inventory: Permission;
   users: Permission;
+  customerProfiles: Permission;
 }
 
 interface Role {
@@ -128,6 +129,7 @@ function RolePermissionsPage() {
     { key: 'orders' as const, label: 'Orders Module' },
     { key: 'inventory' as const, label: 'Inventory Module' },
     { key: 'users' as const, label: 'User Management Module' },
+    { key: 'customerProfiles' as const, label: 'Customer Profiles Module' },
   ];
 
   const permissions = [
