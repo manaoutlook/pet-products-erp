@@ -85,7 +85,8 @@ export function useUser() {
     mutationFn: (userData: InsertUser) => handleRequest('/api/login', 'POST', userData),
     onSuccess: (data) => {
       console.log('Login successful:', data);
-      queryClient.invalidateQueries({ queryKey: ['user'] });
+      queryClient.clear(); // Clear all queries from cache
+      window.location.reload(); // Force a full page reload
     },
     onError: (error) => {
       console.error('Login failed:', error);
@@ -96,7 +97,8 @@ export function useUser() {
     mutationFn: () => handleRequest('/api/logout', 'POST'),
     onSuccess: () => {
       console.log('Logout successful');
-      queryClient.invalidateQueries({ queryKey: ['user'] });
+      queryClient.clear(); // Clear all queries from cache
+      window.location.reload(); // Force a full page reload
     },
     onError: (error) => {
       console.error('Logout failed:', error);
