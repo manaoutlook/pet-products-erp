@@ -208,13 +208,13 @@ function CustomerSearch({ onSelect }: { onSelect: (customer: CustomerProfile | n
           aria-expanded={open}
           className="w-full justify-between"
         >
-          {search || "Search customers..."}
+          {search || "Search customers by name or phone..."}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[400px] p-0">
         <Command>
           <CommandInput
-            placeholder="Search by phone number..."
+            placeholder="Search by name or phone number..."
             value={search}
             onValueChange={setSearch}
           />
@@ -229,20 +229,19 @@ function CustomerSearch({ onSelect }: { onSelect: (customer: CustomerProfile | n
                 {customers?.map((customer) => (
                   <CommandItem
                     key={customer.id}
-                    value={customer.phone}
+                    value={`${customer.name} ${customer.phone}`}
                     onSelect={() => {
                       onSelect(customer);
                       setOpen(false);
                       setSearch("");
                     }}
                   >
-                    <Check
-                      className="mr-2 h-4 w-4 opacity-0"
-                    />
-                    {customer.phone}
-                    <span className="ml-2 text-muted-foreground">
-                      {customer.name}
-                    </span>
+                    <div className="flex flex-col">
+                      <span className="font-medium">{customer.name}</span>
+                      <span className="text-sm text-muted-foreground">
+                        {customer.phone}
+                      </span>
+                    </div>
                   </CommandItem>
                 ))}
               </CommandGroup>
@@ -361,7 +360,7 @@ function BillingPage() {
                     render={({ field }) => (
                       <FormItem className="flex-1">
                         <FormLabel>Customer</FormLabel>
-                        <CustomerSearch 
+                        <CustomerSearch
                           onSelect={(customer) => {
                             if (customer) {
                               field.onChange(customer.phone);
@@ -409,7 +408,7 @@ function BillingPage() {
                               value={item.quantity}
                               onChange={(e) => {
                                 const quantity = parseInt(e.target.value) || 1;
-                                setItems(prev => prev.map((i, idx) => 
+                                setItems(prev => prev.map((i, idx) =>
                                   idx === index ? {
                                     ...i,
                                     quantity,
