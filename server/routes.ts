@@ -67,6 +67,154 @@ export function registerRoutes(app: Express): Server {
   // sets up /api/register, /api/login, /api/logout, /api/user
   setupAuth(app);
 
+  // Brands endpoints
+  app.get("/api/brands", requireAuth, async (req, res) => {
+    try {
+      const allBrands = await db.query.brands.findMany({
+        orderBy: [desc(brands.updatedAt)],
+      });
+      res.json(allBrands);
+    } catch (error) {
+      console.error('Error fetching brands:', error);
+      res.status(500).json({
+        message: "Failed to fetch brands",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.post("/api/brands", requireAuth, async (req, res) => {
+    try {
+      const result = insertBrandSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({
+          message: "Invalid input",
+          errors: result.error.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message
+          }))
+        });
+      }
+
+      const { name, description } = result.data;
+
+      // Check if brand exists
+      const existingBrand = await db.query.brands.findFirst({
+        where: eq(brands.name, name),
+      });
+
+      if (existingBrand) {
+        return res.status(400).json({
+          message: "Brand name already exists",
+          suggestion: "Please use a different brand name"
+        });
+      }
+
+      const [newBrand] = await db
+        .insert(brands)
+        .values({
+          name,
+          description: description || null,
+        })
+        .returning();
+
+      res.json({
+        message: "Brand created successfully",
+        brand: newBrand,
+      });
+    } catch (error) {
+      console.error('Error creating brand:', error);
+      res.status(500).json({
+        message: "Failed to create brand",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.put("/api/brands/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const result = insertBrandSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({
+          message: "Invalid input",
+          errors: result.error.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message
+          }))
+        });
+      }
+
+      const { name, description } = result.data;
+
+      // Check if brand exists
+      const existingBrand = await db.query.brands.findFirst({
+        where: and(
+          eq(brands.name, name),
+          sql`id != ${id}`
+        ),
+      });
+
+      if (existingBrand) {
+        return res.status(400).json({
+          message: "Brand name already exists",
+          suggestion: "Please use a different brand name"
+        });
+      }
+
+      const [updatedBrand] = await db
+        .update(brands)
+        .set({
+          name,
+          description: description || null,
+          updatedAt: new Date(),
+        })
+        .where(eq(brands.id, parseInt(id)))
+        .returning();
+
+      res.json({
+        message: "Brand updated successfully",
+        brand: updatedBrand,
+      });
+    } catch (error) {
+      console.error('Error updating brand:', error);
+      res.status(500).json({
+        message: "Failed to update brand",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.delete("/api/brands/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if brand exists
+      const brand = await db.query.brands.findFirst({
+        where: eq(brands.id, parseInt(id)),
+      });
+
+      if (!brand) {
+        return res.status(404).json({
+          message: "Brand not found",
+          suggestion: "Please verify the brand ID"
+        });
+      }
+
+      await db
+        .delete(brands)
+        .where(eq(brands.id, parseInt(id)));
+
+      res.json({ message: "Brand deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting brand:', error);
+      res.status(500).json({
+        message: "Failed to delete brand",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
   // Add middleware to log all API requests
   app.use('/api', (req, res, next) => {
     console.log(`${req.method} ${req.path}`);
@@ -891,7 +1039,7 @@ export function registerRoutes(app: Express): Server {
             with: {
               product: true
             }
-          }
+                    }
         }
       });
 
@@ -907,7 +1055,6 @@ export function registerRoutes(app: Express): Server {
       });
     }
   });
-
 
   // Add supplier routes with proper error handling
   app.post("/api/suppliers", requireRole(['admin']), async (req, res) => {

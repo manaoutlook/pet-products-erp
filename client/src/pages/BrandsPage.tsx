@@ -64,7 +64,10 @@ function BrandsPage() {
         body: JSON.stringify(data),
         credentials: 'include',
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const error = await res.text();
+        throw new Error(error);
+      }
       return res.json();
     },
     onSuccess: () => {
@@ -90,13 +93,17 @@ function BrandsPage() {
         body: JSON.stringify(data),
         credentials: 'include',
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const error = await res.text();
+        throw new Error(error);
+      }
       return res.json();
     },
     onSuccess: () => {
       refetch();
       setDialogOpen(false);
       setEditingBrand(null);
+      form.reset();
       toast({ title: "Success", description: "Brand updated successfully" });
     },
     onError: (error: Error) => {
@@ -114,7 +121,10 @@ function BrandsPage() {
         method: 'DELETE',
         credentials: 'include',
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const error = await res.text();
+        throw new Error(error);
+      }
       return res.json();
     },
     onSuccess: () => {
@@ -135,12 +145,11 @@ function BrandsPage() {
       if (editingBrand) {
         await updateMutation.mutateAsync({ 
           id: editingBrand.id, 
-          data: data
+          data
         });
       } else {
         await createMutation.mutateAsync(data);
       }
-      form.reset();
     } catch (error) {
       // Error is handled by the mutation
     }
