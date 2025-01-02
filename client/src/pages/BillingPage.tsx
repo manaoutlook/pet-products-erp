@@ -21,6 +21,18 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,10 +46,9 @@ import {
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, Plus, Barcode, X } from "lucide-react";
+import { Loader2, Search, Plus, Barcode, X, Check } from "lucide-react";
 import { createBillSchema } from "@db/schema";
 import type { z } from "zod";
-import JsBarcode from "jsbarcode";
 
 // Types for the billing form
 type BillItem = {
@@ -56,34 +67,190 @@ type BillFormValues = z.infer<typeof createBillSchema> & {
   customerPhone?: string;
 };
 
-// Component to handle barcode scanning
-function BarcodeScanner({ onScan }: { onScan: (code: string) => void }) {
-  const [isScanning, setIsScanning] = useState(false);
+type CustomerProfile = {
+  id: number;
+  phone: string;
+  name: string;
+  email?: string;
+};
 
-  // In a real implementation, this would use a camera API
-  // For now, we'll simulate scanning with manual input
+type Product = {
+  id: number;
+  name: string;
+  price: number;
+  category: {
+    name: string;
+  };
+  brand?: {
+    name: string;
+  };
+};
+
+// Component to handle barcode scanning and product search
+function ProductSearch({ onSelect }: { onSelect: (product: Product) => void }) {
+  const [isScanning, setIsScanning] = useState(false);
+  const [search, setSearch] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const { data: products, isLoading } = useQuery<Product[]>({
+    queryKey: ['/api/products/search', search],
+    enabled: search.length > 0,
+  });
+
+  const handleScan = async (code: string) => {
+    try {
+      const res = await fetch(`/api/products/barcode/${code}`);
+      if (!res.ok) throw new Error("Product not found");
+      const product = await res.json();
+      onSelect(product);
+    } catch (error) {
+      // Error will be handled by the parent component
+      throw error;
+    }
+  };
+
   return (
     <div className="flex items-center gap-2">
-      <Input
-        type="text"
-        placeholder={isScanning ? "Scan barcode..." : "Enter barcode manually"}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            const input = e.currentTarget;
-            onScan(input.value);
-            input.value = '';
-          }
-        }}
-        disabled={!isScanning}
-      />
-      <Button
-        variant={isScanning ? "destructive" : "default"}
-        size="icon"
-        onClick={() => setIsScanning(!isScanning)}
-      >
-        {isScanning ? <X className="h-4 w-4" /> : <Barcode className="h-4 w-4" />}
-      </Button>
+      <div className="relative flex-1">
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              role="combobox"
+              aria-expanded={open}
+              className="w-full justify-between"
+            >
+              {search || "Search products..."}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[400px] p-0">
+            <Command>
+              <CommandInput
+                placeholder="Search products..."
+                value={search}
+                onValueChange={setSearch}
+              />
+              {isLoading ? (
+                <div className="flex items-center justify-center py-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                </div>
+              ) : (
+                <>
+                  <CommandEmpty>No products found.</CommandEmpty>
+                  <CommandGroup>
+                    {products?.map((product) => (
+                      <CommandItem
+                        key={product.id}
+                        value={product.name}
+                        onSelect={() => {
+                          onSelect(product);
+                          setOpen(false);
+                          setSearch("");
+                        }}
+                      >
+                        <Check
+                          className="mr-2 h-4 w-4 opacity-0"
+                        />
+                        {product.name}
+                        <span className="ml-auto text-muted-foreground">
+                          {product.category.name}
+                        </span>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </>
+              )}
+            </Command>
+          </PopoverContent>
+        </Popover>
+      </div>
+      <div className="flex items-center gap-2">
+        <Input
+          type="text"
+          placeholder={isScanning ? "Scan barcode..." : "Enter barcode manually"}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              const input = e.currentTarget;
+              handleScan(input.value);
+              input.value = '';
+            }
+          }}
+          disabled={!isScanning}
+        />
+        <Button
+          variant={isScanning ? "destructive" : "default"}
+          size="icon"
+          onClick={() => setIsScanning(!isScanning)}
+        >
+          {isScanning ? <X className="h-4 w-4" /> : <Barcode className="h-4 w-4" />}
+        </Button>
+      </div>
     </div>
+  );
+}
+
+// Component to handle customer search
+function CustomerSearch({ onSelect }: { onSelect: (customer: CustomerProfile | null) => void }) {
+  const [search, setSearch] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const { data: customers, isLoading } = useQuery<CustomerProfile[]>({
+    queryKey: ['/api/customers/search', search],
+    enabled: search.length > 0,
+  });
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between"
+        >
+          {search || "Search customers..."}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[400px] p-0">
+        <Command>
+          <CommandInput
+            placeholder="Search by phone number..."
+            value={search}
+            onValueChange={setSearch}
+          />
+          {isLoading ? (
+            <div className="flex items-center justify-center py-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+            </div>
+          ) : (
+            <>
+              <CommandEmpty>No customers found.</CommandEmpty>
+              <CommandGroup>
+                {customers?.map((customer) => (
+                  <CommandItem
+                    key={customer.id}
+                    value={customer.phone}
+                    onSelect={() => {
+                      onSelect(customer);
+                      setOpen(false);
+                      setSearch("");
+                    }}
+                  >
+                    <Check
+                      className="mr-2 h-4 w-4 opacity-0"
+                    />
+                    {customer.phone}
+                    <span className="ml-2 text-muted-foreground">
+                      {customer.name}
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </>
+          )}
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -130,31 +297,18 @@ function BillingPage() {
     },
   });
 
-  const handleScan = async (barcode: string) => {
-    try {
-      const res = await fetch(`/api/products/barcode/${barcode}`);
-      if (!res.ok) throw new Error("Product not found");
-      const product = await res.json();
-      
-      // Add item to the bill
-      setItems(prev => [...prev, {
-        productId: product.id,
-        quantity: 1,
-        unitPrice: product.price,
-        productName: product.name,
-        categoryName: product.category.name,
-        brandName: product.brand?.name || '',
-        subtotal: product.price,
-        vatAmount: product.price * 0.1, // 10% VAT
-        totalAmount: product.price * 1.1,
-      }]);
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Product not found",
-        variant: "destructive"
-      });
-    }
+  const handleAddProduct = (product: Product) => {
+    setItems(prev => [...prev, {
+      productId: product.id,
+      quantity: 1,
+      unitPrice: product.price,
+      productName: product.name,
+      categoryName: product.category.name,
+      brandName: product.brand?.name || '',
+      subtotal: product.price,
+      vatAmount: product.price * 0.1, // 10% VAT
+      totalAmount: product.price * 1.1,
+    }]);
   };
 
   const calculateTotals = () => {
@@ -205,22 +359,25 @@ function BillingPage() {
                     control={form.control}
                     name="customerPhone"
                     render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Customer Phone</FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            placeholder="Enter customer phone"
-                          />
-                        </FormControl>
+                      <FormItem className="flex-1">
+                        <FormLabel>Customer</FormLabel>
+                        <CustomerSearch 
+                          onSelect={(customer) => {
+                            if (customer) {
+                              field.onChange(customer.phone);
+                            } else {
+                              field.onChange("");
+                            }
+                          }}
+                        />
                         <FormMessage />
                       </FormItem>
                     )}
                   />
-                  <div>
-                    <FormLabel>Scan Barcode</FormLabel>
-                    <BarcodeScanner onScan={handleScan} />
-                  </div>
+                  <FormItem>
+                    <FormLabel>Add Products</FormLabel>
+                    <ProductSearch onSelect={handleAddProduct} />
+                  </FormItem>
                 </div>
 
                 <div className="border rounded-lg p-4">
@@ -283,7 +440,7 @@ function BillingPage() {
                       {items.length === 0 && (
                         <TableRow>
                           <TableCell colSpan={9} className="text-center text-muted-foreground">
-                            No items added. Scan products to add them to the bill.
+                            No items added. Search or scan products to add them to the bill.
                           </TableCell>
                         </TableRow>
                       )}
