@@ -179,6 +179,14 @@ function UsersPage() {
   };
 
   const handleEditUser = (user: UserWithRole) => {
+    if (user.role.name === 'admin') {
+      toast({ 
+        title: "Warning", 
+        description: "The admin user cannot be edited",
+        variant: "destructive"
+      });
+      return;
+    }
     setEditingUser(user);
     form.reset({
       username: user.username,
@@ -323,6 +331,8 @@ function UsersPage() {
                           variant="outline"
                           size="icon"
                           onClick={() => handleEditUser(user)}
+                          disabled={user.role.name === 'admin'}
+                          className={user.role.name === 'admin' ? 'cursor-not-allowed opacity-50' : ''}
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -350,6 +360,7 @@ function UsersPage() {
       </Card>
     </div>
   );
+
 }
 
 export default UsersPage;
