@@ -491,6 +491,150 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Add supplier routes with proper error handling
+  app.post("/api/suppliers", requireRole(['admin']), async (req, res) => {
+    try {
+      const { name, contactInfo, address } = req.body;
+
+      if (!name || !contactInfo || !address) {
+        return res.status(400).json({
+          message: "Name, contact info, and address are required",
+          suggestion: "Please fill in all required fields"
+        });
+      }
+
+      // Check if supplier exists
+      const existingSupplier = await db.query.suppliers.findFirst({
+        where: eq(suppliers.name, name),
+      });
+
+      if (existingSupplier) {
+        return res.status(400).json({
+          message: "Supplier name already exists",
+          suggestion: "Please use a different supplier name"
+        });
+      }
+
+      const [newSupplier] = await db
+        .insert(suppliers)
+        .values({
+          name,
+          contactInfo,
+          address,
+        })
+        .returning();
+
+      res.json({
+        message: "Supplier created successfully",
+        supplier: newSupplier,
+      });
+    } catch (error) {
+      console.error('Error creating supplier:', error);
+      res.status(500).json({
+        message: "Failed to create supplier",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Get all suppliers
+  app.get("/api/suppliers", requireAuth, async (req, res) => {
+    try {
+      const allSuppliers = await db.query.suppliers.findMany({
+        orderBy: [desc(suppliers.updatedAt)],
+      });
+      res.json(allSuppliers);
+    } catch (error) {
+      console.error('Error fetching suppliers:', error);
+      res.status(500).json({
+        message: "Failed to fetch suppliers",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Update supplier
+  app.put("/api/suppliers/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, contactInfo, address } = req.body;
+
+      if (!name || !contactInfo || !address) {
+        return res.status(400).json({
+          message: "Name, contact info, and address are required",
+          suggestion: "Please fill in all required fields"
+        });
+      }
+
+      // Check if supplier exists
+      const existingSupplier = await db.query.suppliers.findFirst({
+        where: and(
+          eq(suppliers.name, name),
+          sql`id != ${id}`
+        ),
+      });
+
+      if (existingSupplier) {
+        return res.status(400).json({
+          message: "Supplier name already exists",
+          suggestion: "Please use a different supplier name"
+        });
+      }
+
+      const [updatedSupplier] = await db
+        .update(suppliers)
+        .set({
+          name,
+          contactInfo,
+          address,
+          updatedAt: new Date(),
+        })
+        .where(eq(suppliers.id, parseInt(id)))
+        .returning();
+
+      res.json({
+        message: "Supplier updated successfully",
+        supplier: updatedSupplier,
+      });
+    } catch (error) {
+      console.error('Error updating supplier:', error);
+      res.status(500).json({
+        message: "Failed to update supplier",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Delete supplier
+  app.delete("/api/suppliers/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if supplier exists
+      const supplier = await db.query.suppliers.findFirst({
+        where: eq(suppliers.id, parseInt(id)),
+      });
+
+      if (!supplier) {
+        return res.status(404).json({
+          message: "Supplier not found",
+          suggestion: "Please verify the supplier ID"
+        });
+      }
+
+      await db
+        .delete(suppliers)
+        .where(eq(suppliers.id, parseInt(id)));
+
+      res.json({ message: "Supplier deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting supplier:', error);
+      res.status(500).json({
+        message: "Failed to delete supplier",
+        suggestion: "Please try again later"
+      });
+    }
+  });
 
   // Add this endpoint to get unassigned store users
   app.get("/api/store-assignments/users", requireAuth, async (req, res) => {
@@ -1971,7 +2115,7 @@ export function registerRoutes(app: Express): Server {
       if (!productId || !quantity) {
         return res.status(400).json({
           message: "Product ID and quantity are required",
-          suggestion: "Please provide all required fields"
+          suggestion: "Please provide allrequired fields"
         });
       }
 
