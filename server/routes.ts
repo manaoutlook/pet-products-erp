@@ -482,6 +482,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+
   // Add this endpoint to get unassigned store users
   app.get("/api/store-assignments/users", requireAuth, async (req, res) => {
     try {
@@ -1008,13 +1009,22 @@ export function registerRoutes(app: Express): Server {
 
       // Check if category exists
       const existingCategory = await db.query.categories.findFirst({
+        where: eq(categories.id, parseInt(id)),
+      });
+
+      if (!existingCategory) {
+        return res.status(404).send("Category not found");
+      }
+
+      // Check if new name is already taken by another category
+      const duplicateCategory = await db.query.categories.findFirst({
         where: and(
           eq(categories.name, name),
           sql`id != ${id}`
         ),
       });
 
-      if (existingCategory) {
+      if (duplicateCategory) {
         return res.status(400).send("Category name already exists");
       }
 
@@ -1197,9 +1207,8 @@ export function registerRoutes(app: Express): Server {
   app.put("/api/users/:id", requireRole(['admin']), async (req, res) => {
     try {
       const { id } = req.params;
-
-      // Validate input
       const result = updateUserSchema.safeParse(req.body);
+
       if (!result.success) {
         return res.status(400).json({
           message: "Invalid input",
@@ -1210,40 +1219,30 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { username, roleId, password } = result.data;
+      const updateData = result.data;
 
-      if (!username && !roleId && !password) {
-        return res.status(400).json({
-          message: "No updates provided",
-          suggestion: "Provide either username or roleId to update"
-        });
+      // Convert username to lowercase if provided
+      if (updateData.username) {
+        updateData.username = updateData.username.toLowerCase();
+        // Double check the lowercase validation
+        if (!/^[a-z]+$/.test(updateData.username)) {
+          return res.status(400).json({
+            message: "Invalid username format",
+            suggestion: "Username must contain only lowercase letters"
+          });
+        }
       }
 
-      // Verify user exists
-      const existingUser = await db.query.users.findFirst({
-        where: eq(users.id, parseInt(id)),
-        with: {
-          role: true,
-        },
-      });
-
-      if (!existingUser) {
-        return res.status(404).json({
-          message: "User not found",
-          suggestion: "Please verify the user ID"
-        });
-      }
-
-      //      // Check if new username is already taken by another user
-      if (username) {
-        const duplicateUser = await db.query.users.findFirst({
+      // Check if username already exists (if username is being updated)
+      if (updateData.username) {
+        const existingUser = await db.query.users.findFirst({
           where: and(
-            eq(users.username, username),
+            eq(users.username, updateData.username),
             sql`id != ${id}`
           ),
         });
 
-        if (duplicateUser) {
+        if (existingUser) {
           return res.status(400).json({
             message: "Username already exists",
             suggestion: "Please choose a different username"
@@ -1251,47 +1250,51 @@ export function registerRoutes(app: Express): Server {
         }
       }
 
-      //If password provided, hash it
-      const hashedPassword = password ? await crypto.hash(password) : existingUser.password;
-
-
-      // If roleId provided, verify it exists
-      if (roleId) {
-        const role = await db.query.roles.findFirst({
-          where: eq(roles.id, roleId),
-        });
-
-        if (!role) {
-          return res.status(400).json({
-            message: "Invalid role ID",
-            suggestion: "Please provide a valid role ID"
-          });
-        }
+      // Hash password if it's being updated
+      if (updateData.password) {
+        updateData.password = await crypto.hash(updateData.password);
       }
 
       // Update user
       const [updatedUser] = await db
         .update(users)
         .set({
-          ...(username && { username }),
-          ...(roleId && { roleId }),
-          ...(password && { password: hashedPassword }),
-          updatedAt: new Date(),
+          ...updateData,
+          updatedAt: new Date()
         })
         .where(eq(users.id, parseInt(id)))
         .returning();
 
-      // Fetch updated user with role information
-      const userWithRole = await db.query.users.findFirst({
-        where: eq(users.id, updatedUser.id),
-        with: {
-          role: true,
-        },
-      });
+      if (!updatedUser) {
+        return res.status(404).json({
+          message: "User not found",
+          suggestion: "Please verify the user ID"
+        });
+      }
+
+      // Fetch the complete user with role
+      const userWithRole = await db
+        .select({
+          id: users.id,
+          username: users.username,
+          role: {
+            id: roles.id,
+            name: roles.name,
+            roleLocation: {
+              id: roleLocations.id,
+              description: roleLocations.description
+            }
+          }
+        })
+        .from(users)
+        .leftJoin(roles, eq(users.roleId, roles.id))
+        .leftJoin(roleLocations, eq(roles.roleLocationId, roleLocations.id))
+        .where(eq(users.id, updatedUser.id))
+        .limit(1);
 
       res.json({
         message: "User updated successfully",
-        user: userWithRole,
+        user: userWithRole[0]
       });
     } catch (error) {
       console.error('Error updating user:', error);
@@ -1578,94 +1581,6 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Stats API - admin only
-  app.get("/api/stats", requireAuth, async (req, res) => {
-    try {
-      // Get current month's start and end dates
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-
-      // Get previous month's start and end dates for growth calculation
-      const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
-
-      // Get total orders for current month
-      const [currentMonthOrders] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(orders)
-        .where(
-          and(
-            gte(orders.createdAt, startOfMonth),
-            lt(orders.createdAt, endOfMonth)
-          )
-        );
-
-      // Get total orders for previous month
-      const [previousMonthOrders] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(orders)
-        .where(
-          and(
-            gte(orders.createdAt, startOfLastMonth),
-            lt(orders.createdAt, endOfLastMonth)
-          )
-        );
-
-      // Calculate total revenue for current month
-      const [currentMonthRevenue] = await db
-        .select({
-          total: sql<string>`COALESCE(SUM(${orders.totalAmount}), '0')`
-        })
-        .from(orders)
-        .where(
-          and(
-            gte(orders.createdAt, startOfMonth),
-            lt(orders.createdAt, endOfMonth)
-          )
-        );
-
-      // Get total products count
-      const [productsCount] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(products);
-
-      // Calculate growth percentage
-      const currentOrderCount = currentMonthOrders?.count || 0;
-      const previousOrderCount = previousMonthOrders?.count || 0;
-      const growth = previousOrderCount === 0
-        ? 100
-        : ((currentOrderCount - previousOrderCount) / previousOrderCount) * 100;
-
-      // Get low stock items
-      const lowStockItems = await db
-        .select({
-          id: products.id,
-          name: products.name,
-          quantity: inventory.quantity
-        })
-        .from(products)
-        .innerJoin(inventory, eq(products.id, inventory.productId))
-        .where(
-          lt(inventory.quantity, 10) // Consider items with less than 10 units as low stock
-        )
-        .limit(5);
-
-      res.json({
-        totalOrders: currentOrderCount,
-        revenue: parseInt(currentMonthRevenue.total),
-        totalProducts: productsCount.count,
-        growth: parseFloat(growth.toFixed(2)),
-        lowStock: lowStockItems
-      });
-    } catch (error) {
-      console.error('Error fetching stats:', error);
-      res.status(500).json({
-        message: "Failed to fetch stats",
-        suggestion: "Please try again later"
-      });
-    }
-  });
-
   app.get("/api/stats/orders-trend", requireAuth, async (req, res) => {
     try {
       // Get orders count by date for the last 7 days

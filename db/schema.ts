@@ -41,9 +41,30 @@ export const users = pgTable("users", {
 
 // After users table definition, add the schema validation
 export const insertUserSchema = z.object({
-  username: z.string().min(1, "Username is required"),
+  username: z.string().min(1, "Username is required").refine(
+    val => /^[a-z]+$/.test(val),
+    "Username must contain only lowercase letters"
+  ),
   password: z.string().min(6, "Password must be at least 6 characters"),
   roleId: z.number().int().positive("Role ID is required"),
+});
+
+// Add update user schema that makes all fields optional
+export const updateUserSchema = z.object({
+  username: z.string()
+    .min(1, "Username is required")
+    .refine(
+      val => /^[a-z]+$/.test(val),
+      "Username must contain only lowercase letters"
+    )
+    .optional(),
+  password: z.string()
+    .min(6, "Password must be at least 6 characters")
+    .optional(),
+  roleId: z.number()
+    .int()
+    .positive("Role ID must be positive")
+    .optional(),
 });
 
 export const selectUserSchema = createSelectSchema(users);

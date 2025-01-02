@@ -1,0 +1,34 @@
+PUT /users/5
+Error updating user: ReferenceError: updateUserSchema is not defined
+    at <anonymous> (/home/runner/PetDistributionErp-SPS/server/routes.ts:1202:22)
+    at Layer.handle [as handle_request] (/home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/layer.js:95:5)
+    at next (/home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/route.js:149:13)
+    at <anonymous> (/home/runner/PetDistributionErp-SPS/server/middleware.ts:18:5)
+    at Layer.handle [as handle_request] (/home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/layer.js:95:5)
+    at next (/home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/route.js:149:13)
+    at Route.dispatch (/home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/route.js:119:3)
+    at Layer.handle [as handle_request] (/home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/layer.js:95:5)
+    at /home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/index.js:284:15
+    at param (/home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/index.js:365:14)
+    at param (/home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/index.js:376:14)
+    at Function.process_params (/home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/index.js:421:3)
+    at next (/home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/index.js:280:10)
+    at requireAuth (/home/runner/PetDistributionErp-SPS/server/middleware.ts:66:3)
+    at Layer.handle [as handle_request] (/home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/index.js:280:10)
+    at <anonymous> (/home/runner/PetDistributionErp-SPS/server/routes.ts:58:5)
+    at Layer.handle [as handle_request] (/home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/PetDistributionErp-SPS/node_modules/express/lib/router/index.js:280:10)
+    at strategy.pass (/home/runner/PetDistributionErp-SPS/node_modules/passport/lib/middleware/authenticate.js:355:9)
+    at /home/runner/PetDistributionErp-SPS/node_modules/passport/lib/strategies/session.js:120:12
+    at pass (/home/runner/PetDistributionErp-SPS/node_modules/passport/lib/authenticator.js:352:31)
+    at deserialized (/home/runner/PetDistributionErp-SPS/node_modules/passport/lib/authenticator.js:364:7)
+    at <anonymous> (/home/runner/PetDistributionErp-SPS/server/auth.ts:364:7)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+3:26:21 AM [express] PUT /api/users/5 500 in 1056ms :: {"message":"Failed to update user","suggestio…
