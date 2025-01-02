@@ -8,6 +8,7 @@ import {
   categories, brands, suppliers, purchaseOrders,
   purchaseOrderItems, customerProfiles, insertCustomerProfileSchema,
   insertUserSchema, updateUserSchema,
+  bills, billItems, createBillSchema // Added
 } from "@db/schema";
 import { sql } from "drizzle-orm";
 import { eq, and, desc, gte, lt, isNull } from "drizzle-orm";
@@ -293,6 +294,230 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+
+  // Add these routes after the customer profiles endpoints
+  // Bills endpoints
+  app.get("/api/bills", requireAuth, async (req, res) => {
+    try {
+      const allBills = await db.query.bills.findMany({
+        with: {
+          store: true,
+          customerProfile: true,
+          items: {
+            with: {
+              product: true
+            }
+          }
+        },
+        orderBy: [desc(bills.createdAt)],
+      });
+      res.json(allBills);
+    } catch (error) {
+      console.error('Error fetching bills:', error);
+      res.status(500).json({
+        message: "Failed to fetch bills",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.post("/api/bills", requireAuth, async (req, res) => {
+    try {
+      const result = createBillSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({
+          message: "Invalid input",
+          errors: result.error.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message
+          }))
+        });
+      }
+
+      const { storeId, customerProfileId, items } = result.data;
+
+      // Get store details for bill number prefix
+      const store = await db.query.stores.findFirst({
+        where: eq(stores.id, storeId),
+      });
+
+      if (!store) {
+        return res.status(404).json({
+          message: "Store not found",
+          suggestion: "Please verify the store ID"
+        });
+      }
+
+      // Get next bill number for the store
+      const lastBill = await db.query.bills.findFirst({
+        where: eq(bills.storeId, storeId),
+        orderBy: [desc(bills.billNumber)],
+      });
+
+      let sequence = 1;
+      if (lastBill) {
+        const lastSequence = parseInt(lastBill.billNumber.split('-')[1]);
+        sequence = lastSequence + 1;
+      }
+
+      const billNumber = `${store.billPrefix}-${sequence}`;
+
+      // Calculate totals
+      let subtotal = 0;
+      let vatAmount = 0;
+      let totalAmount = 0;
+
+      const billItemsData = await Promise.all(items.map(async (item) => {
+        const product = await db.query.products.findFirst({
+          where: eq(products.id, item.productId),
+          with: {
+            category: true,
+            brand: true,
+          }
+        });
+
+        if (!product) {
+          throw new Error(`Product with ID ${item.productId} not found`);
+        }
+
+        const itemSubtotal = item.quantity * item.unitPrice;
+        const itemVat = itemSubtotal * 0.1; // 10% VAT
+        const itemTotal = itemSubtotal + itemVat;
+
+        subtotal += itemSubtotal;
+        vatAmount += itemVat;
+        totalAmount += itemTotal;
+
+        return {
+          productId: item.productId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice.toString(),
+          productName: product.name,
+          productDescription: product.description || null,
+          categoryName: product.category.name,
+          brandName: product.brand?.name || null,
+          subtotal: itemSubtotal.toString(),
+          vatAmount: itemVat.toString(),
+          totalAmount: itemTotal.toString(),
+        };
+      }));
+
+      // Calculate points (1 point per 1000 spent)
+      const pointsAwarded = Math.floor(totalAmount / 1000);
+
+      // Create bill with items
+      const [newBill] = await db
+        .insert(bills)
+        .values({
+          billNumber,
+          storeId,
+          customerProfileId: customerProfileId || null,
+          subtotal: subtotal.toString(),
+          vatAmount: vatAmount.toString(),
+          totalAmount: totalAmount.toString(),
+          pointsAwarded,
+          status: 'completed',
+        })
+        .returning();
+
+      // Create bill items
+      await Promise.all(billItemsData.map(itemData =>
+        db.insert(billItems)
+          .values({
+            billId: newBill.id,
+            ...itemData,
+          })
+      ));
+
+      // Fetch the complete bill with items
+      const billWithDetails = await db.query.bills.findFirst({
+        where: eq(bills.id, newBill.id),
+        with: {
+          store: true,
+          customerProfile: true,
+          items: {
+            with: {
+              product: true
+            }
+          }
+        }
+      });
+
+      res.json({
+        message: "Bill created successfully",
+        bill: billWithDetails
+      });
+    } catch (error) {
+      console.error('Error creating bill:', error);
+      res.status(500).json({
+        message: "Failed to create bill",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.get("/api/bills/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const bill = await db.query.bills.findFirst({
+        where: eq(bills.id, parseInt(id)),
+        with: {
+          store: true,
+          customerProfile: true,
+          items: {
+            with: {
+              product: true
+            }
+          }
+        }
+      });
+
+      if (!bill) {
+        return res.status(404).json({
+          message: "Bill not found",
+          suggestion: "Please verify the bill ID"
+        });
+      }
+
+      res.json(bill);
+    } catch (error) {
+      console.error('Error fetching bill:', error);
+      res.status(500).json({
+        message: "Failed to fetch bill",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.get("/api/products/barcode/:code", requireAuth, async (req, res) => {
+    try {
+      const { code } = req.params;
+
+      const product = await db.query.products.findFirst({
+        where: eq(products.barcode, code),
+        with: {
+          category: true,
+          brand: true,
+        }
+      });
+
+      if (!product) {
+        return res.status(404).json({
+          message: "Product not found",
+          suggestion: "Please verify the barcode"
+        });
+      }
+
+      res.json(product);
+    } catch (error) {
+      console.error('Error fetching product by barcode:', error);
+      res.status(500).json({
+        message: "Failed to fetch product",
+        suggestion: "Please try again later"
+      });
+    }
+  });
 
   // Role Locations CRUD endpoints
   app.get("/api/role-locations", requireAuth, async (req, res) => {
@@ -819,8 +1044,7 @@ export function registerRoutes(app: Express): Server {
         .delete(suppliers)
         .where(eq(suppliers.id, parseInt(id)));
 
-      res.json({ message: "Supplier deleted successfully" });
-    } catch (error) {
+      res.json({ message: "Supplier deleted successfully" });    } catch (error) {
       console.error('Error deleting supplier:', error);
       res.status(500).json({
         message: "Failed to delete supplier",
@@ -1073,7 +1297,7 @@ export function registerRoutes(app: Express): Server {
       // Merge provided permissions with default structure.  If no permissions are provided, use defaults.
       const mergedPermissions = {
         ...requiredPermissions,
-        ...(permissions || {}) ,
+        ...(permissions || {}),
         customerProfiles: {
           ...requiredPermissions.customerProfiles,
           ...(permissions?.customerProfiles || {})

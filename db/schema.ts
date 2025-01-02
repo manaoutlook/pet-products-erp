@@ -230,6 +230,40 @@ export const customerProfiles = pgTable("customer_profiles", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Bills table for the billing management system
+export const bills = pgTable("bills", {
+  id: serial("id").primaryKey(),
+  billNumber: varchar("bill_number", { length: 20 }).notNull().unique(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+  customerProfileId: integer("customer_profile_id").references(() => customerProfiles.id),
+  subtotal: decimal("subtotal", { precision: 15, scale: 2 }).notNull(),
+  vatAmount: decimal("vat_amount", { precision: 15, scale: 2 }).notNull(),
+  totalAmount: decimal("total_amount", { precision: 15, scale: 2 }).notNull(),
+  pointsAwarded: integer("points_awarded").notNull().default(0),
+  status: varchar("status", { length: 20 }).notNull().default('completed'),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Bill Items table for individual items in bills
+export const billItems = pgTable("bill_items", {
+  id: serial("id").primaryKey(),
+  billId: integer("bill_id").references(() => bills.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  quantity: integer("quantity").notNull(),
+  unitPrice: decimal("unit_price", { precision: 15, scale: 2 }).notNull(),
+  // Store product details at time of sale for historical record
+  productName: text("product_name").notNull(),
+  productDescription: text("product_description"),
+  categoryName: text("category_name").notNull(),
+  brandName: text("brand_name"),
+  subtotal: decimal("subtotal", { precision: 15, scale: 2 }).notNull(),
+  vatAmount: decimal("vat_amount", { precision: 15, scale: 2 }).notNull(),
+  totalAmount: decimal("total_amount", { precision: 15, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Define relationships
 export const brandsRelations = relations(brands, ({ many }) => ({
   products: many(products),
@@ -282,6 +316,7 @@ export const storesRelations = relations(stores, ({ many }) => ({
   inventory: many(inventory),
   orders: many(orders),
   userAssignments: many(userStoreAssignments),
+  bills: many(bills), // Add bills relation
 }));
 
 export const userStoreAssignmentsRelations = relations(userStoreAssignments, ({ one }) => ({
@@ -355,6 +390,32 @@ export const purchaseOrderItemsRelations = relations(purchaseOrderItems, ({ one 
 // Add relations for customer profiles
 export const customerProfilesRelations = relations(customerProfiles, ({ many }) => ({
   orders: many(orders),
+  bills: many(bills), // Add bills relation
+}));
+
+// Add relations for bills
+export const billsRelations = relations(bills, ({ many, one }) => ({
+  items: many(billItems),
+  store: one(stores, {
+    fields: [bills.storeId],
+    references: [stores.id],
+  }),
+  customerProfile: one(customerProfiles, {
+    fields: [bills.customerProfileId],
+    references: [customerProfiles.id],
+  }),
+}));
+
+// Add relations for bill items
+export const billItemsRelations = relations(billItems, ({ one }) => ({
+  bill: one(bills, {
+    fields: [billItems.billId],
+    references: [bills.id],
+  }),
+  product: one(products, {
+    fields: [billItems.productId],
+    references: [products.id],
+  }),
 }));
 
 // Export schemas
@@ -403,3 +464,25 @@ export const insertCustomerProfileSchema = createInsertSchema(customerProfiles);
 export const selectCustomerProfileSchema = createSelectSchema(customerProfiles);
 export type InsertCustomerProfile = typeof customerProfiles.$inferInsert;
 export type SelectCustomerProfile = typeof customerProfiles.$inferSelect;
+
+// Add schemas for bills and bill items
+export const insertBillSchema = createInsertSchema(bills);
+export const selectBillSchema = createSelectSchema(bills);
+export type InsertBill = typeof bills.$inferInsert;
+export type SelectBill = typeof bills.$inferSelect;
+
+export const insertBillItemSchema = createInsertSchema(billItems);
+export const selectBillItemSchema = createSelectSchema(billItems);
+export type InsertBillItem = typeof billItems.$inferInsert;
+export type SelectBillItem = typeof billItems.$inferSelect;
+
+// Custom Zod schema for bill creation with items
+export const createBillSchema = z.object({
+  storeId: z.number().positive("Store ID is required"),
+  customerProfileId: z.number().positive("Customer ID is required").optional(),
+  items: z.array(z.object({
+    productId: z.number().positive("Product ID is required"),
+    quantity: z.number().positive("Quantity must be positive"),
+    unitPrice: z.number().positive("Unit price must be positive"),
+  })).min(1, "At least one item is required"),
+});

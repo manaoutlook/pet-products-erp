@@ -21,7 +21,8 @@ import {
   Building2,
   ChevronRight,
   ClipboardList,
-  UserCircle
+  UserCircle,
+  FileText
 } from "lucide-react";
 import { useState } from "react";
 
@@ -29,7 +30,7 @@ interface NavItem {
   name: string;
   href?: string;
   icon: any;
-  module?: 'products' | 'orders' | 'inventory' | 'users' | 'stores' | 'customerProfiles';
+  module?: 'products' | 'orders' | 'inventory' | 'users' | 'stores' | 'customerProfiles' | 'bills';
   action?: 'create' | 'read' | 'update' | 'delete';
   adminOnly?: boolean;
   children?: NavItem[];
@@ -126,6 +127,13 @@ function Sidebar() {
       href: "/customers", 
       icon: UserCircle,
       module: 'customerProfiles',
+      action: 'read'
+    },
+    {
+      name: "Billing",
+      href: "/billing",
+      icon: FileText,
+      module: 'bills',
       action: 'read'
     },
     { 
