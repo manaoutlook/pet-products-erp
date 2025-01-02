@@ -166,7 +166,7 @@ function UsersPage() {
           id: editingUser.id, 
           data: {
             username: data.username,
-            password: data.password, // Include password in update
+            password: data.password, 
             roleId: data.roleId
           }
         });
@@ -182,7 +182,7 @@ function UsersPage() {
     setEditingUser(user);
     form.reset({
       username: user.username,
-      password: "", // Reset password field
+      password: "", 
       roleId: user.role.id,
     });
     setDialogOpen(true);
@@ -315,7 +315,7 @@ function UsersPage() {
                   <TableRow key={user.id}>
                     <TableCell>{user.username}</TableCell>
                     <TableCell>
-                      {user.role.name} ({user.role.roleLocation?.description})
+                      {user.role.name} ({user.role.roleLocation.description})
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
@@ -335,7 +335,7 @@ function UsersPage() {
                               deleteMutation.mutate(user.id);
                             }
                           }}
-                          disabled={user.role.name === 'admin'} // Prevent deleting admin users
+                          disabled={user.role.name === 'admin'} 
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
