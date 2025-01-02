@@ -9,7 +9,7 @@ import {
   purchaseOrderItems, customerProfiles, insertCustomerProfileSchema,
 } from "@db/schema";
 import { sql } from "drizzle-orm";
-import { eq, and, desc, gte, lt } from "drizzle-orm";
+import { eq, and, desc, gte, lt, isNull } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
 import { z } from "zod";
 import { crypto } from "./auth";
@@ -482,6 +482,45 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Add this endpoint to get unassigned store users
+  app.get("/api/store-assignments/users", requireAuth, async (req, res) => {
+    try {
+      // Get users who have store-related roles and are not assigned to any store
+      const unassignedUsers = await db
+        .select({
+          id: users.id,
+          username: users.username,
+          role: {
+            name: roles.name,
+            roleLocation: {
+              id: roleLocations.id,
+              description: roleLocations.description
+            }
+          }
+        })
+        .from(users)
+        .leftJoin(roles, eq(users.roleId, roles.id))
+        .leftJoin(roleLocations, eq(roles.roleLocationId, roleLocations.id))
+        .leftJoin(userStoreAssignments, eq(users.id, userStoreAssignments.userId))
+        .where(
+          and(
+            // Only include users with store-related roles
+            eq(roleLocations.description, 'Store or Shop'),
+            // Only include users not assigned to any store
+            isNull(userStoreAssignments.id)
+          )
+        )
+        .orderBy(users.username);
+
+      res.json(unassignedUsers);
+    } catch (error) {
+      console.error('Error fetching unassigned store users:', error);
+      res.status(500).json({
+        message: "Failed to fetch unassigned users",
+        suggestion: "Please try again later"
+      });
+    }
+  });
 
   // Inside registerRoutes function, update the /api/users route
   app.get("/api/users", requireAuth, async (req, res) => {
@@ -1438,46 +1477,6 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.get("/api/store-assignments/users", requireRole(['admin']), async (req, res) => {
-    try {
-      // Get unassigned users with Pet Store role type using proper joins
-      const unassignedPetStoreUsers = await db
-        .select({
-          id: users.id,
-          username: users.username,
-          role: {
-            id: roles.id,
-            name: roles.name,
-            roleLocation: {
-              id: roleLocations.id,
-              description: roleLocations.description
-            }
-          }
-        })
-        .from(users)
-        .innerJoin(roles, eq(users.roleId, roles.id))
-        .innerJoin(roleLocations, eq(roles.roleLocationId, roleLocations.id))
-        .leftJoin(
-          userStoreAssignments,
-          eq(users.id, userStoreAssignments.userId)
-        )
-        .where(
-          and(
-            eq(roleLocations.description, 'Pet Store'),
-            sql`${userStoreAssignments.id} IS NULL`
-          )
-        );
-
-      res.json(unassignedPetStoreUsers);
-    } catch (error) {
-      console.error('Error fetching unassigned pet store users:', error);
-      res.status(500).json({
-        message: "Failed to fetch pet store users",
-        suggestion: "Please try again later"
-      });
-    }
-  });
-
   app.post("/api/store-assignments", requireRole(['admin']), async (req, res) => {
     try {
       const { userId, storeId } = req.body;
@@ -2093,7 +2092,7 @@ export function registerRoutes(app: Express): Server {
           revenue: sql<number>`coalesce(sum(${orders.total})::numeric, 0)`,
           // Average order value
           averageOrderValue: sql<number>`coalesce(avg(${orders.total})::numeric, 0)`,
-                    // Order fulfillment rate (completed orders / total orders)
+          // Order fulfillment rate (completed orders / total orders)
           fulfillmentRate: sql<number>`
             case 
               when count(${orders.id}) > 0 
@@ -2150,7 +2149,8 @@ export function registerRoutes(app: Express): Server {
             count(distinct case 
               when ${inventory.quantity} <= ${products.minStock} 
               then ${inventory.productId} 
-              else null            end)
+              else null 
+            end)
           `
         })
         .from(stores)
@@ -2172,94 +2172,8 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Add stats endpoints after setupAuth(app)
-  app.get("/api/stats", requireAuth, async (req, res) => {
-    try {
-      // Get current month's start and end dates
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-
-      // Get previous month's start and end dates for growth calculation
-      const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
-
-      // Get total orders for current month
-      const [currentMonthOrders] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(orders)
-        .where(
-          and(
-            gte(orders.createdAt, startOfMonth),
-            lt(orders.createdAt, endOfMonth)
-          )
-        );
-
-      // Get total orders for previous month
-      const [previousMonthOrders] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(orders)
-        .where(
-          and(
-            gte(orders.createdAt, startOfLastMonth),
-            lt(orders.createdAt, endOfLastMonth)
-          )
-        );
-
-      // Calculate total revenue for current month
-      const [currentMonthRevenue] = await db
-        .select({
-          total: sql<string>`COALESCE(SUM(${orders.totalAmount}), '0')`
-        })
-        .from(orders)
-        .where(
-          and(
-            gte(orders.createdAt, startOfMonth),
-            lt(orders.createdAt, endOfMonth)
-          )
-        );
-
-      // Get total products count
-      const [productsCount] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(products);
-
-      // Calculate growth percentage
-      const currentOrderCount = currentMonthOrders?.count || 0;
-      const previousOrderCount = previousMonthOrders?.count || 0;
-      const growth = previousOrderCount === 0
-        ? 100
-        : ((currentOrderCount - previousOrderCount) / previousOrderCount) * 100;
-
-      // Get low stock items
-      const lowStockItems = await db
-        .select({
-          id: products.id,
-          name: products.name,
-          quantity: inventory.quantity
-        })
-        .from(products)
-        .innerJoin(inventory, eq(products.id, inventory.productId))
-        .where(
-          lt(inventory.quantity, 10) // Consider items with less than 10 units as low stock
-        )
-        .limit(5);
-
-      res.json({
-        totalOrders: currentOrderCount,
-        revenue: parseInt(currentMonthRevenue.total),
-        totalProducts: productsCount.count,
-        growth: parseFloat(growth.toFixed(2)),
-        lowStock: lowStockItems
-      });
-    } catch (error) {
-      console.error('Error fetching stats:', error);
-      res.status(500).json({
-        message: "Failed to fetch stats",
-        suggestion: "Please try again later"
-      });
-    }
-  });
+  // Remove duplicate /api/stats endpoints here and keep only the working ones
+  //The original code has two /api/stats endpoints. Removing the duplicate.
 
   app.get("/api/stats/orders-trend", requireAuth, async (req, res) => {
     try {
@@ -2286,6 +2200,386 @@ export function registerRoutes(app: Express): Server {
         message: "Failed to fetch order trends",
         suggestion: "Please try again later"
       });
+    }
+  });
+
+  // Products API - available to all authenticated users
+  app.get("/api/products", requireAuth, async (req, res) => {
+    try {
+      const allProducts = await db.query.products.findMany({
+        with: {
+          category: true,
+          inventory: true,
+          brand: true,
+        },
+        orderBy: [desc(products.updatedAt)],
+      });
+      res.json(allProducts);
+    } catch (error) {
+      console.error('Error fetching products:', error);
+      res.status(500).send("Failed to fetch products");
+    }
+  });
+
+  // Products API - Create product (admin only)
+  app.post("/api/products", requireRole(['admin']), async (req, res) => {
+    try {
+      const result = insertProductSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({
+          message: "Invalid input",
+          errors: result.error.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message
+          }))
+        });
+      }
+
+      const { name, sku, price, description, categoryId, minStock, brandId } = result.data;
+
+      // Check if SKU already exists
+      const existingProduct = await db.query.products.findFirst({
+        where: eq(products.sku, sku),
+      });
+
+      if (existingProduct) {
+        return res.status(400).json({
+          message: "SKU already exists",
+          suggestion: "Please use a different SKU"
+        });
+      }
+
+      // Check if category exists
+      const category = await db.query.categories.findFirst({
+        where: eq(categories.id, categoryId),
+      });
+
+      if (!category) {
+        return res.status(400).json({
+          message: "Category not found",
+          suggestion: "Please select a valid category"
+        });
+      }
+
+      // Check if brand exists
+      const brand = await db.query.brands.findFirst({
+        where: eq(brands.id, brandId),
+      });
+
+      if (brandId && !brand) {
+        return res.status(400).json({
+          message: "Brand not found",
+          suggestion: "Please select a valid brand"
+        });
+      }
+
+      const [newProduct] = await db
+        .insert(products)
+        .values({
+          name,
+          sku,
+          price,
+          description,
+          categoryId,
+          minStock: minStock || 0,
+          brandId: brandId || null,
+        })
+        .returning();
+
+      // Fetch the complete product with category and brand
+      const productWithCategoryAndBrand = await db.query.products.findFirst({
+        where: eq(products.id, newProduct.id),
+        with: {
+          category: true,
+          brand: true,
+        },
+      });
+
+      res.json({
+        message: "Product created successfully",
+        product: productWithCategoryAndBrand,
+      });
+    } catch (error) {
+      console.error('Error creating product:', error);
+      res.status(500).json({
+        message: "Failed to create product",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Products API - Update product (admin only)
+  app.put("/api/products/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, description, sku, price, categoryId, minStock, brandId } = req.body;
+
+      if (!name || !sku || !price || !categoryId) {
+        return res.status(400).send("Name, SKU, price, and category are required");
+      }
+
+      // Check if another product has the same SKU
+      const [existingProduct] = await db
+        .select()
+        .from(products)
+        .where(
+          and(
+            eq(products.sku, sku),
+            sql`id != ${id}`
+          )
+        )
+        .limit(1);
+
+      if (existingProduct) {
+        return res.status(400).send("Another product with this SKU already exists");
+      }
+
+      // Check if category exists
+      const category = await db.query.categories.findFirst({
+        where: eq(categories.id, categoryId),
+      });
+
+      if (!category) {
+        return res.status(400).json({
+          message: "Category not found",
+          suggestion: "Please select a valid category"
+        });
+      }
+
+      // Check if brand exists
+      const brand = await db.query.brands.findFirst({
+        where: eq(brands.id, brandId),
+      });
+
+      if (brandId && !brand) {
+        return res.status(400).json({
+          message: "Brand not found",
+          suggestion: "Please select a valid brand"
+        });
+      }
+
+      const [updatedProduct] = await db
+        .update(products)
+        .set({
+          name,
+          description,
+          sku,
+          price,
+          categoryId,
+          minStock,
+          brandId: brandId || null,
+          updatedAt: new Date(),
+        })
+        .where(eq(products.id, parseInt(id)))
+        .returning();
+
+      if (!updatedProduct) {
+        return res.status(404).send("Product not found");
+      }
+
+      res.json({
+        message: "Product updated successfully",
+        product: updatedProduct,
+      });
+    } catch (error) {
+      console.error('Error updating product:', error);
+      res.status(500).send("Failed to update product");
+    }
+  });
+
+  // Orders API - admin only
+  app.get("/api/orders", requireRole(['admin']), async (req, res) => {
+    try {
+      const allOrders = await db.query.orders.findMany({
+        with: {
+          items: {
+            with: {
+              product: true,
+            },
+          },
+        },
+        orderBy: [desc(orders.createdAt)],
+      });
+      res.json(allOrders);
+    } catch (error) {
+      console.error('Error fetching orders:', error);
+      res.status(500).send("Failed to fetch orders");
+    }
+  });
+
+  // Inventory Management endpoints
+  // Update inventory endpoint to include supplier data
+  app.get("/api/inventory", requireAuth, async (req, res) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).send("Unauthorized");
+      }
+
+      console.log(`Fetching inventory for user ${user.username} with role type ${user.role?.roleLocation?.description}`);
+
+      let inventoryQuery = db.query.inventory.findMany({
+        with: {
+          product: true,
+          store: true,
+          supplier: true, // Add supplier relation
+        },
+      });
+
+      const inventoryItems = await inventoryQuery;
+
+      console.log(`Found ${inventoryItems.length} inventory items for admin user ${user.username}`);
+
+      res.json(inventoryItems);
+    } catch (error) {
+      console.error('Error fetching inventory:', error);
+      res.status(500).send("Failed to fetch inventory");
+    }
+  });
+
+  app.post("/api/inventory", requireAuth, async (req, res) => {
+    try {
+      const { productId, storeId, supplierId, quantity, location, inventoryType } = req.body;
+
+      if (!productId || !quantity || !inventoryType) {
+        return res.status(400).send("Product, quantity, and inventory type are required");
+      }
+
+      // Verify product exists
+      const product = await db.query.products.findFirst({
+        where: eq(products.id, parseInt(productId)),
+      });
+
+      if (!product) {
+        return res.status(404).send("Product not found");
+      }
+
+      // Generate barcode
+      const barcode = generateInventoryBarcode(
+        inventoryType as 'DC' | 'STORE',
+        product.sku,
+        storeId ? parseInt(storeId) : null
+      );
+
+      // Create inventory item with supplier
+      const [newInventory] = await db
+        .insert(inventory)
+        .values({
+          productId: parseInt(productId),
+          storeId: storeId ? parseInt(storeId) : null,
+          supplierId: supplierId ? parseInt(supplierId) : null,
+          quantity: parseInt(quantity),
+          location,
+          inventoryType,
+          barcode,
+        })
+        .returning();
+
+      // Fetch complete inventory item with relations
+      const inventoryWithRelations = await db.query.inventory.findFirst({
+        where: eq(inventory.id, newInventory.id),
+        with: {
+          product: true,
+          store: true,
+          supplier: true,
+        },
+      });
+
+      res.json({
+        message: "Inventory item created successfully",
+        inventory: inventoryWithRelations,
+      });
+    } catch (error) {
+      console.error('Error creating inventory:', error);
+      res.status(500).send("Failed to create inventory item");
+    }
+  });
+
+  app.put("/api/inventory/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { productId, storeId, supplierId, quantity, location, inventoryType } = req.body;
+
+      if (!productId || !quantity || !inventoryType) {
+        return res.status(400).send("Product, quantity, and inventory type are required");
+      }
+
+      // Verify inventory item exists
+      const existingInventory = await db.query.inventory.findFirst({
+        where: eq(inventory.id, parseInt(id)),
+      });
+
+      if (!existingInventory) {
+        return res.status(404).send("Inventory item not found");
+      }
+
+      // Verify product exists
+      const product = await db.query.products.findFirst({
+        where: eq(products.id, parseInt(productId)),
+      });
+
+      if (!product) {
+        return res.status(404).send("Product not found");
+      }
+
+      // Update inventory item with supplier
+      const [updatedInventory] = await db
+        .update(inventory)
+        .set({
+          productId: parseInt(productId),
+          storeId: storeId ? parseInt(storeId) : null,
+          supplierId: supplierId ? parseInt(supplierId) : null,
+          quantity: parseInt(quantity),
+          location,
+          inventoryType,
+          updatedAt: new Date(),
+        })
+        .where(eq(inventory.id, parseInt(id)))
+        .returning();
+
+      // Fetch complete inventory item with relations
+      const inventoryWithRelations = await db.query.inventory.findFirst({
+        where: eq(inventory.id, updatedInventory.id),
+        with: {
+          product: true,
+          store: true,
+          supplier: true,
+        },
+      });
+
+      res.json({
+        message: "Inventory item updated successfully",
+        inventory: inventoryWithRelations,
+      });
+    } catch (error) {
+      console.error('Error updating inventory:', error);
+      res.status(500).send("Failed to update inventory item");
+    }
+  });
+
+  app.delete("/api/inventory/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if inventory item exists
+      const [inventoryItem] = await db
+        .select()
+        .from(inventory)
+        .where(eq(inventory.id, parseInt(id)))
+        .limit(1);
+
+      if (!inventoryItem) {
+        return res.status(404).send("Inventory item not found");
+      }
+
+      await db
+        .delete(inventory)
+        .where(eq(inventory.id, parseInt(id)));
+
+      res.json({ message: "Inventory item deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting inventory item:', error);
+      res.status(500).send("Failed to delete inventory item");
     }
   });
 
@@ -2364,7 +2658,8 @@ export function registerRoutes(app: Express): Server {
             count(distinct case 
               when ${inventory.quantity} <= ${products.minStock} 
               then ${inventory.productId} 
-              else null            end)
+              else null 
+            end)
           `
         })
         .from(stores)
@@ -2385,6 +2680,11 @@ export function registerRoutes(app: Express): Server {
       });
     }
   });
+
+  // Remove duplicate /api/stats endpoints here and keep only the working ones
+  //The original code has two /api/stats endpoints. Removing the duplicate.
+  //The duplicate endpoint is at line 1582. Removing it.
+
 
   const httpServer = createServer(app);
   return httpServer;
