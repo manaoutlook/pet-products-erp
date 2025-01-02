@@ -217,6 +217,7 @@ function BrandsPage() {
                       <FormControl>
                         <Input 
                           {...field}
+                          value={field.value || ""}
                           placeholder="Enter brand description"
                         />
                       </FormControl>
