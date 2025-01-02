@@ -7,6 +7,7 @@ import {
   roles, roleLocations, stores, userStoreAssignments,
   categories, brands, suppliers, purchaseOrders,
   purchaseOrderItems, customerProfiles, insertCustomerProfileSchema,
+  insertUserSchema, updateUserSchema, // Add updateUserSchema to imports
 } from "@db/schema";
 import { sql } from "drizzle-orm";
 import { eq, and, desc, gte, lt, isNull } from "drizzle-orm";
@@ -1034,7 +1035,7 @@ export function registerRoutes(app: Express): Server {
           name,
           description,
           updatedAt: new Date(),
-        })
+                })
         .where(eq(categories.id, parseInt(id)))
         .returning();
 
@@ -2082,7 +2083,7 @@ export function registerRoutes(app: Express): Server {
           lowStockItems: sql<number>`
             count(distinct case 
               when ${inventory.quantity} <= ${products.minStock} 
-              then ${inventory.productId} 
+                            then ${inventory.productId} 
               else null 
             end)
           `
