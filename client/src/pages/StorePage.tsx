@@ -54,6 +54,7 @@ function StorePage() {
       name: "",
       location: "",
       contactInfo: "",
+      billPrefix: "",
     },
   });
 
@@ -84,10 +85,13 @@ function StorePage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number; data: Partial<InsertStore> }) => {
+      // Remove billPrefix from update data as it should not be editable
+      const { billPrefix, ...updateData } = data;
+
       const res = await fetch(`/api/stores/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify(updateData),
         credentials: 'include',
       });
       if (!res.ok) throw new Error(await res.text());
@@ -112,7 +116,7 @@ function StorePage() {
       if (editingStore) {
         await updateMutation.mutateAsync({ 
           id: editingStore.id, 
-          data: data
+          data
         });
       } else {
         await createMutation.mutateAsync(data);
@@ -129,6 +133,7 @@ function StorePage() {
       name: "",
       location: "",
       contactInfo: "",
+      billPrefix: "",
     });
     setDialogOpen(true);
   };
@@ -139,6 +144,7 @@ function StorePage() {
       name: store.name,
       location: store.location,
       contactInfo: store.contactInfo,
+      billPrefix: store.billPrefix,
     });
     setDialogOpen(true);
   };
@@ -146,7 +152,8 @@ function StorePage() {
   const filteredStores = stores?.filter(store => 
     store.name.toLowerCase().includes(search.toLowerCase()) ||
     store.location.toLowerCase().includes(search.toLowerCase()) ||
-    store.contactInfo.toLowerCase().includes(search.toLowerCase())
+    store.contactInfo.toLowerCase().includes(search.toLowerCase()) ||
+    store.billPrefix.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -214,6 +221,32 @@ function StorePage() {
                     </FormItem>
                   )}
                 />
+                <FormField
+                  control={form.control}
+                  name="billPrefix"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Bill Prefix (4 characters)</FormLabel>
+                      <FormControl>
+                        <Input 
+                          {...field}
+                          placeholder="Enter bill prefix (e.g., ST01)"
+                          maxLength={4}
+                          minLength={4}
+                          disabled={!!editingStore}
+                          className="uppercase"
+                          onChange={(e) => {
+                            const value = e.target.value.toUpperCase();
+                            if (/^[A-Z0-9]*$/.test(value)) {
+                              field.onChange(value);
+                            }
+                          }}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <Button
                   type="submit"
                   className="w-full"
@@ -255,6 +288,7 @@ function StorePage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Store Name</TableHead>
+                  <TableHead>Bill Prefix</TableHead>
                   <TableHead>Location</TableHead>
                   <TableHead>Contact Information</TableHead>
                   <TableHead>Actions</TableHead>
@@ -264,6 +298,7 @@ function StorePage() {
                 {filteredStores?.map((store) => (
                   <TableRow key={store.id}>
                     <TableCell className="font-medium">{store.name}</TableCell>
+                    <TableCell className="font-mono uppercase">{store.billPrefix}</TableCell>
                     <TableCell>{store.location}</TableCell>
                     <TableCell>{store.contactInfo}</TableCell>
                     <TableCell>
@@ -281,7 +316,7 @@ function StorePage() {
                           className="text-destructive"
                           onClick={() => {
                             if (confirm('Are you sure you want to delete this store?')) {
-                              // deleteMutation.mutate(store.id);  Removed
+                              // deleteMutation.mutate(store.id);
                             }
                           }}
                         >
