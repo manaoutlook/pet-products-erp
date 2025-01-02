@@ -44,11 +44,10 @@ import type { InsertUser, SelectUser, SelectRole } from "@db/schema";
 import { insertUserSchema } from "@db/schema";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
-import { FC } from 'react';
 
 interface UserWithRole extends Omit<SelectUser, 'roleId'> {
   role: SelectRole & {
-    roleType: {
+    roleLocation: {
       id: number;
       description: string;
     };
@@ -257,7 +256,7 @@ function UsersPage() {
                         <SelectContent>
                           {roles?.map(role => (
                             <SelectItem key={role.id} value={role.id.toString()}>
-                              {role.name} ({role.roleType?.description})
+                              {role.name} ({role.roleLocation?.description})
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -316,7 +315,7 @@ function UsersPage() {
                   <TableRow key={user.id}>
                     <TableCell>{user.username}</TableCell>
                     <TableCell>
-                      {user.role.name} ({user.role.roleType?.description})
+                      {user.role.name} ({user.role.roleLocation?.description})
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
