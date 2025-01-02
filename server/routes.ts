@@ -14,9 +14,6 @@ import { requireRole, requireAuth } from "./middleware";
 import { z } from "zod";
 import { crypto } from "./auth";
 
-// Add after the existing imports
-import { roleLocations } from "@db/schema";
-
 // Schema validations
 const createPurchaseOrderSchema = z.object({
   supplierId: z.number().positive("Supplier ID is required"),
@@ -62,11 +59,6 @@ export function registerRoutes(app: Express): Server {
   });
 
   app.use('/api', requireAuth);
-
-  // Remove the duplicate POST /api/users route
-  // It's now handled in auth.ts
-
-  // Add inside registerRoutes function, after setupAuth(app)
 
   // Role Locations CRUD endpoints
   app.get("/api/role-locations", requireAuth, async (req, res) => {
@@ -490,16 +482,32 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.get("/api/customer-profiles", requireAuth, async (req, res) => {
+  // Inside registerRoutes function, update the /api/users route
+  app.get("/api/users", requireAuth, async (req, res) => {
     try {
-      const allCustomerProfiles = await db.query.customerProfiles.findMany({
-        orderBy: [desc(customerProfiles.updatedAt)],
-      });
-      res.json(allCustomerProfiles);
+      const allUsers = await db
+        .select({
+          id: users.id,
+          username: users.username,
+          roleId: users.roleId,
+          role: {
+            id: roles.id,
+            name: roles.name,
+            roleLocation: {
+              id: roleLocations.id,
+              description: roleLocations.description,
+            }
+          }
+        })
+        .from(users)
+        .leftJoin(roles, eq(users.roleId, roles.id))
+        .leftJoin(roleLocations, eq(roles.roleLocationId, roleLocations.id));
+
+      res.json(allUsers);
     } catch (error) {
-      console.error('Error fetching customer profiles:', error);
+      console.error('Error fetching users:', error);
       res.status(500).json({
-        message: "Failed to fetch customer profiles",
+        message: "Failed to fetch users",
         suggestion: "Please try again later"
       });
     }
@@ -647,17 +655,6 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-
-  // Update role-types endpoint to role-locations
-  app.get("/api/role-locations", async (req, res) => {
-    try {
-      const roleLocations = await db.query.roleLocations.findMany();
-      res.json(roleLocations);
-    } catch (error) {
-      console.error('Error fetching role locations:', error);
-      res.status(500).send("Failed to fetch role locations");
-    }
-  });
 
   // Roles endpoints - admin only
   app.get("/api/roles", requireRole(['admin']), async (req, res) => {
@@ -1042,8 +1039,7 @@ export function registerRoutes(app: Express): Server {
               id: true,
               username: true,
               password: false, // Exclude sensitive data
-              roleId: true,
-              createdAt: false,
+              roleId: true,              createdAt: false,
               updatedAt: false
             }
           }
@@ -1065,19 +1061,25 @@ export function registerRoutes(app: Express): Server {
   // User management endpoints - admin only
   app.get("/api/users", requireRole(['admin']), async (req, res) => {
     try {
-      const allUsers = await db.query.users.findMany({
-        with: {
+      const allUsers = await db
+        .select({
+          id: users.id,
+          username: users.username,
+          roleId: users.roleId,
           role: {
-            with: {
-              roleLocation: true,
+            id: roles.id,
+            name: roles.name,
+            roleLocation: {
+              id: roleLocations.id,
+              description: roleLocations.description,
             }
-          },
-        },
-      });
+          }
+        })
+        .from(users)
+        .leftJoin(roles, eq(users.roleId, roles.id))
+        .leftJoin(roleLocations, eq(roles.roleLocationId, roleLocations.id));
 
-      // Remove sensitive information
-      const sanitizedUsers = allUsers.map(({ password, ...user }) => user);
-      res.json(sanitizedUsers);
+      res.json(allUsers);
     } catch (error) {
       console.error('Error fetching users:', error);
       res.status(500).send("Failed to fetch users");
@@ -1194,7 +1196,8 @@ export function registerRoutes(app: Express): Server {
       //      // Check if new username is already taken by another user
       if (username) {
         const duplicateUser = await db.query.users.findFirst({
-          where: and(            eq(users.username, username),
+          where: and(
+            eq(users.username, username),
             sql`id != ${id}`
           ),
         });
@@ -1229,7 +1232,8 @@ export function registerRoutes(app: Express): Server {
       const [updatedUser] = await db
         .update(users)
         .set({
-          ...(username && { username }),          ...(roleId && { roleId }),
+          ...(username && { username }),
+          ...(roleId && { roleId }),
           ...(password && { password: hashedPassword }),
           updatedAt: new Date(),
         })
@@ -2086,8 +2090,8 @@ export function registerRoutes(app: Express): Server {
             end)
           `
         })
-                .from(stores)
-        .leftJoin(inventory, eq(inventory.storeId, stores.id))
+        .from(stores)
+                .leftJoin(inventory, eq(inventory.storeId, stores.id))
         .leftJoin(products, eq(inventory.productId, products.id))
         .groupBy(stores.id);
 
@@ -3078,9 +3082,8 @@ export function registerRoutes(app: Express): Server {
       console.error('Error fetching store performance:', error);
       res.status(500).json({
         message: "Failed to fetch store performance metrics",
-        suggestion: "Pleasetry again later"
-      });
-    }
+        suggestion: "Please try again later"
+      });    }
   });
 
   // Brand Management endpoints
@@ -3732,234 +3735,6 @@ export function registerRoutes(app: Express): Server {
         message: "Failed to fetch store performance metrics",
         suggestion: "Please try again later"
       });
-    }
-  });
-
-  // Brand Management endpoints
-  app.get("/api/brands", requireAuth, async (req, res) => {
-    try {
-      const allBrands = await db.query.brands.findMany({
-        orderBy: [desc(brands.updatedAt)],
-      });
-      res.json(allBrands);
-    } catch (error) {
-      console.error('Error fetching brands:', error);
-      res.status(500).send("Failed to fetch brands");
-    }
-  });
-
-  app.post("/api/brands", requireRole(['admin']), async (req, res) => {
-    try {
-      const { name, description } = req.body;
-
-      if (!name) {
-        return res.status(400).send("Brand name is required");
-      }
-
-      // Check if brand exists
-      const existingBrand = await db.query.brands.findFirst({
-        where: eq(brands.name, name),
-      });
-
-      if (existingBrand) {
-        return res.status(400).send("Brand name already exists");
-      }
-
-      const [newBrand] = await db
-        .insert(brands)
-        .values({
-          name,
-          description,
-        })
-        .returning();
-
-      res.json({
-        message: "Brand created successfully",
-        brand: newBrand,
-      });
-    } catch (error) {
-      console.error('Error creating brand:', error);
-      res.status(500).send("Failed to create brand");
-    }
-  });
-
-  app.put("/api/brands/:id", requireRole(['admin']), async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { name, description } = req.body;
-
-      if (!name) {
-        return res.status(400).send("Brand name is required");
-      }
-
-      // Check if brand exists
-      const existingBrand = await db.query.brands.findFirst({
-        where: and(
-          eq(brands.name, name),
-          sql`id != ${id}`
-        ),
-      });
-
-      if (existingBrand) {
-        return res.status(400).send("Brand name already exists");
-      }
-
-      const [updatedBrand] = await db
-        .update(brands)
-        .set({
-          name,
-          description,
-          updatedAt: new Date(),
-        })
-        .where(eq(brands.id, parseInt(id)))
-        .returning();
-
-      if (!updatedBrand) {
-        return res.status(404).send("Brand not found");
-      }
-
-      res.json({
-        message: "Brand updated successfully",
-        brand: updatedBrand,
-      });
-    } catch (error) {
-      console.error('Error updating brand:', error);
-      res.status(500).send("Failed to update brand");
-    }
-  });
-
-  app.delete("/api/brands/:id", requireRole(['admin']), async (req, res) => {
-    try {
-      const { id } = req.params;
-
-      // Check if brand is used by any products
-      const productsWithBrand = await db.query.products.findMany({
-        where: eq(products.brandId, parseInt(id)),
-        limit: 1,
-      });
-
-      if (productsWithBrand.length > 0) {
-        return res.status(400).send("Cannot delete brand that is assigned to products");
-      }
-
-      await db
-        .delete(brands)
-        .where(eq(brands.id, parseInt(id)));
-
-      res.json({ message: "Brand deleted successfully" });
-    } catch (error) {
-      console.error('Error deleting brand:', error);
-      res.status(500).send("Failed to delete brand");
-    }
-  });
-
-  // Supplier Management endpoints - admin only
-  app.get("/api/suppliers", requireRole(['admin']), async (req, res) => {
-    try {
-      const allSuppliers = await db.query.suppliers.findMany({
-        orderBy: [desc(suppliers.updatedAt)],
-      });
-      res.json(allSuppliers);
-    } catch (error) {
-      console.error('Error fetching suppliers:', error);
-      res.status(500).send("Failed to fetch suppliers");
-    }
-  });
-
-  app.post("/api/suppliers", requireRole(['admin']), async (req, res) => {
-    try {
-      const { name, contactInfo, address } = req.body;
-
-      if (!name || !contactInfo || !address) {
-        return res.status(400).send("Name, contact information, and address are required");
-      }
-
-      const [newSupplier] = await db
-        .insert(suppliers)
-        .values({
-          name,
-          contactInfo,
-          address,
-        })
-        .returning();
-
-      res.json({
-        message: "Supplier created successfully",
-        supplier: newSupplier,
-      });
-    } catch (error) {
-      console.error('Error creating supplier:', error);
-      res.status(500).send("Failed to create supplier");
-    }
-  });
-
-  app.put("/api/suppliers/:id", requireRole(['admin']), async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { name, contactInfo, address } = req.body;
-
-      if (!name || !contactInfo || !address) {
-        return res.status(400).send("Name, contact information, and address are required");
-      }
-
-      const [updatedSupplier] = await db
-        .update(suppliers)
-        .set({
-          name,
-          contactInfo,
-          address,
-          updatedAt: new Date(),
-        })
-        .where(eq(suppliers.id, parseInt(id)))
-        .returning();
-
-      if (!updatedSupplier) {
-        return res.status(404).send("Supplier not found");
-      }
-
-      res.json({
-        message: "Supplier updated successfully",
-        supplier: updatedSupplier,
-      });
-    } catch (error) {
-      console.error('Error updating supplier:', error);
-      res.status(500).send("Failed to update supplier");
-    }
-  });
-
-  app.delete("/api/suppliers/:id", requireRole(['admin']), async (req, res) => {
-    try {
-      const { id } = req.params;
-
-      // Check if supplier exists
-      const [supplier] = await db
-        .select()
-        .from(suppliers)
-        .where(eq(suppliers.id, parseInt(id)))
-        .limit(1);
-
-      if (!supplier) {
-        return res.status(404).send("Supplier not found");
-      }
-
-      // Check if supplier has any inventory
-      const [inventoryCount] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(inventory)
-        .where(eq(inventory.supplierId, parseInt(id)));
-
-      if (inventoryCount.count > 0) {
-        return res.status(400).send("Cannot delete supplier with existing inventory");
-      }
-
-      await db
-        .delete(suppliers)
-        .where(eq(suppliers.id, parseInt(id)));
-
-      res.json({ message: "Supplier deleted successfully" });
-    } catch (error) {
-      console.error('Error deleting supplier:', error);
-      res.status(500).send("Failed to delete supplier");
     }
   });
 
