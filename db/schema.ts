@@ -74,15 +74,31 @@ export type SelectUser = typeof users.$inferSelect & {
   role?: SelectRole | null;
 };
 
-// Stores table
+// Stores table with new billPrefix field
 export const stores = pgTable("stores", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   location: text("location").notNull(),
   contactInfo: text("contact_info").notNull(),
+  billPrefix: varchar("bill_prefix", { length: 4 }).notNull().unique(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// Store schemas
+export const insertStoreSchema = createInsertSchema(stores, {
+  billPrefix: z.string().length(4, "Bill prefix must be exactly 4 characters")
+    .regex(/^[A-Z0-9]+$/, "Bill prefix must contain only uppercase letters and numbers"),
+  name: z.string().min(1, "Name is required"),
+  location: z.string().min(1, "Location is required"),
+  contactInfo: z.string().min(1, "Contact information is required"),
+});
+
+export const updateStoreSchema = insertStoreSchema.partial();
+export const selectStoreSchema = createSelectSchema(stores);
+export type InsertStore = typeof stores.$inferInsert;
+export type SelectStore = typeof stores.$inferSelect;
+
 
 // User Store Assignments table
 export const userStoreAssignments = pgTable("user_store_assignments", {
@@ -352,7 +368,6 @@ export const selectSupplierSchema = createSelectSchema(suppliers);
 export type InsertSupplier = typeof suppliers.$inferInsert;
 export type SelectSupplier = typeof suppliers.$inferSelect;
 
-
 export const insertRoleLocationSchema = createInsertSchema(roleLocations);
 export const selectRoleLocationSchema = createSelectSchema(roleLocations);
 export type InsertRoleLocation = typeof roleLocations.$inferInsert;
@@ -364,11 +379,6 @@ export type InsertRole = typeof roles.$inferInsert;
 export type SelectRole = typeof roles.$inferSelect & {
   roleLocation?: SelectRoleLocation | null;
 };
-
-export const insertStoreSchema = createInsertSchema(stores);
-export const selectStoreSchema = createSelectSchema(stores);
-export type InsertStore = typeof stores.$inferInsert;
-export type SelectStore = typeof stores.$inferSelect;
 
 export const insertUserStoreAssignmentSchema = createInsertSchema(userStoreAssignments);
 export const selectUserStoreAssignmentSchema = createSelectSchema(userStoreAssignments);
