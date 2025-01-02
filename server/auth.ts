@@ -82,9 +82,18 @@ export function setupUserRoutes(app: Express) {
         });
       }
 
+      // Convert username to lowercase and validate format
+      const normalizedUsername = username.toLowerCase();
+      if (!/^[a-z]+$/.test(normalizedUsername)) {
+        return res.status(400).json({
+          message: "Invalid username format",
+          details: "Username must contain only lowercase letters"
+        });
+      }
+
       // Check if user exists
       const existingUser = await db.query.users.findFirst({
-        where: eq(users.username, username),
+        where: eq(users.username, normalizedUsername),
       });
 
       if (existingUser) {
@@ -101,7 +110,7 @@ export function setupUserRoutes(app: Express) {
       const [newUser] = await db
         .insert(users)
         .values({
-          username,
+          username: normalizedUsername,
           password: hashedPassword,
           roleId,
         })
@@ -274,8 +283,13 @@ export function setupAuth(app: Express) {
       try {
         console.log(`Attempting login for user: ${username}`);
 
-        // Convert username to lowercase for consistency
+        // Validate username format
         const normalizedUsername = username.toLowerCase();
+        if (!/^[a-z]+$/.test(normalizedUsername)) {
+          return done(null, false, { 
+            message: "Invalid username format. Username must contain only lowercase letters."
+          });
+        }
 
         // Include role information in the login query
         const [user] = await db
