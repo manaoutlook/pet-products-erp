@@ -1,4 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { useToast } from "@/hooks/use-toast";
+import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
+
+// UI Components imports
 import {
   Table,
   TableBody,
@@ -48,14 +56,8 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
 
-// Define form schema first
+// Type definitions and schemas
 const roleFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
@@ -64,8 +66,24 @@ const roleFormSchema = z.object({
 
 type RoleFormValues = z.infer<typeof roleFormSchema>;
 
-// Define default permissions structure
-const defaultPermissions = {
+type Permission = {
+  create: boolean;
+  read: boolean;
+  update: boolean;
+  delete: boolean;
+};
+
+type DefaultPermissions = {
+  users: Permission;
+  orders: Permission;
+  stores: Permission;
+  products: Permission;
+  inventory: Permission;
+  customerProfiles: Permission;
+};
+
+// Default permissions structure
+const defaultPermissions: DefaultPermissions = {
   users: { read: false, create: false, update: false, delete: false },
   orders: { read: false, create: false, update: false, delete: false },
   stores: { read: false, create: false, update: false, delete: false },
@@ -82,7 +100,7 @@ interface Role {
     id: number;
     description: string;
   };
-  permissions: typeof defaultPermissions;
+  permissions: DefaultPermissions;
 }
 
 function RolesPage() {
