@@ -29,7 +29,7 @@ interface NavItem {
   name: string;
   href?: string;
   icon: any;
-  module?: 'products' | 'orders' | 'inventory' | 'users' | 'stores';
+  module?: 'products' | 'orders' | 'inventory' | 'users' | 'stores' | 'customerProfiles';
   action?: 'create' | 'read' | 'update' | 'delete';
   adminOnly?: boolean;
   children?: NavItem[];
@@ -39,7 +39,6 @@ function Sidebar() {
   const [location] = useLocation();
   const { logout, user } = useUser();
   const { hasPermission, isAdmin } = usePermissions();
-  const isSystemAdmin = user?.role?.roleType?.description === 'System Administrator';
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
 
   const toggleExpanded = (name: string) => {
@@ -126,7 +125,7 @@ function Sidebar() {
       name: "Customer Profiles", 
       href: "/customers", 
       icon: UserCircle,
-      module: 'users',
+      module: 'customerProfiles',
       action: 'read'
     },
     { 
@@ -199,22 +198,27 @@ function Sidebar() {
   ];
 
   const hasAccess = (item: NavItem): boolean => {
-    if (isSystemAdmin) {
+    // System Administrator has access to everything
+    if (user?.role?.name === 'admin') {
       return true;
     }
 
+    // Check adminOnly flag
     if (item.adminOnly) {
       return isAdmin;
     }
 
+    // Check module permissions
     if (item.module && item.action) {
       return hasPermission(item.module, item.action);
     }
 
+    // If item has children, show if at least one child is accessible
     if (item.children) {
       return item.children.some(child => hasAccess(child));
     }
 
+    // If no restrictions are specified, allow access
     return true;
   };
 
