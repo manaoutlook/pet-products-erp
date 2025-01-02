@@ -11,6 +11,7 @@
    - [Inventory Management](#inventory-management)
    - [Purchase Order Management](#purchase-order-management)
    - [Store Operations](#store-operations)
+   - [Billing Management](#billing-management)
    - [User Management](#user-management)
 5. [Common Operations](#common-operations)
 6. [Troubleshooting](#troubleshooting)
@@ -313,6 +314,100 @@ The Purchase Order Management module helps you efficiently manage your purchase 
    - Stock movement
    - Staff performance
    - Profit margins (in VND)
+
+
+### Billing Management
+
+#### Overview
+The Billing Management Module provides a comprehensive system for handling store transactions with features including:
+- Store-specific bill generation
+- Barcode scanning for products
+- Advanced customer profile search
+- Membership points system
+- Automatic bill numbering
+
+#### Bill Generation Process
+1. Access Billing Screen
+   - Navigate to Billing Management
+   - System automatically captures your Store ID
+   - Bills are prefixed with store-specific code (e.g., ST01-)
+
+2. Customer Information
+   - Search customers by:
+     * Phone number
+     * Customer name
+   - Quick access to customer profiles
+   - View existing membership points
+
+3. Product Entry
+   - Multiple entry methods:
+     * Barcode scanning
+     * Manual product ID entry
+     * Search by product name
+   - Auto-population of:
+     * Product category
+     * Brand name
+     * Product description
+     * Unit price
+
+4. Bill Calculation
+   - Automatic calculation of:
+     * Product total
+     * VAT
+     * Final amount
+   - Real-time total updates
+   - Membership points calculation (1 point per 1000 spent)
+
+#### Barcode Scanning
+1. Scanner Setup
+   - Connect compatible barcode scanner
+   - System automatically detects scanner input
+   - Supports multiple barcode formats
+
+2. Scanning Process
+   - Point scanner at product barcode
+   - System automatically:
+     * Identifies product
+     * Adds to current bill
+     * Updates quantities
+   - Manual quantity adjustment available
+
+#### Customer Profile Search
+1. Search Options
+   - By phone number
+   - By customer name
+   - Partial match support
+   - Quick profile creation for new customers
+
+2. Profile Information Display
+   - Customer details
+   - Purchase history
+   - Membership points balance
+   - Previous bills
+
+#### Bill Numbering System
+1. Format: [Store Prefix]-[Running Number]
+   - Example: ST01-1, ST01-2
+   - Unique prefix per store
+   - Automatic increment
+
+2. Features
+   - Sequential numbering
+   - Store-specific tracking
+   - Built-in validation
+   - No duplicate numbers
+
+#### Membership Points
+1. Points Calculation
+   - 1 point per 1000 spent
+   - Automatic calculation
+   - Real-time point updates
+
+2. Points Management
+   - View current balance
+   - Track points history
+   - Points expiry tracking
+   - Redemption options
 
 
 ### User Management
