@@ -86,12 +86,12 @@ export const stores = pgTable("stores", {
 });
 
 // Store schemas
-export const insertStoreSchema = createInsertSchema(stores, {
-  billPrefix: z.string().length(4, "Bill prefix must be exactly 4 characters")
-    .regex(/^[A-Z0-9]+$/, "Bill prefix must contain only uppercase letters and numbers"),
+export const insertStoreSchema = z.object({
   name: z.string().min(1, "Name is required"),
   location: z.string().min(1, "Location is required"),
   contactInfo: z.string().min(1, "Contact information is required"),
+  billPrefix: z.string().length(4, "Bill prefix must be exactly 4 characters")
+    .regex(/^[A-Z0-9]+$/, "Bill prefix must contain only uppercase letters and numbers"),
 });
 
 export const updateStoreSchema = insertStoreSchema.partial();

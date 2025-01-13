@@ -1039,7 +1039,7 @@ export function registerRoutes(app: Express): Server {
             with: {
               product: true
             }
-                    }
+          }
         }
       });
 
@@ -1191,7 +1191,8 @@ export function registerRoutes(app: Express): Server {
         .delete(suppliers)
         .where(eq(suppliers.id, parseInt(id)));
 
-      res.json({ message: "Supplier deleted successfully" });    } catch (error) {
+      res.json({ message: "Supplier deleted successfully" });
+    } catch (error) {
       console.error('Error deleting supplier:', error);
       res.status(500).json({
         message: "Failed to delete supplier",
@@ -1976,13 +1977,38 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/stores", requireRole(['admin']), async (req, res) => {
+  // Store creation endpoint with proper bill prefix validation
+  app.post("/api/stores", requireAuth, async (req, res) => {
     try {
-      const { name, location, contactInfo } = req.body;
+      console.log('Store creation payload:', req.body); // Add logging
 
-      if (!name || !location || !contactInfo) {
-        return res.status(400).send("Name, location, and contact information are required");
+      const result = insertStoreSchema.safeParse(req.body);
+      if (!result.success) {
+        console.log('Validation errors:', result.error.errors); // Add logging
+        return res.status(400).json({
+          message: "Invalid input",
+          errors: result.error.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message
+          }))
+        });
       }
+
+      const { name, location, contactInfo, billPrefix } = result.data;
+
+      // Check if store exists with same bill prefix
+      const existingStore = await db.query.stores.findFirst({
+        where: eq(stores.billPrefix, billPrefix),
+      });
+
+      if (existingStore) {
+        return res.status(400).json({
+          message: "Store with this bill prefix already exists",
+          suggestion: "Please use a different bill prefix"
+        });
+      }
+
+      console.log('Creating store with data:', { name, location, contactInfo, billPrefix }); // Add logging
 
       const [newStore] = await db
         .insert(stores)
@@ -1990,8 +2016,11 @@ export function registerRoutes(app: Express): Server {
           name,
           location,
           contactInfo,
+          billPrefix,
         })
         .returning();
+
+      console.log('Store created successfully:', newStore); // Add logging
 
       res.json({
         message: "Store created successfully",
@@ -1999,7 +2028,10 @@ export function registerRoutes(app: Express): Server {
       });
     } catch (error) {
       console.error('Error creating store:', error);
-      res.status(500).send("Failed to create store");
+      res.status(500).json({
+        message: "Failed to create store",
+        suggestion: "Please try again later"
+      });
     }
   });
 
@@ -2726,7 +2758,7 @@ export function registerRoutes(app: Express): Server {
           lowStockItems: sql<number>`
             count(distinct case 
               when ${inventory.quantity} <= ${products.minStock} 
-                            then ${inventory.productId} 
+              then ${inventory.productId} 
               else null 
             end)
           `
