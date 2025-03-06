@@ -194,7 +194,7 @@ export function setupAuth(app: Express) {
     cookie: {
       httpOnly: true,
       secure: false, // Set to false to work in development environment
-      sameSite: 'lax',
+      sameSite: 'none',
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
       path: '/'
     },
