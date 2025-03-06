@@ -258,11 +258,11 @@ function Sidebar() {
     const isActive = location === item.href;
 
     return (
-      <Link key={item.name} href={item.href}>
-        <div className="w-full"> {/*Added div to prevent nesting*/}
-          <a
+      <div key={item.name}>
+        <Link href={item.href}>
+          <div
             className={cn(
-              "flex items-center px-3 py-2 text-sm rounded-md transition-colors",
+              "flex items-center px-3 py-2 text-sm rounded-md transition-colors cursor-pointer",
               isActive
                 ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
                 : "text-sidebar-foreground hover:bg-sidebar-accent/20 hover:text-sidebar-foreground",
@@ -271,9 +271,9 @@ function Sidebar() {
           >
             <item.icon className="mr-3 h-5 w-5" />
             {item.name}
-          </a>
-        </div> {/*Added div to prevent nesting*/}
-      </Link>
+          </div>
+        </Link>
+      </div>
     );
   };
 
