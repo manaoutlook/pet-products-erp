@@ -135,7 +135,7 @@ function StorePage() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['stores'] }); //Invalidate cache
+      queryClient.invalidateQueries({ queryKey: ['stores'] });
       refetch();
       toast({ title: "Success", description: "Store deleted successfully" });
     },
