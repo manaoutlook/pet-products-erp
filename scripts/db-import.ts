@@ -8,8 +8,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
 
-// Import schema from the correct path
-import * as schema from "../db/schema.js";
+// Import schema directly from TypeScript file
+const schemaPath = path.join(projectRoot, 'db', 'schema.ts');
+const schema = await import(schemaPath);
 
 // Helper function to convert string timestamps to Date objects
 function convertDates(obj: any) {
