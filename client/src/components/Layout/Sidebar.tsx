@@ -125,6 +125,28 @@ function Sidebar() {
       action: 'read'
     },
     { 
+      name: "Stores", 
+      icon: StoreIcon,
+      module: 'stores',
+      action: 'read',
+      children: [
+        {
+          name: "Store List",
+          href: "/stores",
+          icon: StoreIcon,
+          module: 'stores',
+          action: 'read'
+        },
+        {
+          name: "Store Performance",
+          href: "/store-performance",
+          icon: LineChart,
+          module: 'stores',
+          action: 'read'
+        }
+      ]
+    },
+    { 
       name: "Customer Profiles", 
       href: "/customers", 
       icon: UserCircle,
