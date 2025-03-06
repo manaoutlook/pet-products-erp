@@ -306,7 +306,22 @@ export const customerProfilesRelations = relations(customerProfiles, ({ many }) 
   orders: many(orders),
 }));
 
-// Export schemas
+// Export schemas for products
+export const insertProductSchema = createInsertSchema(products);
+export const selectProductSchema = createSelectSchema(products);
+export type InsertProduct = typeof products.$inferInsert;
+export type SelectProduct = typeof products.$inferSelect & {
+  category?: SelectCategory | null;
+  brand?: SelectBrand | null;
+};
+
+// Export schemas for categories
+export const insertCategorySchema = createInsertSchema(categories);
+export const selectCategorySchema = createSelectSchema(categories);
+export type InsertCategory = typeof categories.$inferInsert;
+export type SelectCategory = typeof categories.$inferSelect;
+
+
 export const insertBrandSchema = createInsertSchema(brands);
 export const selectBrandSchema = createSelectSchema(brands);
 export type InsertBrand = typeof brands.$inferInsert;
