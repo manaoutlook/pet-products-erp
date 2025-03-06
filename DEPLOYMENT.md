@@ -15,6 +15,9 @@
 - PM2 (for process management)
 - Nginx (already installed)
 - tsx (for running TypeScript files)
+- postgres
+- drizzle-orm
+- dotenv
 
 
 ## Pre-deployment Setup
@@ -40,6 +43,9 @@ sudo apt install -y build-essential
 
 # Install tsx globally
 sudo npm install -g tsx
+
+# Install required database dependencies
+npm install postgres drizzle-orm dotenv
 ```
 
 ### 2. Configure PostgreSQL
@@ -103,8 +109,8 @@ npm run dev
 # This will create a database_dump.json file in the project root
 npx tsx scripts/db-dump.ts
 
-# Copy schema, data, and scripts to production server
-scp scripts/db-dump.ts scripts/db-import.ts database_dump.json user@your-server:/var/www/pet-products-erp/
+# Copy necessary files to production server
+scp db/schema.ts scripts/db-dump.ts scripts/db-import.ts database_dump.json .env user@your-server:/var/www/pet-products-erp/
 ```
 
 #### In Production Environment
@@ -112,14 +118,13 @@ scp scripts/db-dump.ts scripts/db-import.ts database_dump.json user@your-server:
 # Navigate to project directory
 cd /var/www/pet-products-erp
 
-# Install tsx for running TypeScript files if not already installed
-sudo npm install -g tsx
+# Install required dependencies
+npm install postgres drizzle-orm dotenv
 
-# First, ensure the schema is up to date using Drizzle
-npm run db:push
+# Make sure environment variables are set correctly in .env file
+# Particularly DATABASE_URL should point to your production database
 
-# Then import the data using the import script
-# Make sure to run this from the project root directory
+# Run the import script
 npx tsx scripts/db-import.ts
 ```
 
