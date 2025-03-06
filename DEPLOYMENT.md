@@ -14,8 +14,6 @@
 - Git
 - PM2 (for process management)
 - Nginx (already installed)
-- tsx (for running TypeScript files)
-
 
 ## Pre-deployment Setup
 
@@ -35,12 +33,14 @@ sudo apt install -y postgresql postgresql-contrib
 # Install build essentials
 sudo apt install -y build-essential
 
-# Install required global packages
-sudo npm install -g tsx
+# Install PM2 globally
+sudo npm install -g pm2
 
-# Install project dependencies
+# Navigate to project directory
 cd /var/www/pet-products-erp
-npm install drizzle-orm postgres dotenv
+
+# Install required dependencies
+npm install drizzle-orm postgres dotenv tsx
 ```
 
 ### 2. Configure PostgreSQL
@@ -57,45 +57,9 @@ psql -c "GRANT ALL PRIVILEGES ON DATABASE pet_products_erp TO erp_user;"
 exit
 ```
 
-### 3. Backup Existing Nginx Configuration
-```bash
-# Create backup of nginx configuration
-sudo cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.backup
-sudo cp -r /etc/nginx/sites-available /etc/nginx/sites-available.backup
-```
+## Database Migration
 
-## GitHub Setup and Deployment
-
-### 1. Repository Setup
-```bash
-# Create a new repository on GitHub
-# Initialize git in your local development environment
-git init
-git add .
-git commit -m "Initial commit"
-git branch -M main
-git remote add origin https://github.com/yourusername/pet-products-erp.git
-git push -u origin main
-```
-
-### 2. Environment Variables
-Create a `.env` file in the production server:
-```env
-# Database
-DATABASE_URL=postgresql://erp_user:your_strong_password@localhost:5432/pet_products_erp
-
-# Application
-NODE_ENV=production
-PORT=5001  # Changed from 5000 to avoid conflicts with Flask
-SESSION_SECRET=your_session_secret_here
-
-# Other configurations
-VITE_API_URL=/api
-```
-
-### 3. Database Migration
-
-#### In Development Environment
+### In Development Environment
 ```bash
 # Export current schema and data
 cd pet-products-erp  # Make sure you're in the project root
@@ -108,22 +72,22 @@ npx tsx scripts/db-dump.ts
 scp db/schema.ts scripts/db-dump.ts scripts/db-import.ts database_dump.json .env user@your-server:/var/www/pet-products-erp/
 ```
 
-#### In Production Environment
+### In Production Environment
 ```bash
 # Navigate to project directory
 cd /var/www/pet-products-erp
 
 # Ensure dependencies are installed
-npm install drizzle-orm postgres dotenv
+npm install drizzle-orm postgres dotenv tsx
 
 # Make sure environment variables are set correctly in .env file
-# Particularly DATABASE_URL should point to your production database
+# DATABASE_URL should point to your production database
 
 # Run the import script
 npx tsx scripts/db-import.ts
 ```
 
-Note: The import script will handle the data migration using Drizzle ORM, which provides better type safety and data integrity during the import process.
+Note: The import script uses Drizzle ORM with TypeScript for better type safety and data integrity during the import process. No separate schema.js file is needed as we import directly from the TypeScript schema file.
 
 ## Application Deployment
 

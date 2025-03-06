@@ -7,7 +7,7 @@ import dotenv from "dotenv";
 import { 
   roles, users, stores, brands, categories,
   products, suppliers, inventory, customerProfiles 
-} from "../db/schema.ts";
+} from "../db/schema";  // Remove .ts/.js extension for better TypeScript/ESM compatibility
 
 dotenv.config();
 
