@@ -37,6 +37,7 @@ interface Permissions {
   orders: Permission;
   inventory: Permission;
   users: Permission;
+  stores: Permission; // Added stores permission
 }
 
 interface Role {
@@ -107,7 +108,7 @@ function RolePermissionsPage() {
     const newPermissions = {
       ...role.permissions,
       [module]: {
-        ...role.permissions[module],
+        ...(role.permissions[module] || { create: false, read: false, update: false, delete: false }),
         [permission]: value
       }
     };
