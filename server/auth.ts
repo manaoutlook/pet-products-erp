@@ -188,14 +188,15 @@ export function setupAuth(app: Express) {
   const sessionSettings: session.SessionOptions = {
     secret: process.env.REPL_ID || "pet-products-erp-secret",
     name: 'sid',
-    resave: false,
+    resave: true,
     saveUninitialized: false,
     rolling: true,
     cookie: {
       httpOnly: true,
-      secure: app.get("env") === "production",
+      secure: false, // Set to false to work in development environment
       sameSite: 'lax',
-      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      path: '/'
     },
     store: new MemoryStore({
       checkPeriod: 86400000, // prune expired entries every 24h
@@ -339,19 +340,31 @@ export function setupAuth(app: Express) {
           });
         }
 
-        console.log('Login successful:', {
-          userId: user.id,
-          username: user.username,
-          role: user.role.name
-        });
-
-        return res.json({
-          message: "Login successful",
-          user: {
-            id: user.id,
-            username: user.username,
-            role: user.role
+        // Force session save to ensure cookie is set before responding
+        req.session.save(err => {
+          if (err) {
+            console.error('Session save error:', err);
+            return res.status(500).json({
+              message: "Failed to save session",
+              suggestion: "Please try again"
+            });
           }
+
+          console.log('Login successful:', {
+            userId: user.id,
+            username: user.username,
+            role: user.role.name,
+            sessionID: req.sessionID
+          });
+
+          return res.json({
+            message: "Login successful",
+            user: {
+              id: user.id,
+              username: user.username,
+              role: user.role
+            }
+          });
         });
       });
     })(req, res, next);
