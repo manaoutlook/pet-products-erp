@@ -7,7 +7,7 @@ import dotenv from "dotenv";
 import { 
   roles, users, stores, brands, categories,
   products, suppliers, inventory, customerProfiles 
-} from "../db/schema";
+} from "../db/schema.ts";
 
 dotenv.config();
 
@@ -29,13 +29,13 @@ function convertDates(obj: any) {
 }
 
 async function importDatabase() {
+  const client = postgres(process.env.DATABASE_URL!);
+
   try {
     if (!process.env.DATABASE_URL) {
       throw new Error("DATABASE_URL must be set");
     }
 
-    // Create Postgres connection
-    const client = postgres(process.env.DATABASE_URL);
     const db = drizzle(client, {
       schema: { roles, users, stores, brands, categories, products, suppliers, inventory, customerProfiles }
     });
@@ -93,10 +93,11 @@ async function importDatabase() {
     }
 
     console.log('Database import completed successfully');
-    await client.end();
   } catch (error) {
     console.error('Error importing database:', error);
     process.exit(1);
+  } finally {
+    await client.end();
   }
 }
 
