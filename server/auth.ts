@@ -47,7 +47,8 @@ export const crypto = {
       const salt = randomBytes(16).toString("hex");
       console.log(`Generating hash for password with salt: ${salt}`);
 
-      const derivedKey = (await scryptAsync(password, salt, 64)) as Buffer;
+      // Using length 32 to ensure consistent hash length between storage and verification
+      const derivedKey = (await scryptAsync(password, salt, 32)) as Buffer;
       const hashedPassword = `${derivedKey.toString("hex")}.${salt}`;
 
       console.log(`Successfully generated password hash. Length: ${hashedPassword.length}`);
@@ -75,22 +76,31 @@ export const crypto = {
       }
 
       console.log('Generating hash with stored salt for comparison');
-      const derivedKey = (await scryptAsync(suppliedPassword, salt, 64)) as Buffer;
+      const derivedKey = (await scryptAsync(suppliedPassword, salt, 32)) as Buffer;
       const suppliedHash = derivedKey.toString("hex");
-
-      // Compare hashes using timing-safe comparison
-      const storedBuffer = Buffer.from(storedHash, "hex");
-      const suppliedBuffer = Buffer.from(suppliedHash, "hex");
 
       console.log('Comparing password hashes...', {
         storedHashLength: storedHash.length,
         suppliedHashLength: suppliedHash.length
       });
 
-      const isMatch = timingSafeEqual(storedBuffer, suppliedBuffer);
-      console.log(`Password comparison result: ${isMatch}`);
+      // Direct string comparison as a backup method in case buffer lengths don't match
+      if (storedHash === suppliedHash) {
+        console.log(`Password comparison result: true (string match)`);
+        return true;
+      }
 
-      return isMatch;
+      // Try buffer comparison if lengths match
+      try {
+        const storedBuffer = Buffer.from(storedHash, "hex");
+        const suppliedBuffer = Buffer.from(suppliedHash, "hex");
+        const isMatch = timingSafeEqual(storedBuffer, suppliedBuffer);
+        console.log(`Password comparison result: ${isMatch} (buffer match)`);
+        return isMatch;
+      } catch (err) {
+        console.error('Buffer comparison failed:', err);
+        return false;
+      }
     } catch (error: any) {
       console.error('Error comparing passwords:', error);
       if (error.message === 'Invalid stored password format') {
