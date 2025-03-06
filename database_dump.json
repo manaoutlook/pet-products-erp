@@ -1,0 +1,583 @@
+{
+  "roles": [
+    {
+      "id": 1,
+      "name": "admin",
+      "description": "Administrator role with full access",
+      "roleLocationId": 1,
+      "permissions": {
+        "users": {
+          "read": true,
+          "create": true,
+          "delete": true,
+          "update": true
+        },
+        "orders": {
+          "read": true,
+          "create": true,
+          "delete": true,
+          "update": true
+        },
+        "stores": {
+          "read": true,
+          "create": true,
+          "delete": true,
+          "update": true
+        },
+        "products": {
+          "read": true,
+          "create": true,
+          "delete": true,
+          "update": true
+        },
+        "inventory": {
+          "read": true,
+          "create": true,
+          "delete": true,
+          "update": true
+        }
+      },
+      "createdAt": "2025-01-01T18:00:15.950Z",
+      "updatedAt": "2025-01-01T18:00:15.950Z"
+    },
+    {
+      "id": 3,
+      "name": "Store Manager",
+      "description": "Store Manager for the Pet Store",
+      "roleLocationId": 3,
+      "permissions": {
+        "users": {
+          "read": false,
+          "create": false,
+          "delete": false,
+          "update": false
+        },
+        "orders": {
+          "read": true,
+          "create": false,
+          "delete": false,
+          "update": false
+        },
+        "stores": {
+          "read": false,
+          "create": false,
+          "delete": false,
+          "update": false
+        },
+        "products": {
+          "read": true,
+          "create": false,
+          "delete": false,
+          "update": false
+        },
+        "inventory": {
+          "read": true,
+          "create": true,
+          "delete": false,
+          "update": false
+        },
+        "customerProfiles": {
+          "read": true,
+          "create": true,
+          "delete": false,
+          "update": false
+        }
+      },
+      "createdAt": "2025-01-01T18:09:00.111Z",
+      "updatedAt": "2025-01-07T12:35:20.399Z"
+    },
+    {
+      "id": 22,
+      "name": "Inventory Manager DC",
+      "description": "Inventory Manager at DC",
+      "roleLocationId": 2,
+      "permissions": {
+        "users": {
+          "read": false,
+          "create": false,
+          "delete": false,
+          "update": false
+        },
+        "orders": {
+          "read": true,
+          "create": false,
+          "delete": false,
+          "update": false
+        },
+        "stores": {
+          "read": false,
+          "create": false,
+          "delete": false,
+          "update": false
+        },
+        "products": {
+          "read": false,
+          "create": false,
+          "delete": false,
+          "update": false
+        },
+        "inventory": {
+          "read": true,
+          "create": true,
+          "delete": true,
+          "update": true
+        },
+        "customerProfiles": {
+          "read": true,
+          "create": false,
+          "delete": false,
+          "update": false
+        }
+      },
+      "createdAt": "2025-01-02T02:04:38.574Z",
+      "updatedAt": "2025-01-17T08:10:33.806Z"
+    },
+    {
+      "id": 23,
+      "name": "Inventory Manager PS",
+      "description": "Inventory Manager at Store",
+      "roleLocationId": 3,
+      "permissions": {
+        "users": {
+          "read": false,
+          "create": false,
+          "delete": false,
+          "update": false
+        },
+        "orders": {
+          "read": false,
+          "create": false,
+          "delete": false,
+          "update": false
+        },
+        "stores": {
+          "read": false,
+          "create": false,
+          "delete": false,
+          "update": false
+        },
+        "products": {
+          "read": false,
+          "create": false,
+          "delete": false,
+          "update": false
+        },
+        "inventory": {
+          "read": true,
+          "create": true,
+          "delete": true,
+          "update": true
+        },
+        "customerProfiles": {
+          "read": true,
+          "create": true,
+          "delete": false,
+          "update": false
+        }
+      },
+      "createdAt": "2025-01-02T02:05:11.969Z",
+      "updatedAt": "2025-01-02T07:19:17.728Z"
+    }
+  ],
+  "users": [
+    {
+      "id": 2,
+      "username": "mano",
+      "password": "$2b$10$dCoLT9LWVyg.TrS8GVn3gO5Mn2WRxi5nLhUW.PRPTnnJoKVIb110u",
+      "roleId": 3,
+      "createdAt": "2025-01-02T00:54:21.190Z",
+      "updatedAt": "2025-01-02T00:54:21.190Z"
+    },
+    {
+      "id": 4,
+      "username": "huy",
+      "password": "$2b$10$Gco6ebxTjKUdRwBw/wgKgO5Wq50thEoUFuWIzKkRPySLxt9WlIYqa",
+      "roleId": 22,
+      "createdAt": "2025-01-02T02:06:07.673Z",
+      "updatedAt": "2025-01-13T09:06:55.748Z"
+    },
+    {
+      "id": 1,
+      "username": "admin",
+      "password": "$2b$10$qSmS5zQGqmMIdciZm0vOJOVpmNH5hevgfDR5HwV0eg/248FgTeVza",
+      "roleId": 1,
+      "createdAt": "2025-01-01T18:00:21.878Z",
+      "updatedAt": "2025-03-06T04:17:41.923Z"
+    },
+    {
+      "id": 6,
+      "username": "roger",
+      "password": "$2b$10$zLe4CKTu3IF3w.eYiVu5gu7BT9BRSxsVIJEB8Ur/0FJ/l35KAsaX.",
+      "roleId": 23,
+      "createdAt": "2025-01-02T03:03:49.321Z",
+      "updatedAt": "2025-01-02T03:03:49.321Z"
+    },
+    {
+      "id": 5,
+      "username": "kavin",
+      "password": "$2b$10$fHoyAuZB1zfbIP.xL0yLQ.pDDnOV9yO6pkkWFuEKU.uq0C5ScjKUW",
+      "roleId": 23,
+      "createdAt": "2025-01-02T02:57:01.486Z",
+      "updatedAt": "2025-01-02T03:42:33.966Z"
+    },
+    {
+      "id": 7,
+      "username": "joker",
+      "password": "$2b$10$XaDpPu48zvw7JGwrzOuHyu1fZSwWiKMY1wFSllayTqnRkc0zcKoeC",
+      "roleId": 3,
+      "createdAt": "2025-01-02T03:51:05.921Z",
+      "updatedAt": "2025-01-02T03:52:24.681Z"
+    }
+  ],
+  "stores": [
+    {
+      "id": 3,
+      "name": "D3-Store",
+      "location": "District 3",
+      "contactInfo": "abcd@abcd.com",
+      "billPrefix": "ST03",
+      "createdAt": "2025-01-02T05:37:49.882Z",
+      "updatedAt": "2025-01-02T10:30:11.910Z"
+    },
+    {
+      "id": 1,
+      "name": "D1-Store",
+      "location": "District 1, Ho Chi Minh City",
+      "contactInfo": "d1store@gmail.com",
+      "billPrefix": "ST01",
+      "createdAt": "2025-01-01T18:06:27.388Z",
+      "updatedAt": "2025-01-02T10:31:04.653Z"
+    },
+    {
+      "id": 2,
+      "name": "D2-Store",
+      "location": "District 2, Ho Chi Minh City",
+      "contactInfo": "D2-Store@gmail.com",
+      "billPrefix": "ST02",
+      "createdAt": "2025-01-01T18:06:44.272Z",
+      "updatedAt": "2025-01-02T10:31:35.241Z"
+    }
+  ],
+  "brands": [
+    {
+      "id": 1,
+      "name": "PawPrime",
+      "description": "Premium pet food and accessories",
+      "createdAt": "2025-01-01T14:54:43.889Z",
+      "updatedAt": "2025-01-01T14:54:43.889Z"
+    },
+    {
+      "id": 2,
+      "name": "FurryFresh",
+      "description": "Natural and organic pet products",
+      "createdAt": "2025-01-01T14:54:43.889Z",
+      "updatedAt": "2025-01-01T14:54:43.889Z"
+    },
+    {
+      "id": 3,
+      "name": "PetCare Plus",
+      "description": "Professional pet care products",
+      "createdAt": "2025-01-01T14:54:43.889Z",
+      "updatedAt": "2025-01-01T14:54:43.889Z"
+    },
+    {
+      "id": 4,
+      "name": "TailWag",
+      "description": "Fun and durable pet toys",
+      "createdAt": "2025-01-01T14:54:43.889Z",
+      "updatedAt": "2025-01-01T14:54:43.889Z"
+    },
+    {
+      "id": 5,
+      "name": "Royal Canin",
+      "description": "Premium pet nutrition brand specializing in breed-specific formulas",
+      "createdAt": "2025-01-02T09:23:12.078Z",
+      "updatedAt": "2025-01-02T09:23:12.078Z"
+    },
+    {
+      "id": 6,
+      "name": "Pedigree",
+      "description": "Widely recognized brand offering complete nutrition for dogs",
+      "createdAt": "2025-01-02T09:23:12.078Z",
+      "updatedAt": "2025-01-02T09:23:12.078Z"
+    },
+    {
+      "id": 7,
+      "name": "Whiskas",
+      "description": "Popular cat food brand known for age-specific nutrition",
+      "createdAt": "2025-01-02T09:23:12.078Z",
+      "updatedAt": "2025-01-02T09:23:12.078Z"
+    },
+    {
+      "id": 8,
+      "name": "Kong",
+      "description": "Durable pet toy manufacturer specializing in interactive play products",
+      "createdAt": "2025-01-02T09:23:12.078Z",
+      "updatedAt": "2025-01-02T09:23:12.078Z"
+    },
+    {
+      "id": 9,
+      "name": "PetSafe",
+      "description": "Leading brand in pet training equipment and accessories",
+      "createdAt": "2025-01-02T09:23:12.078Z",
+      "updatedAt": "2025-01-02T09:23:12.078Z"
+    }
+  ],
+  "categories": [
+    {
+      "id": 1,
+      "name": "Dog Food",
+      "description": "All types of dog food products",
+      "createdAt": "2025-01-01T14:54:43.889Z",
+      "updatedAt": "2025-01-01T14:54:43.889Z"
+    },
+    {
+      "id": 2,
+      "name": "Cat Food",
+      "description": "All types of cat food products",
+      "createdAt": "2025-01-01T14:54:43.889Z",
+      "updatedAt": "2025-01-01T14:54:43.889Z"
+    },
+    {
+      "id": 3,
+      "name": "Pet Accessories",
+      "description": "Collars, leashes, and other accessories",
+      "createdAt": "2025-01-01T14:54:43.889Z",
+      "updatedAt": "2025-01-01T14:54:43.889Z"
+    },
+    {
+      "id": 4,
+      "name": "Pet Toys",
+      "description": "All types of pet toys",
+      "createdAt": "2025-01-01T14:54:43.889Z",
+      "updatedAt": "2025-01-01T14:54:43.889Z"
+    },
+    {
+      "id": 5,
+      "name": "Pet Care",
+      "description": "Grooming and healthcare products",
+      "createdAt": "2025-01-01T14:54:43.889Z",
+      "updatedAt": "2025-01-01T14:54:43.889Z"
+    }
+  ],
+  "products": [
+    {
+      "id": 1,
+      "name": "Premium Dog Food",
+      "description": "High-quality adult dog food",
+      "sku": "DF001",
+      "price": "250000.00",
+      "categoryId": 1,
+      "brandId": 1,
+      "minStock": 20,
+      "createdAt": "2025-01-01T14:54:51.949Z",
+      "updatedAt": "2025-01-01T14:54:51.949Z"
+    },
+    {
+      "id": 2,
+      "name": "Natural Cat Food",
+      "description": "Organic cat food with vitamins",
+      "sku": "CF001",
+      "price": "200000.00",
+      "categoryId": 2,
+      "brandId": 2,
+      "minStock": 20,
+      "createdAt": "2025-01-01T14:54:51.949Z",
+      "updatedAt": "2025-01-01T14:54:51.949Z"
+    },
+    {
+      "id": 3,
+      "name": "Dog Shampoo",
+      "description": "Gentle cleansing shampoo for dogs",
+      "sku": "PC001",
+      "price": "120000.00",
+      "categoryId": 5,
+      "brandId": 3,
+      "minStock": 25,
+      "createdAt": "2025-01-01T14:54:51.949Z",
+      "updatedAt": "2025-01-01T14:54:51.949Z"
+    },
+    {
+      "id": 5,
+      "name": "Interactive Cat Toy",
+      "description": "Electronic mouse toy for cats",
+      "sku": "PT001",
+      "price": "180000.00",
+      "categoryId": 4,
+      "brandId": 4,
+      "minStock": 10,
+      "createdAt": "2025-01-01T14:54:51.949Z",
+      "updatedAt": "2025-01-01T14:54:51.949Z"
+    },
+    {
+      "id": 4,
+      "name": "Leather Dog Collar",
+      "description": "Durable leather collar for dogs",
+      "sku": "PA001",
+      "price": "150000.00",
+      "categoryId": 2,
+      "brandId": 3,
+      "minStock": 15,
+      "createdAt": "2025-01-01T14:54:51.949Z",
+      "updatedAt": "2025-01-02T04:14:13.656Z"
+    }
+  ],
+  "suppliers": [
+    {
+      "id": 1,
+      "name": "Global Pet Supplies",
+      "contactInfo": "+84 123 456 789",
+      "address": "123 Supply Street, Hanoi, Vietnam",
+      "createdAt": "2025-01-01T14:54:43.889Z",
+      "updatedAt": "2025-01-01T14:54:43.889Z"
+    },
+    {
+      "id": 2,
+      "name": "Vietnam Pet Products",
+      "contactInfo": "+84 987 654 321",
+      "address": "456 Distribution Road, Ho Chi Minh City, Vietnam",
+      "createdAt": "2025-01-01T14:54:43.889Z",
+      "updatedAt": "2025-01-01T14:54:43.889Z"
+    },
+    {
+      "id": 3,
+      "name": "Asian Pet Care",
+      "contactInfo": "+84 555 666 777",
+      "address": "789 Wholesale Avenue, Da Nang, Vietnam",
+      "createdAt": "2025-01-01T14:54:43.889Z",
+      "updatedAt": "2025-01-01T14:54:43.889Z"
+    },
+    {
+      "id": 4,
+      "name": "FurPet",
+      "contactInfo": "+84 8980998876",
+      "address": "Pasteur Street, Ho Chi Minh City Vietnam",
+      "createdAt": "2025-01-02T05:57:58.003Z",
+      "updatedAt": "2025-01-02T05:58:38.042Z"
+    }
+  ],
+  "inventory": [
+    {
+      "id": 5,
+      "productId": 5,
+      "storeId": null,
+      "supplierId": 2,
+      "quantity": 50,
+      "location": "",
+      "inventoryType": "DC",
+      "centerId": "DC001",
+      "barcode": "DC001PT0016433",
+      "purchaseDate": null,
+      "expiryDate": null,
+      "updatedAt": "2025-01-02T01:41:34.357Z"
+    },
+    {
+      "id": 3,
+      "productId": 3,
+      "storeId": null,
+      "supplierId": 1,
+      "quantity": 50,
+      "location": "",
+      "inventoryType": "DC",
+      "centerId": "DC001",
+      "barcode": "DC001PC0012235",
+      "purchaseDate": null,
+      "expiryDate": null,
+      "updatedAt": "2025-01-02T01:41:49.349Z"
+    },
+    {
+      "id": 2,
+      "productId": 2,
+      "storeId": null,
+      "supplierId": 3,
+      "quantity": 50,
+      "location": "",
+      "inventoryType": "DC",
+      "centerId": "DC001",
+      "barcode": "DC001CF0010889",
+      "purchaseDate": null,
+      "expiryDate": null,
+      "updatedAt": "2025-01-02T01:41:58.388Z"
+    },
+    {
+      "id": 4,
+      "productId": 4,
+      "storeId": 2,
+      "supplierId": 3,
+      "quantity": 50,
+      "location": "",
+      "inventoryType": "STORE",
+      "centerId": "DC001",
+      "barcode": "DC001PA0014240",
+      "purchaseDate": null,
+      "expiryDate": null,
+      "updatedAt": "2025-01-02T01:42:40.241Z"
+    },
+    {
+      "id": 1,
+      "productId": 1,
+      "storeId": 1,
+      "supplierId": 1,
+      "quantity": 500,
+      "location": "",
+      "inventoryType": "STORE",
+      "centerId": "DC001",
+      "barcode": "DC001DF0019347",
+      "purchaseDate": null,
+      "expiryDate": null,
+      "updatedAt": "2025-01-02T04:13:45.705Z"
+    },
+    {
+      "id": 6,
+      "productId": 3,
+      "storeId": 3,
+      "supplierId": 2,
+      "quantity": 50,
+      "location": "fddfsg",
+      "inventoryType": "STORE",
+      "centerId": "DC001",
+      "barcode": "ST003PC0012372",
+      "purchaseDate": null,
+      "expiryDate": null,
+      "updatedAt": "2025-01-02T05:39:35.378Z"
+    }
+  ],
+  "customerProfiles": [
+    {
+      "id": 1,
+      "phoneNumber": "+84903598200",
+      "name": "Hello World",
+      "email": "heloo@hellooo.com",
+      "address": "sdkajfhsk asdfkaksdfhsdf",
+      "photo": null,
+      "petBirthday": "2024-10-17",
+      "petType": "CAT",
+      "createdAt": "2025-01-02T06:17:29.161Z",
+      "updatedAt": "2025-01-02T06:17:29.161Z"
+    },
+    {
+      "id": 3,
+      "phoneNumber": "+84901234567",
+      "name": "Rama",
+      "email": "rama@rama.com",
+      "address": "dskhf skfasfalsfasd",
+      "photo": null,
+      "petBirthday": "2024-04-11",
+      "petType": "DOG",
+      "createdAt": "2025-01-02T07:18:04.998Z",
+      "updatedAt": "2025-01-02T07:18:04.998Z"
+    },
+    {
+      "id": 2,
+      "phoneNumber": "+84123456789",
+      "name": "Sita",
+      "email": "ab@ab.com",
+      "address": "kashdf alsjflasdfs",
+      "photo": "dd",
+      "petBirthday": "2024-08-16",
+      "petType": "DOG",
+      "createdAt": "2025-01-02T06:32:05.435Z",
+      "updatedAt": "2025-01-02T09:13:33.743Z"
+    }
+  ]
+}

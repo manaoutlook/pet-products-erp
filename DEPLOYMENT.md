@@ -13,7 +13,9 @@
 - PostgreSQL 15+
 - Git
 - PM2 (for process management)
-- Nginx (for reverse proxy)
+- Nginx (already installed)
+- tsx (for running TypeScript files)
+
 
 ## Pre-deployment Setup
 
@@ -27,17 +29,17 @@ sudo apt upgrade -y
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
 
-# Install PostgreSQL
+# Install PostgreSQL (if not already installed)
 sudo apt install -y postgresql postgresql-contrib
-
-# Install Nginx
-sudo apt install -y nginx
 
 # Install PM2
 sudo npm install -g pm2
 
 # Install build essentials
 sudo apt install -y build-essential
+
+# Install tsx globally
+sudo npm install -g tsx
 ```
 
 ### 2. Configure PostgreSQL
@@ -52,6 +54,13 @@ psql -c "GRANT ALL PRIVILEGES ON DATABASE pet_products_erp TO erp_user;"
 
 # Exit postgres user
 exit
+```
+
+### 3. Backup Existing Nginx Configuration
+```bash
+# Create backup of nginx configuration
+sudo cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.backup
+sudo cp -r /etc/nginx/sites-available /etc/nginx/sites-available.backup
 ```
 
 ## GitHub Setup and Deployment
@@ -76,7 +85,7 @@ DATABASE_URL=postgresql://erp_user:your_strong_password@localhost:5432/pet_produ
 
 # Application
 NODE_ENV=production
-PORT=5000
+PORT=5001  # Changed from 5000 to avoid conflicts with Flask
 SESSION_SECRET=your_session_secret_here
 
 # Other configurations
@@ -85,19 +94,33 @@ VITE_API_URL=/api
 
 ### 3. Database Migration
 
-#### Export Development Data
+#### In Development Environment
 ```bash
-# In development environment
-npm run db:dump > database_dump.sql
+# Export current schema and data
+cd pet-products-erp  # Make sure you're in the project root
+npm run dev
 
-# Copy schema and data to production server
-scp database_dump.sql user@your-server:/tmp/
+# This will create a database_dump.json file in the project root
+npx tsx scripts/db-dump.ts
+
+# Copy schema, data, and scripts to production server
+scp scripts/db-dump.ts scripts/db-import.ts database_dump.json user@your-server:/var/www/pet-products-erp/
 ```
 
-#### Import Data in Production
+#### In Production Environment
 ```bash
-# In production environment
-psql -U erp_user -d pet_products_erp -f /tmp/database_dump.sql
+# Navigate to project directory
+cd /var/www/pet-products-erp
+
+# Install tsx for running TypeScript files if not already installed
+sudo npm install -g tsx
+
+# First, ensure the schema is up to date using Drizzle
+npm run db:push
+
+# Then import the data using the import script
+# Make sure to run this from the project root directory
+npx tsx scripts/db-import.ts
 ```
 
 ## Application Deployment
@@ -126,21 +149,22 @@ module.exports = {
     exec_mode: 'cluster',
     env: {
       NODE_ENV: 'production',
-      PORT: 5000
+      PORT: 5001  // Changed from 5000 to avoid conflicts
     }
   }]
 }
 ```
 
-### 3. Configure Nginx
+### 3. Configure Nginx for Multiple Applications
 Create `/etc/nginx/sites-available/pet-products-erp`:
 ```nginx
+# Add new server block for Pet Products ERP
 server {
     listen 80;
-    server_name your-domain.com;
+    server_name erp.your-domain.com;  # Use a different subdomain
 
     location / {
-        proxy_pass http://localhost:5000;
+        proxy_pass http://localhost:5001;  # Updated port
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -161,9 +185,14 @@ pm2 save
 # Setup PM2 startup script
 pm2 startup
 
-# Enable and start Nginx
+# Enable new nginx configuration
 sudo ln -s /etc/nginx/sites-available/pet-products-erp /etc/nginx/sites-enabled/
-sudo systemctl restart nginx
+
+# Test nginx configuration
+sudo nginx -t
+
+# If test passes, reload nginx (safer than restart)
+sudo nginx -s reload
 ```
 
 ## Maintenance and Updates
@@ -189,7 +218,7 @@ pm2 restart pet-products-erp
 echo '#!/bin/bash
 BACKUP_DIR="/path/to/backups"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-pg_dump -U erp_user pet_products_erp > "$BACKUP_DIR/backup_$TIMESTAMP.sql"' > /usr/local/bin/backup-erp-db.sh
+npx tsx scripts/db-dump.ts "$BACKUP_DIR/backup_$TIMESTAMP.json"' > /usr/local/bin/backup-erp-db.sh
 
 # Make script executable
 chmod +x /usr/local/bin/backup-erp-db.sh
@@ -202,7 +231,14 @@ chmod +x /usr/local/bin/backup-erp-db.sh
 
 ### Common Issues
 
-1. Database Connection Issues
+1. Port Conflicts
+```bash
+# Check which process is using a specific port
+sudo lsof -i :5001
+sudo lsof -i :5000  # For Flask app
+```
+
+2. Database Connection Issues
 ```bash
 # Check PostgreSQL status
 sudo systemctl status postgresql
@@ -211,7 +247,7 @@ sudo systemctl status postgresql
 sudo tail -f /var/log/postgresql/postgresql-15-main.log
 ```
 
-2. Application Logs
+3. Application Logs
 ```bash
 # View PM2 logs
 pm2 logs pet-products-erp
@@ -220,36 +256,43 @@ pm2 logs pet-products-erp
 pm2 logs pet-products-erp --err
 ```
 
-3. Nginx Issues
+4. Nginx Issues
 ```bash
-# Check Nginx status
-sudo systemctl status nginx
-
-# Test Nginx configuration
+# Check nginx configuration
 sudo nginx -t
 
-# View Nginx logs
+# View nginx error logs
 sudo tail -f /var/log/nginx/error.log
+
+# View nginx access logs
+sudo tail -f /var/log/nginx/access.log
+```
+
+### Reverting Changes (If Needed)
+```bash
+# Restore nginx configuration
+sudo cp /etc/nginx/nginx.conf.backup /etc/nginx/nginx.conf
+sudo cp -r /etc/nginx/sites-available.backup/* /etc/nginx/sites-available/
+
+# Reload nginx
+sudo nginx -s reload
 ```
 
 ## Security Considerations
 
 1. Firewall Setup
 ```bash
-# Configure UFW
+# Configure UFW (if not already configured)
+sudo ufw status
 sudo ufw allow ssh
 sudo ufw allow http
 sudo ufw allow https
-sudo ufw enable
 ```
 
 2. SSL Certificate (using Let's Encrypt)
 ```bash
-# Install Certbot
-sudo apt install -y certbot python3-certbot-nginx
-
-# Obtain SSL certificate
-sudo certbot --nginx -d your-domain.com
+# Add new domain to existing certificate
+sudo certbot --nginx -d erp.your-domain.com
 ```
 
 3. Regular Updates

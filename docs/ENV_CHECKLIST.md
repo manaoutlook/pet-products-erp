@@ -14,7 +14,7 @@
 
 ### Server Configuration
 - [ ] `NODE_ENV`: Set to 'production' in production environment
-- [ ] `PORT`: Application port (default: 5000)
+- [ ] `PORT`: Application port (default: 5001)
 
 ## Optional Environment Variables
 
