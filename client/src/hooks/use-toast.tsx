@@ -1,4 +1,3 @@
-
 import * as React from "react"
 
 import type {
@@ -13,6 +12,7 @@ type ToasterToast = ToastProps & {
   id: string
   title?: React.ReactNode
   description?: React.ReactNode
+  suggestion?: React.ReactNode
   action?: ToastActionElement
 }
 
@@ -140,8 +140,16 @@ function dispatch(action: Action) {
 
 type Toast = Omit<ToasterToast, "id">
 
-function toast({ ...props }: Toast) {
+function toast(props: Toast) {
   const id = genId()
+
+  // If there's both a description and a suggestion, combine them
+  let description = props.description;
+  if (props.suggestion && props.description) {
+    description = `${props.description}. ${props.suggestion}`;
+  } else if (props.suggestion) {
+    description = props.suggestion;
+  }
 
   const update = (props: ToasterToast) =>
     dispatch({
@@ -154,6 +162,7 @@ function toast({ ...props }: Toast) {
     type: "ADD_TOAST",
     toast: {
       ...props,
+      description, // Use the potentially combined description
       id,
       open: true,
       onOpenChange: (open) => {

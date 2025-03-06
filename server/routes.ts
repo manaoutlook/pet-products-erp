@@ -22,9 +22,9 @@ const insertProductSchema = z.object({
   price: z.string().or(z.number()).pipe(
     z.coerce.number().min(0, "Price must be positive")
   ),
-  categoryId: z.number().or(z.string().pipe(z.coerce.number())).min(1, "Category is required"),
+  categoryId: z.number().or(z.string().pipe(z.coerce.number().min(1, "Category is required"))),
   brandId: z.number().or(z.string().pipe(z.coerce.number())).optional(),
-  minStock: z.number().or(z.string().pipe(z.coerce.number())).min(0, "Minimum stock must be positive").default(10),
+  minStock: z.number().or(z.string().pipe(z.coerce.number().min(0, "Minimum stock must be positive"))).default(10),
 });
 
 const createPurchaseOrderSchema = z.object({

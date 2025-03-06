@@ -1,7 +1,7 @@
 import * as React from "react"
 import * as ToastPrimitives from "@radix-ui/react-toast"
 import { cva, type VariantProps } from "class-variance-authority"
-import { X } from "lucide-react"
+import { X, Copy, Check } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
@@ -101,13 +101,39 @@ ToastTitle.displayName = ToastPrimitives.Title.displayName
 const ToastDescription = React.forwardRef<
   React.ElementRef<typeof ToastPrimitives.Description>,
   React.ComponentPropsWithoutRef<typeof ToastPrimitives.Description>
->(({ className, ...props }, ref) => (
-  <ToastPrimitives.Description
-    ref={ref}
-    className={cn("text-sm opacity-90", className)}
-    {...props}
-  />
-))
+>(({ className, ...props }, ref) => {
+  const [copied, setCopied] = React.useState(false);
+  
+  const handleCopy = () => {
+    if (props.children && typeof props.children === 'string') {
+      navigator.clipboard.writeText(props.children)
+        .then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        })
+        .catch(err => console.error('Failed to copy text: ', err));
+    }
+  };
+  
+  return (
+    <div className="flex items-center justify-between w-full">
+      <ToastPrimitives.Description
+        ref={ref}
+        className={cn("text-sm opacity-90 flex-grow", className)}
+        {...props}
+      />
+      {props.children && typeof props.children === 'string' && (
+        <button 
+          onClick={handleCopy}
+          className="ml-2 p-1 rounded-md text-foreground/70 hover:text-foreground hover:bg-background focus:outline-none focus:ring-1"
+          title="Copy to clipboard"
+        >
+          {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+        </button>
+      )}
+    </div>
+  );
+})
 ToastDescription.displayName = ToastPrimitives.Description.displayName
 
 type ToastProps = React.ComponentPropsWithoutRef<typeof Toast>
