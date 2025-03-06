@@ -15,6 +15,18 @@ import { z } from "zod";
 import { crypto } from "./auth";
 
 // Schema validations
+const insertProductSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  description: z.string().optional(),
+  sku: z.string().min(1, "SKU is required"),
+  price: z.string().or(z.number()).pipe(
+    z.coerce.number().min(0, "Price must be positive")
+  ),
+  categoryId: z.number().or(z.string().pipe(z.coerce.number())).min(1, "Category is required"),
+  brandId: z.number().or(z.string().pipe(z.coerce.number())).optional(),
+  minStock: z.number().or(z.string().pipe(z.coerce.number())).min(0, "Minimum stock must be positive").default(10),
+});
+
 const createPurchaseOrderSchema = z.object({
   supplierId: z.number().positive("Supplier ID is required"),
   deliveryDate: z.string().datetime("Valid delivery date is required"),
