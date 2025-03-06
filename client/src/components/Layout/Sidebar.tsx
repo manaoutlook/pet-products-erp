@@ -22,7 +22,6 @@ import {
   ChevronRight,
   ClipboardList,
   UserCircle,
-  Store as StoreIcon,
   LineChart
 } from "lucide-react";
 import { useState } from "react";
@@ -42,6 +41,7 @@ function Sidebar() {
   const { logout, user } = useUser();
   const { hasPermission, isAdmin } = usePermissions();
   const isSystemAdmin = user?.role?.roleType?.description === 'System Administrator';
+  const isAdminUser = user?.role?.name === 'admin'; //Added to check for admin user specifically
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
 
   const toggleExpanded = (name: string) => {
@@ -126,21 +126,18 @@ function Sidebar() {
     },
     { 
       name: "Stores", 
-      icon: StoreIcon,
       module: 'stores',
       action: 'read',
       children: [
         {
           name: "Store List",
           href: "/stores",
-          icon: StoreIcon,
           module: 'stores',
           action: 'read'
         },
         {
           name: "Store Performance",
           href: "/store-performance",
-          icon: LineChart,
           module: 'stores',
           action: 'read'
         }
@@ -152,28 +149,6 @@ function Sidebar() {
       icon: UserCircle,
       module: 'users',
       action: 'read'
-    },
-    { 
-      name: "Stores", 
-      icon: Store,
-      module: 'stores',
-      action: 'read',
-      children: [
-        { 
-          name: "Store List", 
-          href: "/stores", 
-          icon: Store,
-          module: 'stores',
-          action: 'read'
-        },
-        { 
-          name: "Store Performance", 
-          href: "/store-performance", 
-          icon: BarChart,
-          module: 'stores',
-          action: 'read'
-        }
-      ]
     },
     {
       name: "User Management",
@@ -217,23 +192,24 @@ function Sidebar() {
   ];
 
   const hasAccess = (item: NavItem): boolean => {
-    if (isSystemAdmin) {
+    // Admin user can access everything
+    if (isAdminUser || isSystemAdmin) {
+      return true;
+    } else {
+      if (item.adminOnly) {
+        return isAdmin;
+      }
+
+      if (item.module && item.action) {
+        return hasPermission(item.module, item.action);
+      }
+
+      if (item.children) {
+        return item.children.some(child => hasAccess(child));
+      }
+
       return true;
     }
-
-    if (item.adminOnly) {
-      return isAdmin;
-    }
-
-    if (item.module && item.action) {
-      return hasPermission(item.module, item.action);
-    }
-
-    if (item.children) {
-      return item.children.some(child => hasAccess(child));
-    }
-
-    return true;
   };
 
   const renderNavItem = (item: NavItem) => {
@@ -260,7 +236,7 @@ function Sidebar() {
             )}
           >
             <div className="flex items-center">
-              <item.icon className="mr-3 h-5 w-5" />
+              {item.icon && <item.icon className="mr-3 h-5 w-5" />}
               <span className="font-medium">{item.name}</span>
             </div>
             <ChevronRight className={cn(
@@ -293,7 +269,7 @@ function Sidebar() {
               "focus:outline-none focus:ring-2 focus:ring-sidebar-accent/20"
             )}
           >
-            <item.icon className="mr-3 h-5 w-5" />
+            {item.icon && <item.icon className="mr-3 h-5 w-5" />}
             {item.name}
           </div>
         </Link>
