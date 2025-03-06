@@ -21,7 +21,8 @@ import {
   Building2,
   ChevronRight,
   ClipboardList,
-  UserCircle
+  UserCircle,
+  Store as StoreIcon // Added import for StoreIcon
 } from "lucide-react";
 import { useState } from "react";
 

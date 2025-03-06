@@ -30,7 +30,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { InsertStore, SelectStore } from "@db/schema";
@@ -56,6 +56,22 @@ function StorePage() {
       contactInfo: "",
     },
   });
+
+  useEffect(() => {
+    if (editingStore) {
+      form.reset({
+        name: editingStore.name,
+        location: editingStore.location,
+        contactInfo: editingStore.contactInfo,
+      });
+    } else {
+      form.reset({
+        name: "",
+        location: "",
+        contactInfo: "",
+      });
+    }
+  }, [editingStore, form]);
 
   const createMutation = useMutation({
     mutationFn: async (data: InsertStore) => {
@@ -83,7 +99,7 @@ function StorePage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Partial<InsertStore> }) => {
+    mutationFn: async ({ id, data }: { id: number; data: InsertStore }) => {
       const res = await fetch(`/api/stores/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -96,6 +112,7 @@ function StorePage() {
     onSuccess: () => {
       refetch();
       setDialogOpen(false);
+      setEditingStore(null);
       toast({ title: "Success", description: "Store updated successfully" });
     },
     onError: (error: Error) => {
@@ -107,19 +124,34 @@ function StorePage() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/stores/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => {
+      refetch();
+      toast({ title: "Success", description: "Store deleted successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Error", 
+        description: error.message,
+        variant: "destructive"
+      });
+    },
+  });
+
+
   const onSubmit = async (data: InsertStore) => {
-    try {
-      if (editingStore) {
-        await updateMutation.mutateAsync({ 
-          id: editingStore.id, 
-          data: data
-        });
-      } else {
-        await createMutation.mutateAsync(data);
-      }
-      form.reset();
-    } catch (error) {
-      // Error is handled by the mutation
+    if (editingStore) {
+      updateMutation.mutate({ id: editingStore.id, data });
+    } else {
+      createMutation.mutate(data);
     }
   };
 
@@ -135,11 +167,6 @@ function StorePage() {
 
   const handleEditStore = (store: SelectStore) => {
     setEditingStore(store);
-    form.reset({
-      name: store.name,
-      location: store.location,
-      contactInfo: store.contactInfo,
-    });
     setDialogOpen(true);
   };
 
@@ -281,7 +308,7 @@ function StorePage() {
                           className="text-destructive"
                           onClick={() => {
                             if (confirm('Are you sure you want to delete this store?')) {
-                              // deleteMutation.mutate(store.id);  Removed
+                              deleteMutation.mutate(store.id);
                             }
                           }}
                         >
