@@ -57,7 +57,34 @@ async function importDatabase() {
     // Import data in the correct order based on foreign key dependencies
     console.log('Importing roles...');
     for (const role of dumpData.roles) {
-      await db.insert(roles).values(convertDates(role)).onConflictDoNothing();
+      // Create a modified role object
+      const roleToInsert = { ...convertDates(role) };
+      
+      try {
+        // First try inserting with the original data structure
+        await db.insert(roles).values(roleToInsert).onConflictDoNothing();
+      } catch (error) {
+        // If there's an error about role_location_id
+        if (error.message && error.message.includes('role_location_id')) {
+          console.log(`Adapting role ${role.id} to match schema structure...`);
+          
+          // Option 1: If roleLocationId exists in the data but not in the DB
+          if (roleToInsert.roleLocationId !== undefined) {
+            delete roleToInsert.roleLocationId;
+          }
+          
+          // Option 2: If role_location_id is required in the DB but missing in data
+          if (error.message.includes('violates not-null constraint') && roleToInsert.roleLocationId === undefined) {
+            roleToInsert.roleLocationId = 1; // Default value
+          }
+          
+          // Try again with the modified object
+          await db.insert(roles).values(roleToInsert).onConflictDoNothing();
+        } else {
+          // If it's a different error, throw it
+          throw error;
+        }
+      }
     }
 
     console.log('Importing users...');
