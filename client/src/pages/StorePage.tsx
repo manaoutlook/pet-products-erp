@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Table,
   TableBody,
@@ -43,9 +43,10 @@ function StorePage() {
   const [editingStore, setEditingStore] = useState<SelectStore | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  const { data: stores, isLoading, refetch } = useQuery<SelectStore[]>({
-    queryKey: ['/api/stores'],
+  const { data: stores, isLoading, refetch } = useQuery({
+    queryKey: ['stores'], // Corrected queryKey
   });
 
   const form = useForm<InsertStore>({
@@ -134,6 +135,7 @@ function StorePage() {
       return res.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['stores'] }); //Invalidate cache
       refetch();
       toast({ title: "Success", description: "Store deleted successfully" });
     },
