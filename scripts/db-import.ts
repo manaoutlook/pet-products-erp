@@ -9,11 +9,19 @@ import {
   products, suppliers, inventory, customerProfiles 
 } from "../db/schema";  // Remove .ts/.js extension for better TypeScript/ESM compatibility
 
-dotenv.config();
+import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
+
+// Load .env from the project root with explicit path
+dotenv.config({ path: path.join(projectRoot, '.env') });
+
+// Log the DATABASE_URL to debug
+console.log("Database URL is set:", !!process.env.DATABASE_URL);
 
 // Helper function to convert string timestamps to Date objects
 function convertDates(obj: any) {
