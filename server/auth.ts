@@ -44,15 +44,14 @@ export const crypto = {
         throw new Error('Password is required');
       }
 
-      const salt = randomBytes(16);
-      const derivedKey = (await scryptAsync(password, salt, 32)) as Buffer;
+      const salt = randomBytes(16).toString("hex");
+      console.log(`Generating hash for password with salt: ${salt}`);
 
-      // Combine salt and hash in a specific format
-      const hashBuffer = Buffer.concat([derivedKey, salt]);
-      const hashString = hashBuffer.toString('hex');
+      const derivedKey = (await scryptAsync(password, salt, 64)) as Buffer;
+      const hashedPassword = `${derivedKey.toString("hex")}.${salt}`;
 
-      console.log('Generated hash length:', hashString.length);
-      return hashString;
+      console.log(`Successfully generated password hash. Length: ${hashedPassword.length}`);
+      return hashedPassword;
     } catch (error) {
       console.error('Error in password hashing:', error);
       throw new Error('Failed to secure password. Please try again.');
@@ -61,24 +60,42 @@ export const crypto = {
 
   compare: async (suppliedPassword: string, storedPassword: string) => {
     try {
+      console.log('Starting password comparison...');
+
+      // Validate inputs
       if (!suppliedPassword || !storedPassword) {
         throw new Error('Both supplied and stored passwords are required');
       }
 
-      // Convert stored password from hex to buffer
-      const storedBuffer = Buffer.from(storedPassword, 'hex');
+      // Split stored password into hash and salt
+      const [storedHash, salt] = storedPassword.split(".");
+      if (!storedHash || !salt) {
+        console.error('Invalid stored password format:', { storedPassword });
+        throw new Error('Invalid stored password format');
+      }
 
-      // Extract salt and hash from stored password
-      const storedHash = storedBuffer.slice(0, 32);
-      const salt = storedBuffer.slice(32);
+      console.log('Generating hash with stored salt for comparison');
+      const derivedKey = (await scryptAsync(suppliedPassword, salt, 64)) as Buffer;
+      const suppliedHash = derivedKey.toString("hex");
 
-      // Generate hash of supplied password
-      const derivedKey = (await scryptAsync(suppliedPassword, salt, 32)) as Buffer;
+      // Compare hashes using timing-safe comparison
+      const storedBuffer = Buffer.from(storedHash, "hex");
+      const suppliedBuffer = Buffer.from(suppliedHash, "hex");
 
-      // Compare using timing-safe comparison
-      return timingSafeEqual(storedHash, derivedKey);
-    } catch (error) {
+      console.log('Comparing password hashes...', {
+        storedHashLength: storedHash.length,
+        suppliedHashLength: suppliedHash.length
+      });
+
+      const isMatch = timingSafeEqual(storedBuffer, suppliedBuffer);
+      console.log(`Password comparison result: ${isMatch}`);
+
+      return isMatch;
+    } catch (error: any) {
       console.error('Error comparing passwords:', error);
+      if (error.message === 'Invalid stored password format') {
+        throw error;
+      }
       throw new Error('Error verifying password. Please try again.');
     }
   },
@@ -148,7 +165,7 @@ export async function setupAdmin() {
       .limit(1);
 
     if (!existingAdmin) {
-      const hashedPassword = await crypto.hash('admin123');
+      const hashedPassword = await crypto.hash('admin123'); // Default password
       await db
         .insert(users)
         .values({
@@ -159,14 +176,6 @@ export async function setupAdmin() {
         .onConflictDoNothing();
 
       console.log('Admin user created successfully');
-    } else {
-      // Update existing admin password
-      const hashedPassword = await crypto.hash('admin123');
-      await db
-        .update(users)
-        .set({ password: hashedPassword })
-        .where(eq(users.username, 'admin'));
-      console.log('Admin password updated successfully');
     }
   } catch (error) {
     console.error('Error setting up admin user:', error);
