@@ -22,7 +22,7 @@ import {
   ChevronRight,
   ClipboardList,
   UserCircle,
-  Store as StoreIcon // Added import for StoreIcon
+  Store as StoreIcon
 } from "lucide-react";
 import { useState } from "react";
 
@@ -82,6 +82,13 @@ function Sidebar() {
           href: "/suppliers",
           icon: Building2,
           module: 'products',
+          action: 'read'
+        },
+        {
+          name: "Stores",
+          href: "/stores",
+          icon: Store,
+          module: 'stores',
           action: 'read'
         }
       ]
