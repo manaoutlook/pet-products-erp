@@ -63,4 +63,15 @@ function App() {
   );
 }
 
+import { BrowserRouter as Router } from "react-router-dom";
+
+// Wrap your App component with Router if it's not already done
+function App() {
+  return (
+    <Router>
+      {/* Your application content */}
+    </Router>
+  );
+}
+
 export default App;

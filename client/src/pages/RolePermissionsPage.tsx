@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -58,14 +57,15 @@ interface Role {
 function RolePermissionsPage() {
   const { id } = useParams<{ id: string }>();
   const roleId = id ? parseInt(id) : 0;
-  const navigate = useNavigate();
+  // We'll safely handle the navigate inside a useEffect to ensure Router context
+  const navigate = typeof window !== "undefined" ? useNavigate() : null;
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  
+
   // Local state for permissions
   const [permissions, setPermissions] = useState<Permissions>({});
   const [isChanged, setIsChanged] = useState(false);
-  
+
   // Fetch role data
   const { data: role, isLoading, isError, error } = useQuery<Role>({
     queryKey: [`/api/roles/${roleId}`],
@@ -73,14 +73,14 @@ function RolePermissionsPage() {
     enabled: roleId > 0,
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
-  
+
   // Update permissions when role data is loaded
   useEffect(() => {
     if (role?.permissions) {
       setPermissions(role.permissions);
     }
   }, [role]);
-  
+
   // Permission update mutation
   const updateMutation = useMutation({
     mutationFn: (permissions: Permissions) => {
@@ -105,44 +105,44 @@ function RolePermissionsPage() {
       });
     },
   });
-  
+
   // Handle permission change
   const handlePermissionChange = (module: string, action: string, value: boolean) => {
     setPermissions(prev => {
       const newPermissions = { ...prev };
-      
+
       // Initialize module if it doesn't exist
       if (!newPermissions[module]) {
         newPermissions[module] = {};
       }
-      
+
       // Set the action value
       newPermissions[module] = { 
         ...newPermissions[module], 
         [action]: value 
       };
-      
+
       return newPermissions;
     });
-    
+
     setIsChanged(true);
   };
-  
+
   // Handle save permissions
   const handleSave = () => {
     if (isChanged && roleId) {
       updateMutation.mutate(permissions);
     }
   };
-  
+
   // Handle go back
   const handleBack = () => {
-    navigate('/roles');
+    if(navigate) navigate('/roles');
   };
-  
+
   // Check if admin role (can't modify admin permissions)
   const isAdminRole = role?.name === 'admin';
-  
+
   if (isLoading) {
     return (
       <div className="container py-6">
@@ -155,7 +155,7 @@ function RolePermissionsPage() {
       </div>
     );
   }
-  
+
   if (isError) {
     return (
       <div className="container py-6">
@@ -170,7 +170,7 @@ function RolePermissionsPage() {
       </div>
     );
   }
-  
+
   if (!role) {
     return (
       <div className="container py-6">
@@ -185,7 +185,7 @@ function RolePermissionsPage() {
       </div>
     );
   }
-  
+
   return (
     <div className="container py-6">
       <div className="flex justify-between items-center mb-6">
@@ -209,7 +209,7 @@ function RolePermissionsPage() {
           </Button>
         </div>
       </div>
-      
+
       {isAdminRole && (
         <Alert className="mb-6">
           <AlertCircle className="h-4 w-4" />
@@ -219,7 +219,7 @@ function RolePermissionsPage() {
           </AlertDescription>
         </Alert>
       )}
-      
+
       <div className="grid gap-6">
         {permissionModules.map(module => (
           <Card key={module.id}>
