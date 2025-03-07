@@ -21,6 +21,17 @@ const updateUserSchema = z.object({
   roleId: z.number().positive().optional(),
 });
 
+const permissionSchema = z.object({
+  create: z.boolean().optional().default(false),
+  read: z.boolean().optional().default(false),
+  update: z.boolean().optional().default(false),
+  delete: z.boolean().optional().default(false),
+});
+
+const rolePermissionsSchema = z.object({
+  permissions: z.record(permissionSchema)
+});
+
 const insertProductSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
@@ -724,9 +735,18 @@ export function registerRoutes(app: Express): Server {
       const { id } = req.params;
       const { permissions } = req.body;
 
-      // Validate permissions object structure
-      if (!permissions || typeof permissions !== 'object') {
-        return res.status(400).send("Invalid permissions format");
+      // Validate permissions object structure using Zod
+      const validationResult = rolePermissionsSchema.safeParse({ permissions });
+      
+      if (!validationResult.success) {
+        return res.status(400).json({
+          message: "Invalid permissions format",
+          suggestion: "Permissions must be a valid object with module keys",
+          errors: validationResult.error.errors.map(err => ({
+            path: err.path.join('.'),
+            message: err.message
+          }))
+        });
       }
 
       // Prevent modifying admin role permissions
@@ -735,11 +755,17 @@ export function registerRoutes(app: Express): Server {
       });
 
       if (!roleToUpdate) {
-        return res.status(404).send("Role not found");
+        return res.status(404).json({
+          message: "Role not found",
+          suggestion: "Please verify the role ID is correct"
+        });
       }
 
       if (roleToUpdate.name === 'admin') {
-        return res.status(400).send("Cannot modify admin role permissions");
+        return res.status(400).json({
+          message: "Cannot modify admin role permissions",
+          suggestion: "The admin role always has full permissions"
+        });
       }
 
       const [updatedRole] = await db
@@ -765,7 +791,11 @@ export function registerRoutes(app: Express): Server {
       });
     } catch (error) {
       console.error('Error updating role permissions:', error);
-      res.status(500).send("Failed to update role permissions");
+      res.status(500).json({
+        message: "Failed to update role permissions",
+        suggestion: "Check server logs for details",
+        error: error instanceof Error ? error.message : String(error)
+      });
     }
   });
 
