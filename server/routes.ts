@@ -15,6 +15,12 @@ import { z } from "zod";
 import { crypto } from "./auth";
 
 // Schema validations
+const updateUserSchema = z.object({
+  username: z.string().min(3).optional(),
+  password: z.string().min(6).optional(),
+  roleId: z.number().positive().optional(),
+});
+
 const insertProductSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
