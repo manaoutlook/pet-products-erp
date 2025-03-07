@@ -167,7 +167,7 @@ function UsersPage() {
           id: editingUser.id, 
           data: {
             username: data.username,
-            password: data.password,
+            password: data.password, // Include password in update
             roleId: data.roleId
           }
         });
@@ -255,7 +255,7 @@ function UsersPage() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {roles?.map((role: SelectRole) => (
+                          {roles?.map(role => (
                             <SelectItem key={role.id} value={role.id.toString()}>
                               {role.name} ({role.roleType?.description})
                             </SelectItem>

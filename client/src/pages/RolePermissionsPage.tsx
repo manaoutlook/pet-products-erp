@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -9,7 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/use-toast';
 import { fetchData, putData } from '@/lib/api';
-import { logger } from '@/lib/logger';
+import logger from '@/lib/logger';
 
 // Define the module structure for permissions
 const permissionModules = [
@@ -28,8 +29,7 @@ const permissionActions = [
   { id: 'delete', label: 'Delete', description: 'Remove items' },
 ];
 
-// Define interfaces
-interface PermissionActions {
+interface Permission {
   create?: boolean;
   read?: boolean;
   update?: boolean;
@@ -37,17 +37,14 @@ interface PermissionActions {
 }
 
 interface Permissions {
-  [module: string]: PermissionActions;
+  [key: string]: Permission;
 }
 
 interface Role {
   id: number;
   name: string;
-  description: string | null;
+  description: string;
   permissions: Permissions;
-  roleTypeId: number;
-  createdAt: string;
-  updatedAt: string;
   roleType: {
     id: number;
     description: string;
@@ -57,15 +54,14 @@ interface Role {
 function RolePermissionsPage() {
   const { id } = useParams<{ id: string }>();
   const roleId = id ? parseInt(id) : 0;
-  // We'll safely handle the navigate inside a useEffect to ensure Router context
-  const navigate = typeof window !== "undefined" ? useNavigate() : null;
+  const navigate = useNavigate();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-
+  
   // Local state for permissions
   const [permissions, setPermissions] = useState<Permissions>({});
   const [isChanged, setIsChanged] = useState(false);
-
+  
   // Fetch role data
   const { data: role, isLoading, isError, error } = useQuery<Role>({
     queryKey: [`/api/roles/${roleId}`],
@@ -73,14 +69,14 @@ function RolePermissionsPage() {
     enabled: roleId > 0,
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
-
+  
   // Update permissions when role data is loaded
   useEffect(() => {
     if (role?.permissions) {
       setPermissions(role.permissions);
     }
   }, [role]);
-
+  
   // Permission update mutation
   const updateMutation = useMutation({
     mutationFn: (permissions: Permissions) => {
@@ -105,44 +101,44 @@ function RolePermissionsPage() {
       });
     },
   });
-
+  
   // Handle permission change
   const handlePermissionChange = (module: string, action: string, value: boolean) => {
     setPermissions(prev => {
       const newPermissions = { ...prev };
-
+      
       // Initialize module if it doesn't exist
       if (!newPermissions[module]) {
         newPermissions[module] = {};
       }
-
+      
       // Set the action value
       newPermissions[module] = { 
         ...newPermissions[module], 
         [action]: value 
       };
-
+      
       return newPermissions;
     });
-
+    
     setIsChanged(true);
   };
-
+  
   // Handle save permissions
   const handleSave = () => {
     if (isChanged && roleId) {
       updateMutation.mutate(permissions);
     }
   };
-
+  
   // Handle go back
   const handleBack = () => {
-    if(navigate) navigate('/roles');
+    navigate('/roles');
   };
-
+  
   // Check if admin role (can't modify admin permissions)
   const isAdminRole = role?.name === 'admin';
-
+  
   if (isLoading) {
     return (
       <div className="container py-6">
@@ -155,7 +151,7 @@ function RolePermissionsPage() {
       </div>
     );
   }
-
+  
   if (isError) {
     return (
       <div className="container py-6">
@@ -170,7 +166,7 @@ function RolePermissionsPage() {
       </div>
     );
   }
-
+  
   if (!role) {
     return (
       <div className="container py-6">
@@ -185,7 +181,7 @@ function RolePermissionsPage() {
       </div>
     );
   }
-
+  
   return (
     <div className="container py-6">
       <div className="flex justify-between items-center mb-6">
@@ -209,7 +205,7 @@ function RolePermissionsPage() {
           </Button>
         </div>
       </div>
-
+      
       {isAdminRole && (
         <Alert className="mb-6">
           <AlertCircle className="h-4 w-4" />
@@ -219,7 +215,7 @@ function RolePermissionsPage() {
           </AlertDescription>
         </Alert>
       )}
-
+      
       <div className="grid gap-6">
         {permissionModules.map(module => (
           <Card key={module.id}>
@@ -249,6 +245,31 @@ function RolePermissionsPage() {
                 ))}
               </div>
             </CardContent>
+            <CardFooter className="text-xs text-muted-foreground">
+              <div className="flex items-center space-x-1">
+                {permissions[module.id]?.create && <Check className="h-3 w-3 text-green-500" />}
+                {!permissions[module.id]?.create && <X className="h-3 w-3 text-red-500" />}
+                <span>Create</span>
+              </div>
+              <span className="mx-1">•</span>
+              <div className="flex items-center space-x-1">
+                {permissions[module.id]?.read && <Check className="h-3 w-3 text-green-500" />}
+                {!permissions[module.id]?.read && <X className="h-3 w-3 text-red-500" />}
+                <span>View</span>
+              </div>
+              <span className="mx-1">•</span>
+              <div className="flex items-center space-x-1">
+                {permissions[module.id]?.update && <Check className="h-3 w-3 text-green-500" />}
+                {!permissions[module.id]?.update && <X className="h-3 w-3 text-red-500" />}
+                <span>Update</span>
+              </div>
+              <span className="mx-1">•</span>
+              <div className="flex items-center space-x-1">
+                {permissions[module.id]?.delete && <Check className="h-3 w-3 text-green-500" />}
+                {!permissions[module.id]?.delete && <X className="h-3 w-3 text-red-500" />}
+                <span>Delete</span>
+              </div>
+            </CardFooter>
           </Card>
         ))}
       </div>

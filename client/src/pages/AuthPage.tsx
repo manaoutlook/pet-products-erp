@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
+import { insertUserSchema, type InsertUser } from "@db/schema";
 import { useUser } from "@/hooks/use-user";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -28,17 +28,9 @@ import {
 } from "@/components/ui/form";
 import { Loader2, AlertCircle } from "lucide-react";
 
-// Simple form schema without email validation
-const formSchema = z.object({
-  username: z.string().min(1, "Username is required"),
-  password: z.string().min(1, "Password is required"),
-});
-
-type FormData = z.infer<typeof formSchema>;
-
 interface AuthError {
   message: string;
-  suggestion?: string;
+  suggestion: string;
 }
 
 function AuthPage() {
@@ -46,32 +38,34 @@ function AuthPage() {
   const { login } = useUser();
   const { toast } = useToast();
 
-  const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
+  const form = useForm<InsertUser>({
+    resolver: zodResolver(insertUserSchema),
     defaultValues: {
       username: "",
       password: "",
+      roleId: 1, // Default role for login (not used)
     },
   });
 
-  const onSubmit = async (data: FormData) => {
+  const onSubmit = async (data: InsertUser) => {
     try {
       setAuthError(null);
-      const result = await login(data);
+      console.log('Attempting authentication...', { username: data.username });
 
-      if ('message' in result) {
+      const result = await login(data);
+      if ('suggestion' in result) {
         setAuthError(result as AuthError);
         return;
       }
-
       toast({
         title: "Success",
         description: "Logged in successfully",
       });
     } catch (error: any) {
+      console.error('Authentication error:', error);
       setAuthError({
         message: error.message || "Authentication failed",
-        suggestion: "Please try again or contact support if the problem persists."
+        suggestion: "Please try again later. If the problem persists, contact support."
       });
     }
   };
@@ -82,19 +76,16 @@ function AuthPage() {
         <CardHeader>
           <CardTitle>Login</CardTitle>
           <CardDescription>
-            Enter your username and password to access your account
+            Enter your credentials to access your account
           </CardDescription>
         </CardHeader>
         <CardContent>
           {authError && (
             <Alert variant="destructive" className="mb-4">
               <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Authentication Error</AlertTitle>
+              <AlertTitle>{authError.message}</AlertTitle>
               <AlertDescription>
-                {authError.message}
-                {authError.suggestion && (
-                  <div className="mt-2">{authError.suggestion}</div>
-                )}
+                {authError.suggestion}
               </AlertDescription>
             </Alert>
           )}
@@ -108,8 +99,6 @@ function AuthPage() {
                     <FormLabel>Username</FormLabel>
                     <FormControl>
                       <Input 
-                        type="text"
-                        placeholder="Enter your username"
                         {...field} 
                         autoComplete="username"
                       />
@@ -126,8 +115,7 @@ function AuthPage() {
                     <FormLabel>Password</FormLabel>
                     <FormControl>
                       <Input 
-                        type="password"
-                        placeholder="Enter your password"
+                        type="password" 
                         {...field} 
                         autoComplete="current-password"
                       />
@@ -144,7 +132,7 @@ function AuthPage() {
                 {form.formState.isSubmitting && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
-                Sign in
+                Login
               </Button>
             </form>
           </Form>
