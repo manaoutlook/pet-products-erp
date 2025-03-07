@@ -149,6 +149,7 @@ function RolesPage() {
   );
 
   const onSubmit = async (data: InsertRole) => {
+    console.log("Form submitted with data:", data); // Added console.log
     try {
       if (editingRole) {
         await updateMutation.mutateAsync({ 

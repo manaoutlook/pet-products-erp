@@ -127,7 +127,7 @@ export async function setupAdmin() {
 
     console.log('Using role type:', adminRoleType);
     
-    // Add Pet Store User role type if it doesn't exist
+    // Check if Pet Store User role type already exists
     const petStoreRoleType = await db.query.roleTypes.findFirst({
       where: eq(roleTypes.description, 'Pet Store User'),
     });
@@ -141,7 +141,7 @@ export async function setupAdmin() {
         });
     }
     
-    // Add Distribution Center User role type if it doesn't exist
+    // Check if Distribution Center User role type already exists
     const dcRoleType = await db.query.roleTypes.findFirst({
       where: eq(roleTypes.description, 'Distribution Center User'),
     });
