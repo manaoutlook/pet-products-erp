@@ -6,6 +6,7 @@ import { z } from "zod";
 import { Pencil, Plus, Trash2, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
+import { logger } from "@/lib/logger";
 import {
   Dialog,
   DialogContent,
@@ -72,7 +73,9 @@ const formSchema = z.object({
   roleTypeId: z.number(),
 });
 
-// Default permissions structure matching database format
+type InsertRole = z.infer<typeof formSchema>;
+
+// Default permissions structure exactly matching admin role format
 const defaultPermissions: Permissions = {
   users: {
     read: true,
@@ -99,8 +102,6 @@ const defaultPermissions: Permissions = {
     delete: false
   }
 };
-
-type InsertRole = z.infer<typeof formSchema>;
 
 function RolesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -137,8 +138,8 @@ function RolesPage() {
         ...data,
         permissions: defaultPermissions
       };
-      const response = await postData('/roles', roleData);
-      return response;
+      logger.info('Creating new role', { roleData });
+      return postData('/roles', roleData);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/roles'] });
@@ -148,9 +149,10 @@ function RolesPage() {
         title: "Success",
         description: "Role created successfully",
       });
+      logger.info('Role created successfully');
     },
     onError: (error: Error) => {
-      console.error("Error creating role:", error);
+      logger.error('Error creating role', { error });
       toast({
         title: "Error",
         description: error.message || "Failed to create role",
@@ -161,11 +163,12 @@ function RolesPage() {
 
   // Mutation for updating a role
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: InsertRole }) => {
+    mutationFn: async ({ id, data }: { id: number; data: InsertRole }) => {
       const roleData = {
         ...data,
         permissions: editingRole?.permissions || defaultPermissions
       };
+      logger.info('Updating role', { id, roleData });
       return putData(`/roles/${id}`, roleData);
     },
     onSuccess: () => {
@@ -177,9 +180,10 @@ function RolesPage() {
         title: "Success",
         description: "Role updated successfully",
       });
+      logger.info('Role updated successfully');
     },
     onError: (error: Error) => {
-      console.error("Error updating role:", error);
+      logger.error('Error updating role', { error });
       toast({
         title: "Error",
         description: error.message || "Failed to update role",
@@ -188,39 +192,11 @@ function RolesPage() {
     },
   });
 
-  // Mutation for deleting a role
-  const deleteMutation = useMutation({
-    mutationFn: (id: number) => deleteData(`/roles/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/roles'] });
-      toast({
-        title: "Success",
-        description: "Role deleted successfully",
-      });
-    },
-    onError: (error: Error) => {
-      console.error("Error deleting role:", error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to delete role",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Handler for opening the dialog for editing
-  function handleEdit(role: Role) {
-    setEditingRole(role);
-    form.reset({
-      name: role.name,
-      description: role.description || "",
-      roleTypeId: role.roleTypeId,
-    });
-    setDialogOpen(true);
-  }
-
+  // Handler for form submission
   const onSubmit = async (data: InsertRole) => {
     try {
+      logger.info('Submitting role form', { formData: data, isEditing: !!editingRole });
+
       if (editingRole) {
         await updateMutation.mutateAsync({ 
           id: editingRole.id, 
@@ -230,7 +206,7 @@ function RolesPage() {
         await createMutation.mutateAsync(data);
       }
     } catch (error: any) {
-      console.error("Error submitting form:", error);
+      logger.error('Error submitting form', { error });
       toast({
         title: "Error",
         description: error.message || "Failed to submit form",
@@ -239,12 +215,37 @@ function RolesPage() {
     }
   };
 
+  // Handler for opening the dialog for editing
+  function handleEdit(role: Role) {
+    logger.info('Opening edit dialog for role', { roleId: role.id });
+    setEditingRole(role);
+    form.reset({
+      name: role.name,
+      description: role.description || "",
+      roleTypeId: role.roleTypeId,
+    });
+    setDialogOpen(true);
+  }
+
+  // Handler for deleting a role
   async function handleDelete(id: number) {
     if (window.confirm("Are you sure you want to delete this role?")) {
+      logger.info('Deleting role', { roleId: id });
       try {
-        await deleteMutation.mutateAsync(id);
-      } catch (error) {
-        console.error("Error deleting role:", error);
+        await deleteData(`/roles/${id}`);
+        queryClient.invalidateQueries({ queryKey: ['/api/roles'] });
+        toast({
+          title: "Success",
+          description: "Role deleted successfully",
+        });
+        logger.info('Role deleted successfully', { roleId: id });
+      } catch (error: any) {
+        logger.error('Error deleting role', { roleId: id, error });
+        toast({
+          title: "Error",
+          description: error.message || "Failed to delete role",
+          variant: "destructive",
+        });
       }
     }
   }
@@ -287,7 +288,7 @@ function RolesPage() {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {roles?.map((role) => (
+            {roles?.map((role: Role) => (
               <tr key={role.id}>
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{role.name}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{role.description || "-"}</td>
@@ -362,7 +363,7 @@ function RolesPage() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {roleTypes?.map((type) => (
+                        {roleTypes?.map((type: RoleType) => (
                           <SelectItem key={type.id} value={type.id.toString()}>
                             {type.description}
                           </SelectItem>
