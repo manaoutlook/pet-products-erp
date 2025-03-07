@@ -50,6 +50,33 @@ interface RoleType {
   description: string;
 }
 
+interface Permissions {
+  users: {
+    view: boolean;
+    create: boolean;
+    update: boolean;
+    delete: boolean;
+  };
+  orders: {
+    view: boolean;
+    create: boolean;
+    update: boolean;
+    delete: boolean;
+  };
+  products: {
+    view: boolean;
+    create: boolean;
+    update: boolean;
+    delete: boolean;
+  };
+  inventory: {
+    view: boolean;
+    create: boolean;
+    update: boolean;
+    delete: boolean;
+  };
+}
+
 const formSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
@@ -57,7 +84,7 @@ const formSchema = z.object({
 });
 
 // Default permissions structure
-const defaultPermissions = {
+const defaultPermissions: Permissions = {
   users: {
     view: true,
     create: false,
