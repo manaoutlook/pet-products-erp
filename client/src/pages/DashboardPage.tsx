@@ -11,6 +11,8 @@ import {
   ResponsiveContainer
 } from "recharts";
 
+import React from 'react';
+
 function DashboardPage() {
   const { data: stats } = useQuery({
     queryKey: ['/api/stats'],
@@ -59,7 +61,6 @@ function DashboardPage() {
 }
 
 export default DashboardPage;
-import React from 'react';
 
 export default function DashboardPage() {
   return (
