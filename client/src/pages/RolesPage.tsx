@@ -13,6 +13,8 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import {
   Card,
@@ -27,7 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
+import { Input, Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -194,9 +196,10 @@ function RolesPage() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{editingRole ? 'Edit Role' : 'Add New Role'}</DialogTitle>
+              {editingRole ? null : <DialogDescription>Add a new role to the system. Roles control what actions users can perform.</DialogDescription>}
             </DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 mt-4">
                 <FormField
                   control={form.control}
                   name="name"
@@ -217,7 +220,7 @@ function RolesPage() {
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Input {...field} value={field.value || ""} />
+                        <Textarea {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -250,16 +253,17 @@ function RolesPage() {
                     </FormItem>
                   )}
                 />
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={form.formState.isSubmitting}
-                >
-                  {form.formState.isSubmitting && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
-                  {editingRole ? 'Update Role' : 'Create Role'}
-                </Button>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={form.formState.isSubmitting || createMutation.isPending}>
+                    {form.formState.isSubmitting || createMutation.isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : null}
+                    {editingRole ? 'Update Role' : 'Create Role'}
+                  </Button>
+                </DialogFooter>
               </form>
             </Form>
           </DialogContent>
