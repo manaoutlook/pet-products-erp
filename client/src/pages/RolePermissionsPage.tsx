@@ -10,7 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/use-toast';
 import { fetchData, putData } from '@/lib/api';
-import logger from '@/lib/logger';
+import { logger } from '@/lib/logger';
 
 // Define the module structure for permissions
 const permissionModules = [
