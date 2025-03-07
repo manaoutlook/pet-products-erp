@@ -102,7 +102,7 @@ function AuthPage() {
                 name="username"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Email</FormLabel>
+                    <FormLabel>Username</FormLabel>
                     <FormControl>
                       <Input 
                         type="text"
@@ -140,7 +140,7 @@ function AuthPage() {
                 {form.formState.isSubmitting && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
-                Login
+                Sign in
               </Button>
             </form>
           </Form>
