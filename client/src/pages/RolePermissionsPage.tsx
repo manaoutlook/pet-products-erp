@@ -236,7 +236,7 @@ function RolePermissionsPage() {
                           <div key={permission.key} className="flex items-center justify-between gap-2">
                             <span className="text-sm">{permission.label}</span>
                             <Switch
-                              checked={role.permissions[module.key][permission.key]}
+                              checked={role.permissions[module.key]?.[permission.key] || false}
                               onCheckedChange={(checked) => {
                                 handlePermissionChange(role.id, module.key, permission.key, checked);
                               }}
