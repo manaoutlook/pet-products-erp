@@ -76,6 +76,7 @@ function RolesPage() {
     onSuccess: () => {
       refetch();
       setDialogOpen(false);
+      form.reset();
       toast({ title: "Success", description: "Role created successfully" });
     },
     onError: (error: Error) => {
@@ -149,7 +150,6 @@ function RolesPage() {
   );
 
   const onSubmit = async (data: InsertRole) => {
-    console.log("Form submitted with data:", data); // Added console.log
     try {
       if (editingRole) {
         await updateMutation.mutateAsync({ 
