@@ -167,7 +167,7 @@ function UsersPage() {
           id: editingUser.id, 
           data: {
             username: data.username,
-            password: data.password, // Include password in update
+            password: data.password,
             roleId: data.roleId
           }
         });
@@ -255,7 +255,7 @@ function UsersPage() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {roles?.map(role => (
+                          {roles?.map((role: SelectRole) => (
                             <SelectItem key={role.id} value={role.id.toString()}>
                               {role.name} ({role.roleType?.description})
                             </SelectItem>
@@ -354,90 +354,3 @@ function UsersPage() {
 }
 
 export default UsersPage;
-import React from 'react';
-
-export default function UsersPage() {
-  return (
-    <div className="container mx-auto p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Users</h1>
-        <button className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600">
-          Add New User
-        </button>
-      </div>
-      
-      <div className="bg-white p-6 rounded-lg shadow">
-        <div className="mb-4">
-          <input 
-            type="text" 
-            placeholder="Search users..." 
-            className="px-3 py-2 border border-gray-300 rounded-md w-full md:w-1/3"
-          />
-        </div>
-        
-        <table className="min-w-full">
-          <thead>
-            <tr className="bg-gray-50">
-              <th className="px-4 py-2 text-left">Name</th>
-              <th className="px-4 py-2 text-left">Email</th>
-              <th className="px-4 py-2 text-left">Role</th>
-              <th className="px-4 py-2 text-left">Status</th>
-              <th className="px-4 py-2 text-left">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="border-t">
-              <td className="px-4 py-3">Nguyen Van Admin</td>
-              <td className="px-4 py-3">admin@example.com</td>
-              <td className="px-4 py-3">Administrator</td>
-              <td className="px-4 py-3">
-                <span className="px-2 py-1 bg-green-100 text-green-800 rounded">Active</span>
-              </td>
-              <td className="px-4 py-3">
-                <button className="text-blue-500 hover:text-blue-700 mr-2">Edit</button>
-                <button className="text-red-500 hover:text-red-700">Delete</button>
-              </td>
-            </tr>
-            <tr className="border-t">
-              <td className="px-4 py-3">Tran Manager</td>
-              <td className="px-4 py-3">manager@example.com</td>
-              <td className="px-4 py-3">Manager</td>
-              <td className="px-4 py-3">
-                <span className="px-2 py-1 bg-green-100 text-green-800 rounded">Active</span>
-              </td>
-              <td className="px-4 py-3">
-                <button className="text-blue-500 hover:text-blue-700 mr-2">Edit</button>
-                <button className="text-red-500 hover:text-red-700">Delete</button>
-              </td>
-            </tr>
-            <tr className="border-t">
-              <td className="px-4 py-3">Le Staff</td>
-              <td className="px-4 py-3">staff@example.com</td>
-              <td className="px-4 py-3">Staff</td>
-              <td className="px-4 py-3">
-                <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded">Inactive</span>
-              </td>
-              <td className="px-4 py-3">
-                <button className="text-blue-500 hover:text-blue-700 mr-2">Edit</button>
-                <button className="text-red-500 hover:text-red-700">Delete</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        
-        <div className="mt-4 flex justify-between items-center">
-          <div>Showing 1-3 of 3 users</div>
-          <div className="flex space-x-2">
-            <button className="px-3 py-1 border border-gray-300 rounded-md disabled:opacity-50">
-              Previous
-            </button>
-            <button className="px-3 py-1 bg-blue-500 text-white rounded-md">1</button>
-            <button className="px-3 py-1 border border-gray-300 rounded-md disabled:opacity-50">
-              Next
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
