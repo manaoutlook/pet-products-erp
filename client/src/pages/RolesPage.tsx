@@ -1,47 +1,3 @@
-// lib/api.ts
-import { type InsertRole } from "@db/schema";
-
-async function fetchData(endpoint: string):Promise<any> {
-  const res = await fetch(`/api/${endpoint}`, { credentials: 'include' });
-  return res.json();
-}
-
-async function postData(endpoint: string, data: InsertRole): Promise<any> {
-  const res = await fetch(`/api/${endpoint}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
-    credentials: 'include'
-  });
-  return res.json();
-}
-
-async function putData(endpoint: string, data: InsertRole): Promise<any> {
-  const res = await fetch(endpoint, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
-    credentials: 'include'
-  });
-  return res.json();
-}
-
-async function deleteData(endpoint: string): Promise<any> {
-  const res = await fetch(endpoint, {
-    method: "DELETE",
-    credentials: 'include'
-  });
-  return res.json();
-}
-
-export { fetchData, postData, putData, deleteData };
-
-
-// client/src/pages/RolesPage.tsx
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -85,14 +41,19 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { insertRoleSchema, type InsertRole, type SelectRole } from "@db/schema";
+import { type InsertRole, type SelectRole } from "@db/schema";
 import { fetchData, postData, putData, deleteData } from "@/lib/api";
-import { useRolePermissions } from "@/hooks/use-role-permissions";
 
-const formSchema = insertRoleSchema.pick({
-  name: true,
-  description: true,
-  roleTypeId: true,
+// Let's create a type for role types to fix the implicit any
+interface RoleType {
+  id: number;
+  description: string;
+}
+
+const formSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  description: z.string().optional(),
+  roleTypeId: z.number(),
 });
 
 function RolesPage() {
@@ -101,7 +62,6 @@ function RolesPage() {
   const [editingRole, setEditingRole] = useState<SelectRole | null>(null);
 
   const { toast } = useToast();
-  const { hasPermission } = useRolePermissions();
 
   const createMutation = useMutation({
     mutationFn: async (data: InsertRole) => {
@@ -174,7 +134,7 @@ function RolesPage() {
     },
   });
 
-  const { data: roleTypes, isLoading: isLoadingRoleTypes } = useQuery({
+  const { data: roleTypes, isLoading: isLoadingRoleTypes } = useQuery<RoleType[]>({
     queryKey: ["/api/role-types"],
     queryFn: async () => {
       return fetchData("/role-types");
@@ -232,95 +192,97 @@ function RolesPage() {
     <div className="space-y-6 p-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Roles</h1>
-        {hasPermission("users", "create") && (
-          <Dialog open={dialogOpen} onOpenChange={onOpenChange}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                Create Role
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>{editingRole ? "Edit Role" : "Add New Role"}</DialogTitle>
-                <DialogDescription>
-                  {editingRole
-                    ? "Edit an existing role in the system."
-                    : "Add a new role to the system. Roles control what actions users can perform."}
-                </DialogDescription>
-              </DialogHeader>
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Name</FormLabel>
+        <Dialog open={dialogOpen} onOpenChange={onOpenChange}>
+          <DialogTrigger asChild>
+            <Button>
+              <Plus className="h-4 w-4 mr-2" />
+              Create Role
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{editingRole ? "Edit Role" : "Add New Role"}</DialogTitle>
+              <DialogDescription>
+                {editingRole
+                  ? "Edit an existing role in the system."
+                  : "Add a new role to the system. Roles control what actions users can perform."}
+              </DialogDescription>
+            </DialogHeader>
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Name</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Enter role name" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Description</FormLabel>
+                      <FormControl>
+                        <Textarea 
+                          placeholder="Enter role description" 
+                          {...field} 
+                          value={field.value || ''} // Ensure value is never null
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="roleTypeId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Role Type</FormLabel>
+                      <Select
+                        onValueChange={(value) => field.onChange(parseInt(value))}
+                        defaultValue={field.value?.toString()}
+                        value={field.value?.toString()}
+                      >
                         <FormControl>
-                          <Input placeholder="Enter role name" {...field} />
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select role type" />
+                          </SelectTrigger>
                         </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="description"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Description</FormLabel>
-                        <FormControl>
-                          <Textarea placeholder="Enter role description" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="roleTypeId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Role Type</FormLabel>
-                        <Select
-                          onValueChange={(value) => field.onChange(parseInt(value))}
-                          defaultValue={field.value?.toString()}
-                          value={field.value?.toString()}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select role type" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {!isLoadingRoleTypes &&
-                              roleTypes?.map((type) => (
-                                <SelectItem key={type.id} value={type.id.toString()}>
-                                  {type.description}
-                                </SelectItem>
-                              ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <div className="flex justify-end space-x-2">
-                    <DialogClose asChild>
-                      <Button variant="outline" type="button">
-                        Cancel
-                      </Button>
-                    </DialogClose>
-                    <Button type="submit">
-                      {editingRole ? "Update Role" : "Create Role"}
+                        <SelectContent>
+                          {!isLoadingRoleTypes &&
+                            roleTypes?.map((type: RoleType) => (
+                              <SelectItem key={type.id} value={type.id.toString()}>
+                                {type.description}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <div className="flex justify-end space-x-2">
+                  <DialogClose asChild>
+                    <Button variant="outline" type="button">
+                      Cancel
                     </Button>
-                  </div>
-                </form>
-              </Form>
-            </DialogContent>
-          </Dialog>
-        )}
+                  </DialogClose>
+                  <Button type="submit">
+                    {editingRole ? "Update Role" : "Create Role"}
+                  </Button>
+                </div>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <Card>
@@ -337,7 +299,7 @@ function RolesPage() {
                 <TableHead>Name</TableHead>
                 <TableHead>Description</TableHead>
                 <TableHead>Role Type</TableHead>
-                {hasPermission("users", "update") && <TableHead>Actions</TableHead>}
+                <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -348,33 +310,31 @@ function RolesPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                roles?.map((role) => (
+                roles?.map((role: SelectRole) => (
                   <TableRow key={role.id}>
                     <TableCell className="font-medium">{role.name}</TableCell>
                     <TableCell>{role.description}</TableCell>
                     <TableCell>{role.roleType?.description}</TableCell>
-                    {hasPermission("users", "update") && (
-                      <TableCell>
-                        <div className="flex items-center gap-2">
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleEdit(role)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        {role.name !== "admin" && (
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => handleEdit(role)}
+                            onClick={() => handleDelete(role.id)}
                           >
-                            <Pencil className="h-4 w-4" />
+                            <Trash className="h-4 w-4" />
                           </Button>
-                          {role.name !== "admin" && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDelete(role.id)}
-                            >
-                              <Trash className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    )}
+                        )}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))
               )}
