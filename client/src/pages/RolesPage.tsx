@@ -95,7 +95,18 @@ function RolesPage() {
 
   // Mutation for creating a new role
   const createMutation = useMutation({
-    mutationFn: (data: InsertRole) => postData('/roles', data),
+    mutationFn: async (data: InsertRole) => {
+      // Add default permissions structure
+      const defaultPermissions = {
+        products: { create: false, read: false, update: false, delete: false },
+        orders: { create: false, read: false, update: false, delete: false },
+        inventory: { create: false, read: false, update: false, delete: false },
+        users: { create: false, read: false, update: false, delete: false },
+        stores: { create: false, read: false, update: false, delete: false }
+      };
+      const response = await postData('/roles', {...data, permissions: defaultPermissions});
+      return response;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/roles'] });
       setDialogOpen(false);
