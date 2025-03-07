@@ -102,10 +102,11 @@ function AuthPage() {
                 name="username"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Username</FormLabel>
+                    <FormLabel>Email</FormLabel>
                     <FormControl>
                       <Input 
                         type="text"
+                        placeholder="Enter your username"
                         {...field} 
                         autoComplete="username"
                       />
