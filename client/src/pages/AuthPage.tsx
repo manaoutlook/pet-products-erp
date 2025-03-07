@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertUserSchema, type InsertUser } from "@db/schema";
+import * as z from "zod";
 import { useUser } from "@/hooks/use-user";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -33,30 +33,37 @@ interface AuthError {
   suggestion: string;
 }
 
+// Define the form schema
+const formSchema = z.object({
+  username: z.string().min(1, "Username is required"),
+  password: z.string().min(1, "Password is required"),
+});
+
+type FormData = z.infer<typeof formSchema>;
+
 function AuthPage() {
   const [authError, setAuthError] = useState<AuthError | null>(null);
   const { login } = useUser();
   const { toast } = useToast();
 
-  const form = useForm<InsertUser>({
-    resolver: zodResolver(insertUserSchema),
+  const form = useForm<FormData>({
+    resolver: zodResolver(formSchema),
     defaultValues: {
       username: "",
       password: "",
-      roleId: 1, // Default role for login (not used)
     },
   });
 
-  const onSubmit = async (data: InsertUser) => {
+  const onSubmit = async (data: FormData) => {
     try {
       setAuthError(null);
-      console.log('Attempting authentication...', { username: data.username });
-
       const result = await login(data);
+
       if ('suggestion' in result) {
         setAuthError(result as AuthError);
         return;
       }
+
       toast({
         title: "Success",
         description: "Logged in successfully",
