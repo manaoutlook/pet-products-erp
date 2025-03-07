@@ -1,4 +1,3 @@
-
 // API utility functions
 const API_BASE_URL = '/api';
 
@@ -6,7 +5,7 @@ export async function fetchData<T>(endpoint: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     credentials: 'include',
   });
-  
+
   if (!response.ok) {
     // Try to parse error message from response
     try {
@@ -17,7 +16,7 @@ export async function fetchData<T>(endpoint: string): Promise<T> {
       throw new Error(`API error: ${response.status}`);
     }
   }
-  
+
   return response.json();
 }
 
@@ -30,18 +29,18 @@ export async function postData<T>(endpoint: string, data: any): Promise<T> {
     body: JSON.stringify(data),
     credentials: 'include',
   });
-  
+
   if (!response.ok) {
     // Try to parse error message from response
     try {
       const errorData = await response.json();
-      throw new Error(errorData.message || `API error: ${response.status}`);
+      throw new Error(`API error: ${response.status} - ${errorData.message || 'Unknown error'}`);
     } catch (e) {
-      // If parsing fails, use generic error
+      // If parsing fails, use the generic error
       throw new Error(`API error: ${response.status}`);
     }
   }
-  
+
   return response.json();
 }
 
@@ -54,18 +53,18 @@ export async function putData<T>(endpoint: string, data: any): Promise<T> {
     body: JSON.stringify(data),
     credentials: 'include',
   });
-  
+
   if (!response.ok) {
     // Try to parse error message from response
     try {
       const errorData = await response.json();
-      throw new Error(errorData.message || `API error: ${response.status}`);
+      throw new Error(`API error: ${response.status} - ${errorData.message || 'Unknown error'}`);
     } catch (e) {
-      // If parsing fails, use generic error
+      // If parsing fails, use the generic error
       throw new Error(`API error: ${response.status}`);
     }
   }
-  
+
   return response.json();
 }
 
@@ -74,17 +73,17 @@ export async function deleteData<T>(endpoint: string): Promise<T> {
     method: 'DELETE',
     credentials: 'include',
   });
-  
+
   if (!response.ok) {
     // Try to parse error message from response
     try {
       const errorData = await response.json();
-      throw new Error(errorData.message || `API error: ${response.status}`);
+      throw new Error(`API error: ${response.status} - ${errorData.message || 'Unknown error'}`);
     } catch (e) {
       // If parsing fails, use generic error
       throw new Error(`API error: ${response.status}`);
     }
   }
-  
+
   return response.json();
 }
