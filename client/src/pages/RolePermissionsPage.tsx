@@ -1,278 +1,261 @@
-
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Check, X, AlertCircle, Save } from 'lucide-react';
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Skeleton } from '@/components/ui/skeleton';
-import { useToast } from '@/components/ui/use-toast';
-import { fetchData, putData } from '@/lib/api';
-import logger from '@/lib/logger';
-
-// Define the module structure for permissions
-const permissionModules = [
-  { id: 'products', label: 'Products', description: 'Manage product catalog' },
-  { id: 'orders', label: 'Orders', description: 'Manage customer orders' },
-  { id: 'inventory', label: 'Inventory', description: 'Manage inventory levels' },
-  { id: 'users', label: 'Users', description: 'Manage system users' },
-  { id: 'stores', label: 'Stores', description: 'Manage store locations' },
-];
-
-// Define permission actions
-const permissionActions = [
-  { id: 'create', label: 'Create', description: 'Add new items' },
-  { id: 'read', label: 'View', description: 'View existing items' },
-  { id: 'update', label: 'Update', description: 'Modify existing items' },
-  { id: 'delete', label: 'Delete', description: 'Remove items' },
-];
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
+import { Loader2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useState } from "react";
 
 interface Permission {
-  create?: boolean;
-  read?: boolean;
-  update?: boolean;
-  delete?: boolean;
+  create: boolean;
+  read: boolean;
+  update: boolean;
+  delete: boolean;
 }
 
 interface Permissions {
-  [key: string]: Permission;
+  products: Permission;
+  orders: Permission;
+  inventory: Permission;
+  users: Permission;
+  stores: Permission;
 }
 
 interface Role {
   id: number;
   name: string;
-  description: string;
+  description: string | null;
   permissions: Permissions;
   roleType: {
-    id: number;
     description: string;
   };
 }
 
 function RolePermissionsPage() {
-  const { id } = useParams<{ id: string }>();
-  const roleId = id ? parseInt(id) : 0;
-  const navigate = useNavigate();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  
-  // Local state for permissions
-  const [permissions, setPermissions] = useState<Permissions>({});
-  const [isChanged, setIsChanged] = useState(false);
-  
-  // Fetch role data
-  const { data: role, isLoading, isError, error } = useQuery<Role>({
-    queryKey: [`/api/roles/${roleId}`],
-    queryFn: () => fetchData(`/roles/${roleId}`),
-    enabled: roleId > 0,
-    staleTime: 1000 * 60 * 5, // 5 minutes
+  const [selectedRole, setSelectedRole] = useState<string>("all");
+  const [selectedModule, setSelectedModule] = useState<string>("all");
+
+  const { data: roles, isLoading: isLoadingRoles } = useQuery<Role[]>({
+    queryKey: ['/api/roles'],
+    staleTime: 0, // Disable automatic background updates
   });
-  
-  // Update permissions when role data is loaded
-  useEffect(() => {
-    if (role?.permissions) {
-      setPermissions(role.permissions);
-    }
-  }, [role]);
-  
-  // Permission update mutation
-  const updateMutation = useMutation({
-    mutationFn: (permissions: Permissions) => {
-      logger.info('Updating role permissions', { roleId, permissions });
-      return putData(`/roles/${roleId}/permissions`, { permissions });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/roles/${roleId}`] });
-      queryClient.invalidateQueries({ queryKey: ['/api/roles'] });
-      setIsChanged(false);
-      toast({
-        title: "Success",
-        description: "Role permissions updated successfully",
+
+  const updatePermissionsMutation = useMutation({
+    mutationFn: async ({ roleId, permissions }: { roleId: number; permissions: Permissions }) => {
+      const res = await fetch(`/api/roles/${roleId}/permissions`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ permissions }),
+        credentials: 'include',
       });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: (data, variables) => {
+      // Update the roles cache optimistically to maintain order
+      queryClient.setQueryData<Role[]>(['/api/roles'], (oldRoles) => {
+        if (!oldRoles) return oldRoles;
+        return oldRoles.map(role =>
+          role.id === variables.roleId
+            ? { ...role, permissions: variables.permissions }
+            : role
+        );
+      });
+      toast({ title: "Success", description: "Permissions updated successfully" });
     },
     onError: (error: Error) => {
-      logger.error('Error updating permissions', { error });
       toast({
         title: "Error",
-        description: error.message || "Failed to update permissions",
-        variant: "destructive",
+        description: error.message,
+        variant: "destructive"
       });
+      // Invalidate the cache to refetch the correct data
+      queryClient.invalidateQueries({ queryKey: ['/api/roles'] });
     },
   });
-  
-  // Handle permission change
-  const handlePermissionChange = (module: string, action: string, value: boolean) => {
-    setPermissions(prev => {
-      const newPermissions = { ...prev };
-      
-      // Initialize module if it doesn't exist
-      if (!newPermissions[module]) {
-        newPermissions[module] = {};
+
+  const handlePermissionChange = async (
+    roleId: number,
+    module: keyof Permissions,
+    permission: keyof Permission,
+    value: boolean
+  ) => {
+    const role = roles?.find(r => r.id === roleId);
+    if (!role) return;
+
+    // Create a new permissions object with the updated value
+    const newPermissions = {
+      ...role.permissions,
+      [module]: {
+        ...(role.permissions[module] || { create: false, read: false, update: false, delete: false }),
+        [permission]: value
       }
-      
-      // Set the action value
-      newPermissions[module] = { 
-        ...newPermissions[module], 
-        [action]: value 
-      };
-      
-      return newPermissions;
-    });
-    
-    setIsChanged(true);
-  };
-  
-  // Handle save permissions
-  const handleSave = () => {
-    if (isChanged && roleId) {
-      updateMutation.mutate(permissions);
+    };
+
+    try {
+      await updatePermissionsMutation.mutateAsync({
+        roleId,
+        permissions: newPermissions
+      });
+    } catch (error) {
+      // Error handling is done in mutation's onError callback
+      console.error('Failed to update permissions:', error);
     }
   };
-  
-  // Handle go back
-  const handleBack = () => {
-    navigate('/roles');
-  };
-  
-  // Check if admin role (can't modify admin permissions)
-  const isAdminRole = role?.name === 'admin';
-  
-  if (isLoading) {
+
+  const modules = [
+    { key: 'products' as const, label: 'Products Module' },
+    { key: 'orders' as const, label: 'Orders Module' },
+    { key: 'inventory' as const, label: 'Inventory Module' },
+    { key: 'users' as const, label: 'User Management Module' },
+    { key: 'stores' as const, label: 'Store Management Module' },
+  ];
+
+  const permissions = [
+    { key: 'read' as const, label: 'View' },
+    { key: 'create' as const, label: 'Create' },
+    { key: 'update' as const, label: 'Edit' },
+    { key: 'delete' as const, label: 'Delete' },
+  ];
+
+  if (isLoadingRoles) {
     return (
-      <div className="container py-6">
-        <Skeleton className="h-12 w-3/4 mb-6" />
-        <div className="grid gap-6">
-          {[1, 2, 3].map(i => (
-            <Skeleton key={i} className="h-64" />
-          ))}
-        </div>
+      <div className="flex justify-center py-8">
+        <Loader2 className="h-8 w-8 animate-spin" />
       </div>
     );
   }
-  
-  if (isError) {
-    return (
-      <div className="container py-6">
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>
-            {error instanceof Error ? error.message : 'Failed to load role permissions'}
-          </AlertDescription>
-        </Alert>
-        <Button onClick={handleBack} className="mt-4">Back to Roles</Button>
-      </div>
-    );
-  }
-  
-  if (!role) {
-    return (
-      <div className="container py-6">
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Not Found</AlertTitle>
-          <AlertDescription>
-            The requested role was not found.
-          </AlertDescription>
-        </Alert>
-        <Button onClick={handleBack} className="mt-4">Back to Roles</Button>
-      </div>
-    );
-  }
-  
+
+  // Filter roles and modules based on selection
+  const filteredRoles = selectedRole === "all"
+    ? roles
+    : roles?.filter(role => role.id.toString() === selectedRole);
+
+  const filteredModules = selectedModule === "all"
+    ? modules
+    : modules.filter(module => module.key === selectedModule);
+
   return (
-    <div className="container py-6">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{role.name} Permissions</h1>
-          <p className="text-muted-foreground mt-1">{role.description}</p>
-          <div className="inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 text-foreground mt-2">
-            {role.roleType.description}
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={handleBack}>Cancel</Button>
-          <Button 
-            onClick={handleSave} 
-            disabled={!isChanged || isAdminRole || updateMutation.isPending}
-          >
-            {updateMutation.isPending && (
-              <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            )}
-            Save Changes
-          </Button>
-        </div>
-      </div>
-      
-      {isAdminRole && (
-        <Alert className="mb-6">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Admin Role</AlertTitle>
-          <AlertDescription>
-            The admin role permissions cannot be modified as it always has full access to all system features.
-          </AlertDescription>
-        </Alert>
-      )}
-      
-      <div className="grid gap-6">
-        {permissionModules.map(module => (
-          <Card key={module.id}>
-            <CardHeader>
-              <CardTitle>{module.label}</CardTitle>
-              <CardDescription>{module.description}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {permissionActions.map(action => (
-                  <div key={action.id} className="flex items-center space-x-2">
-                    <Checkbox 
-                      id={`${module.id}-${action.id}`}
-                      checked={permissions[module.id]?.[action.id] || false}
-                      onCheckedChange={(checked) => 
-                        handlePermissionChange(module.id, action.id, checked === true)
-                      }
-                      disabled={isAdminRole}
-                    />
-                    <label
-                      htmlFor={`${module.id}-${action.id}`}
-                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                    >
-                      {action.label}
-                    </label>
-                  </div>
+    <div className="space-y-6 p-6">
+      <h1 className="text-3xl font-bold tracking-tight">Role Permissions</h1>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Filters</CardTitle>
+        </CardHeader>
+        <CardContent className="flex gap-4">
+          <div className="w-[200px]">
+            <Select
+              value={selectedRole}
+              onValueChange={setSelectedRole}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select Role" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Roles</SelectItem>
+                {roles?.map((role) => (
+                  <SelectItem key={role.id} value={role.id.toString()}>
+                    {role.name}
+                  </SelectItem>
                 ))}
-              </div>
-            </CardContent>
-            <CardFooter className="text-xs text-muted-foreground">
-              <div className="flex items-center space-x-1">
-                {permissions[module.id]?.create && <Check className="h-3 w-3 text-green-500" />}
-                {!permissions[module.id]?.create && <X className="h-3 w-3 text-red-500" />}
-                <span>Create</span>
-              </div>
-              <span className="mx-1">•</span>
-              <div className="flex items-center space-x-1">
-                {permissions[module.id]?.read && <Check className="h-3 w-3 text-green-500" />}
-                {!permissions[module.id]?.read && <X className="h-3 w-3 text-red-500" />}
-                <span>View</span>
-              </div>
-              <span className="mx-1">•</span>
-              <div className="flex items-center space-x-1">
-                {permissions[module.id]?.update && <Check className="h-3 w-3 text-green-500" />}
-                {!permissions[module.id]?.update && <X className="h-3 w-3 text-red-500" />}
-                <span>Update</span>
-              </div>
-              <span className="mx-1">•</span>
-              <div className="flex items-center space-x-1">
-                {permissions[module.id]?.delete && <Check className="h-3 w-3 text-green-500" />}
-                {!permissions[module.id]?.delete && <X className="h-3 w-3 text-red-500" />}
-                <span>Delete</span>
-              </div>
-            </CardFooter>
-          </Card>
-        ))}
-      </div>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="w-[200px]">
+            <Select
+              value={selectedModule}
+              onValueChange={setSelectedModule}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select Module" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Modules</SelectItem>
+                {modules.map((module) => (
+                  <SelectItem key={module.key} value={module.key}>
+                    {module.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Manage Role Permissions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[200px]">Role</TableHead>
+                {filteredModules.map(module => (
+                  <TableHead key={module.key} className="text-center min-w-[200px]">
+                    {module.label}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredRoles?.map((role) => (
+                <TableRow key={role.id}>
+                  <TableCell className="font-medium">
+                    <div>
+                      <p>{role.name}</p>
+                      <p className="text-sm text-muted-foreground">{role.roleType.description}</p>
+                    </div>
+                  </TableCell>
+                  {filteredModules.map(module => (
+                    <TableCell key={module.key}>
+                      <div className="space-y-2">
+                        {permissions.map(permission => (
+                          <div key={permission.key} className="flex items-center justify-between gap-2">
+                            <span className="text-sm">{permission.label}</span>
+                            <Switch
+                              checked={role.permissions[module.key]?.[permission.key] || false}
+                              onCheckedChange={(checked) => {
+                                handlePermissionChange(role.id, module.key, permission.key, checked);
+                              }}
+                              disabled={
+                                role.name === 'admin' || // Admin role always has full permissions
+                                updatePermissionsMutation.isPending
+                              }
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   );
 }

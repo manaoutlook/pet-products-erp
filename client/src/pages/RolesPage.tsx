@@ -1,18 +1,14 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { Pencil, Plus, Trash2, Loader2 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { logger } from "@/lib/logger";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogClose,
 } from "@/components/ui/dialog";
 import {
   Form,
@@ -31,128 +27,53 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { fetchData, postData, putData, deleteData } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast"; // Corrected import path
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import { Pencil, Plus, Shield, Trash } from "lucide-react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { insertRoleSchema, type InsertRole, type SelectRole } from "@db/schema";
+import { fetchApi } from "@/lib/api";
+import { useRolePermissions } from "@/hooks/use-role-permissions";
 
-// Define interfaces
-interface RoleType {
-  id: number;
-  description: string;
-}
-
-interface Role {
-  id: number;
-  name: string;
-  description: string | null;
-  permissions: Permissions;
-  roleTypeId: number;
-  createdAt: string;
-  updatedAt: string;
-  roleType?: {
-    id: number;
-    description: string;
-  };
-}
-
-interface Permissions {
-  users: PermissionActions;
-  orders: PermissionActions;
-  products: PermissionActions;
-  inventory: PermissionActions;
-}
-
-interface PermissionActions {
-  read: boolean;
-  create: boolean;
-  update: boolean;
-  delete: boolean;
-}
-
-const formSchema = z.object({
-  name: z.string().min(3, "Name must be at least 3 characters"),
-  description: z.string().optional(),
-  roleTypeId: z.number(),
+const formSchema = insertRoleSchema.pick({
+  name: true,
+  description: true,
+  roleTypeId: true,
 });
 
-// Corrected default permissions structure
-const defaultPermissions: Permissions = {
-  users: {
-    read: true,
-    create: true,
-    update: true,
-    delete: true
-  },
-  orders: {
-    read: true,
-    create: true,
-    update: true,
-    delete: true
-  },
-  products: {
-    read: true,
-    create: true,
-    update: true,
-    delete: true
-  },
-  inventory: {
-    read: true,
-    create: true,
-    update: true,
-    delete: true
-  }
-};
-
-type InsertRole = z.infer<typeof formSchema>;
-
 function RolesPage() {
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingRole, setEditingRole] = useState<Role | null>(null);
-  const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingRole, setEditingRole] = useState<SelectRole | null>(null);
 
-  // Query for fetching all roles
-  const { data: roles, isLoading: isLoadingRoles } = useQuery<Role[]>({
-    queryKey: ['/api/roles'],
-    queryFn: () => fetchData('/roles'),
-  });
+  const { toast } = useToast();
+  const { hasPermission } = useRolePermissions();
 
-  // Query for fetching role types
-  const { data: roleTypes, isLoading: isLoadingRoleTypes } = useQuery<RoleType[]>({
-    queryKey: ['/api/role-types'],
-    queryFn: () => fetchData('/role-types'),
-  });
-
-  // Form for creating/editing roles
-  const form = useForm<InsertRole>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
-      name: "",
-      description: "",
-      roleTypeId: undefined,
-    },
-  });
-
-  // Mutation for creating a new role
   const createMutation = useMutation({
     mutationFn: async (data: InsertRole) => {
-      const roleData = {
-        ...data,
-        permissions: defaultPermissions
-      };
-      logger.info('Creating new role', { roleData });
-      return postData('/roles', roleData);
+      return fetchApi("/api/roles", {
+        method: "POST",
+        body: JSON.stringify(data),
+        credentials: 'include'
+      });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/roles'] });
+      refetch();
       setDialogOpen(false);
+      toast({ title: "Success", description: "Role created successfully" });
       form.reset();
-      toast({
-        title: "Success",
-        description: "Role created successfully",
-      });
-      logger.info('Role created successfully');
     },
     onError: (error: Error) => {
-      logger.error('Error creating role', { error });
       toast({
         title: "Error",
         description: error.message || "Failed to create role",
@@ -161,29 +82,22 @@ function RolesPage() {
     },
   });
 
-  // Mutation for updating a role
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: InsertRole }) => {
-      const roleData = {
-        ...data,
-        permissions: editingRole?.permissions || defaultPermissions
-      };
-      logger.info('Updating role', { id, roleData });
-      return putData(`/roles/${id}`, roleData);
+    mutationFn: async (data: { id: number; data: InsertRole }) => {
+      return fetchApi(`/api/roles/${data.id}`, {
+        method: "PUT",
+        body: JSON.stringify(data.data),
+        credentials: 'include'
+      });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/roles'] });
+      refetch();
       setDialogOpen(false);
       setEditingRole(null);
       form.reset();
-      toast({
-        title: "Success",
-        description: "Role updated successfully",
-      });
-      logger.info('Role updated successfully');
+      toast({ title: "Success", description: "Role updated successfully" });
     },
     onError: (error: Error) => {
-      logger.error('Error updating role', { error });
       toast({
         title: "Error",
         description: error.message || "Failed to update role",
@@ -192,32 +106,54 @@ function RolesPage() {
     },
   });
 
-  // Handler for form submission
-  const onSubmit = async (data: InsertRole) => {
-    try {
-      logger.info('Submitting role form', { formData: data, isEditing: !!editingRole });
-
-      if (editingRole) {
-        await updateMutation.mutateAsync({ 
-          id: editingRole.id, 
-          data
-        });
-      } else {
-        await createMutation.mutateAsync(data);
-      }
-    } catch (error: any) {
-      logger.error('Error submitting form', { error });
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return fetchApi(`/api/roles/${id}`, {
+        method: "DELETE",
+        credentials: 'include'
+      });
+    },
+    onSuccess: () => {
+      refetch();
+      toast({ title: "Success", description: "Role deleted successfully" });
+    },
+    onError: (error: Error) => {
       toast({
         title: "Error",
-        description: error.message || "Failed to submit form",
+        description: error.message || "Failed to delete role",
         variant: "destructive",
       });
-    }
-  };
+    },
+  });
 
-  // Handler for opening the dialog for editing
-  function handleEdit(role: Role) {
-    logger.info('Opening edit dialog for role', { roleId: role.id });
+  const form = useForm<z.infer<typeof formSchema>>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      name: "",
+      description: "",
+    },
+  });
+
+  const { data: roles, refetch, isLoading } = useQuery<SelectRole[]>({
+    queryKey: ["/api/roles"],
+  });
+
+  const { data: roleTypes, isLoading: isLoadingRoleTypes } = useQuery({
+    queryKey: ["/api/role-types"],
+  });
+
+  function onOpenChange(open: boolean) {
+    setDialogOpen(open);
+    if (!open) {
+      setEditingRole(null);
+      form.reset({
+        name: "",
+        description: "",
+      });
+    }
+  }
+
+  function handleEdit(role: SelectRole) {
     setEditingRole(role);
     form.reset({
       name: role.name,
@@ -227,169 +163,177 @@ function RolesPage() {
     setDialogOpen(true);
   }
 
-  // Handler for deleting a role
-  async function handleDelete(id: number) {
-    if (window.confirm("Are you sure you want to delete this role?")) {
-      logger.info('Deleting role', { roleId: id });
-      try {
-        await deleteData(`/roles/${id}`);
-        queryClient.invalidateQueries({ queryKey: ['/api/roles'] });
-        toast({
-          title: "Success",
-          description: "Role deleted successfully",
-        });
-        logger.info('Role deleted successfully', { roleId: id });
-      } catch (error: any) {
-        logger.error('Error deleting role', { roleId: id, error });
-        toast({
-          title: "Error",
-          description: error.message || "Failed to delete role",
-          variant: "destructive",
-        });
-      }
+  async function onSubmit(data: z.infer<typeof formSchema>) {
+    if (editingRole) {
+      updateMutation.mutateAsync({ 
+        id: editingRole.id, 
+        data: data as InsertRole 
+      });
+    } else {
+      createMutation.mutateAsync(data as InsertRole);
     }
   }
 
-  if (isLoadingRoles || isLoadingRoleTypes) {
-    return (
-      <div className="flex justify-center items-center h-screen">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    );
+  async function handleDelete(id: number) {
+    if (window.confirm("Are you sure you want to delete this role?")) {
+      deleteMutation.mutateAsync(id);
+    }
   }
 
   return (
-    <div className="container mx-auto py-10">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Roles Management</h1>
-        <Button onClick={() => {
-          setEditingRole(null);
-          form.reset({
-            name: "",
-            description: "",
-            roleTypeId: undefined,
-          });
-          setDialogOpen(true);
-        }}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Role
-        </Button>
-      </div>
-
-      <div className="rounded-md border">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role Type</th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created At</th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {roles?.map((role: Role) => (
-              <tr key={role.id}>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{role.name}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{role.description || "-"}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{role.roleType?.description || "-"}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {new Date(role.createdAt).toLocaleDateString()}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                  <div className="flex space-x-2">
-                    <Button variant="outline" size="sm" onClick={() => handleEdit(role)}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    {role.name !== "admin" && (
-                      <Button variant="outline" size="sm" className="text-red-600" onClick={() => handleDelete(role.id)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+    <div className="space-y-6 p-6">
+      <div className="flex justify-between items-center">
+        <h1 className="text-3xl font-bold tracking-tight">Roles</h1>
+        {hasPermission("users", "create") && (
+          <Dialog open={dialogOpen} onOpenChange={onOpenChange}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="h-4 w-4 mr-2" />
+                Create Role
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{editingRole ? "Edit Role" : "Add New Role"}</DialogTitle>
+                <DialogDescription>
+                  {editingRole
+                    ? "Edit an existing role in the system."
+                    : "Add a new role to the system. Roles control what actions users can perform."}
+                </DialogDescription>
+              </DialogHeader>
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="name"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Name</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Enter role name" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
                     )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="description"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Description</FormLabel>
+                        <FormControl>
+                          <Textarea placeholder="Enter role description" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="roleTypeId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Role Type</FormLabel>
+                        <Select
+                          onValueChange={(value) => field.onChange(parseInt(value))}
+                          defaultValue={field.value?.toString()}
+                          value={field.value?.toString()}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select role type" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {!isLoadingRoleTypes &&
+                              roleTypes?.map((type) => (
+                                <SelectItem key={type.id} value={type.id.toString()}>
+                                  {type.description}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="flex justify-end space-x-2">
+                    <DialogClose asChild>
+                      <Button variant="outline" type="button">
+                        Cancel
+                      </Button>
+                    </DialogClose>
+                    <Button type="submit">
+                      {editingRole ? "Update Role" : "Create Role"}
+                    </Button>
                   </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </form>
+              </Form>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingRole ? 'Edit Role' : 'Create Role'}</DialogTitle>
-          </DialogHeader>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Name</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Role name" {...field} disabled={editingRole?.name === "admin"} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Description</FormLabel>
-                    <FormControl>
-                      <Textarea placeholder="Role description" {...field} value={field.value || ""} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="roleTypeId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Role Type</FormLabel>
-                    <Select 
-                      onValueChange={(value) => field.onChange(parseInt(value))}
-                      value={field.value?.toString()}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a role type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {roleTypes?.map((type: RoleType) => (
-                          <SelectItem key={type.id} value={type.id.toString()}>
-                            {type.description}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="flex justify-end space-x-2">
-                <Button type="button" variant="outline" onClick={() => {
-                  setDialogOpen(false);
-                  form.reset();
-                }}>
-                  Cancel
-                </Button>
-                <Button type="submit">
-                  {form.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {editingRole ? 'Update' : 'Create'}
-                </Button>
-              </div>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-5 w-5" />
+            Roles
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Description</TableHead>
+                <TableHead>Role Type</TableHead>
+                {hasPermission("users", "update") && <TableHead>Actions</TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center">
+                    Loading...
+                  </TableCell>
+                </TableRow>
+              ) : (
+                roles?.map((role) => (
+                  <TableRow key={role.id}>
+                    <TableCell className="font-medium">{role.name}</TableCell>
+                    <TableCell>{role.description}</TableCell>
+                    <TableCell>{role.roleType?.description}</TableCell>
+                    {hasPermission("users", "update") && (
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleEdit(role)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          {role.name !== "admin" && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDelete(role.id)}
+                            >
+                              <Trash className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   );
 }
