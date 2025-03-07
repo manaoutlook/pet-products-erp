@@ -28,17 +28,18 @@ import {
 } from "@/components/ui/form";
 import { Loader2, AlertCircle } from "lucide-react";
 
-interface AuthError {
-  message: string;
-  suggestion: string;
-}
-
+// Simple form schema without email validation
 const formSchema = z.object({
   username: z.string().min(1, "Username is required"),
   password: z.string().min(1, "Password is required"),
 });
 
 type FormData = z.infer<typeof formSchema>;
+
+interface AuthError {
+  message: string;
+  suggestion?: string;
+}
 
 function AuthPage() {
   const [authError, setAuthError] = useState<AuthError | null>(null);
@@ -58,7 +59,7 @@ function AuthPage() {
       setAuthError(null);
       const result = await login(data);
 
-      if ('suggestion' in result) {
+      if ('message' in result) {
         setAuthError(result as AuthError);
         return;
       }
@@ -68,10 +69,9 @@ function AuthPage() {
         description: "Logged in successfully",
       });
     } catch (error: any) {
-      console.error('Authentication error:', error);
       setAuthError({
         message: error.message || "Authentication failed",
-        suggestion: "Please try again later. If the problem persists, contact support."
+        suggestion: "Please try again or contact support if the problem persists."
       });
     }
   };
@@ -82,16 +82,19 @@ function AuthPage() {
         <CardHeader>
           <CardTitle>Login</CardTitle>
           <CardDescription>
-            Enter your credentials to access your account
+            Enter your username and password to access your account
           </CardDescription>
         </CardHeader>
         <CardContent>
           {authError && (
             <Alert variant="destructive" className="mb-4">
               <AlertCircle className="h-4 w-4" />
-              <AlertTitle>{authError.message}</AlertTitle>
+              <AlertTitle>Authentication Error</AlertTitle>
               <AlertDescription>
-                {authError.suggestion}
+                {authError.message}
+                {authError.suggestion && (
+                  <div className="mt-2">{authError.suggestion}</div>
+                )}
               </AlertDescription>
             </Alert>
           )}
@@ -123,7 +126,8 @@ function AuthPage() {
                     <FormLabel>Password</FormLabel>
                     <FormControl>
                       <Input 
-                        type="password" 
+                        type="password"
+                        placeholder="Enter your password"
                         {...field} 
                         autoComplete="current-password"
                       />
