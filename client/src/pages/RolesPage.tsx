@@ -56,6 +56,34 @@ const formSchema = z.object({
   roleTypeId: z.number(),
 });
 
+// Default permissions structure
+const defaultPermissions = {
+  users: {
+    view: true,
+    create: false,
+    update: false,
+    delete: false
+  },
+  orders: {
+    view: true,
+    create: false,
+    update: false,
+    delete: false
+  },
+  products: {
+    view: true,
+    create: false,
+    update: false,
+    delete: false
+  },
+  inventory: {
+    view: true,
+    create: false,
+    update: false,
+    delete: false
+  }
+};
+
 function RolesPage() {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -65,7 +93,8 @@ function RolesPage() {
 
   const createMutation = useMutation({
     mutationFn: async (data: InsertRole) => {
-      return postData("/roles", data);
+      // Include default permissions in the role creation
+      return postData("/roles", { ...data, permissions: defaultPermissions });
     },
     onSuccess: () => {
       refetch();
@@ -84,7 +113,12 @@ function RolesPage() {
 
   const updateMutation = useMutation({
     mutationFn: async (data: { id: number; data: InsertRole }) => {
-      return putData(`/roles/${data.id}`, data.data);
+      // For updates, keep existing permissions or use default if none exist
+      const roleToUpdate = { 
+        ...data.data, 
+        permissions: editingRole?.permissions || defaultPermissions 
+      };
+      return putData(`/roles/${data.id}`, roleToUpdate);
     },
     onSuccess: () => {
       refetch();
