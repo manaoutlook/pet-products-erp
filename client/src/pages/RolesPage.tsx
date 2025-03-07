@@ -27,7 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useToast } from "@/hooks/use-toast"; // Corrected import path
+import { useToast } from "@/hooks/use-toast"; 
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -163,16 +163,26 @@ function RolesPage() {
     setDialogOpen(true);
   }
 
-  async function onSubmit(data: z.infer<typeof formSchema>) {
-    if (editingRole) {
-      updateMutation.mutateAsync({ 
-        id: editingRole.id, 
-        data: data as InsertRole 
+  const onSubmit = async (data: z.infer<typeof formSchema>) => {
+    console.log("Form submission data:", data);
+    try {
+      if (editingRole) {
+        await updateMutation.mutateAsync({ 
+          id: editingRole.id, 
+          data: data as InsertRole 
+        });
+      } else {
+        createMutation.mutateAsync(data as InsertRole);
+      }
+    } catch (error) {
+      console.error("Error submitting form:", error);
+      toast({
+        title: "Error",
+        description: "Failed to submit form",
+        variant: "destructive",
       });
-    } else {
-      createMutation.mutateAsync(data as InsertRole);
     }
-  }
+  };
 
   async function handleDelete(id: number) {
     if (window.confirm("Are you sure you want to delete this role?")) {
