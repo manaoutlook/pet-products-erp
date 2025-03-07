@@ -46,7 +46,16 @@ function StorePage() {
   const queryClient = useQueryClient();
 
   const { data: stores, isLoading, refetch } = useQuery({
-    queryKey: ['stores'], // Corrected queryKey
+    queryKey: ['stores'],
+    queryFn: async () => {
+      const response = await fetch('/api/stores', {
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch stores');
+      }
+      return response.json();
+    }
   });
 
   const form = useForm<InsertStore>({
@@ -290,7 +299,10 @@ function StorePage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredStores?.map((store) => (
+                {(stores || []).filter(store => 
+                  store.name.toLowerCase().includes(search.toLowerCase()) ||
+                  store.location.toLowerCase().includes(search.toLowerCase())
+                ).map((store) => (
                   <TableRow key={store.id}>
                     <TableCell className="font-medium">{store.name}</TableCell>
                     <TableCell>{store.location}</TableCell>
