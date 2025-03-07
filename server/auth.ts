@@ -213,47 +213,64 @@ export function setupAuth(app: Express) {
   passport.use(
     new LocalStrategy(async (username, password, done) => {
       try {
-        console.log(`Attempting login for user: ${username}`);
+        const env = process.env.NODE_ENV || 'development';
+        console.log(`[${env}] Attempting login for user: ${username}`);
 
         // Convert username to lowercase for consistency
         const normalizedUsername = username.toLowerCase();
+        
+        try {
+          // First verify DB connection before query
+          await db.execute("SELECT 1 as db_check");
+          console.log(`[${env}] Database connection verified before login attempt`);
+        } catch (dbError: any) {
+          console.error(`[${env}] DATABASE CONNECTION ERROR:`, dbError.message);
+          console.error(`Database URL configured: ${process.env.DATABASE_URL ? "Yes" : "No"}`);
+          return done(new Error(`Database connection failed: ${dbError.message}`));
+        }
 
         // Include role information in the login query
-        const [user] = await db
-          .select({
-            id: users.id,
-            username: users.username,
-            password: users.password,
-            role: {
-              id: roles.id,
-              name: roles.name,
-              permissions: roles.permissions
-            }
-          })
-          .from(users)
-          .innerJoin(roles, eq(users.roleId, roles.id))
-          .where(eq(users.username, normalizedUsername))
-          .limit(1);
+        try {
+          const [user] = await db
+            .select({
+              id: users.id,
+              username: users.username,
+              password: users.password,
+              role: {
+                id: roles.id,
+                name: roles.name,
+                permissions: roles.permissions
+              }
+            })
+            .from(users)
+            .innerJoin(roles, eq(users.roleId, roles.id))
+            .where(eq(users.username, normalizedUsername))
+            .limit(1);
 
-        if (!user) {
-          console.log('User not found in database');
-          return done(null, false, { message: "Username not found" });
+          if (!user) {
+            console.log(`[${env}] User not found in database: ${normalizedUsername}`);
+            return done(null, false, { message: "Username not found" });
+          }
+
+          console.log(`[${env}] Found user, verifying password...`);
+          const isMatch = await crypto.compare(password, user.password);
+
+          if (!isMatch) {
+            console.log(`[${env}] Password verification failed for user: ${normalizedUsername}`);
+            return done(null, false, { message: "Incorrect password" });
+          }
+
+          // Don't include password in the user object
+          const { password: _, ...userWithoutPassword } = user;
+          console.log(`[${env}] Login successful:`, userWithoutPassword);
+          return done(null, userWithoutPassword as Express.User);
+        } catch (queryError: any) {
+          console.error(`[${env}] USER QUERY ERROR:`, queryError.message);
+          return done(new Error(`Database query failed: ${queryError.message}`));
         }
-
-        console.log('Found user, verifying password...');
-        const isMatch = await crypto.compare(password, user.password);
-
-        if (!isMatch) {
-          console.log('Password verification failed');
-          return done(null, false, { message: "Incorrect password" });
-        }
-
-        // Don't include password in the user object
-        const { password: _, ...userWithoutPassword } = user;
-        console.log('Login successful:', userWithoutPassword);
-        return done(null, userWithoutPassword as Express.User);
-      } catch (err) {
-        console.error('Login error:', err);
+      } catch (err: any) {
+        console.error(`[${process.env.NODE_ENV || 'development'}] LOGIN ERROR:`, err);
+        console.error(`Stack trace: ${err.stack}`);
         return done(err);
       }
     })

@@ -39,12 +39,40 @@ export function serveStatic(app: Express) {
 export function startProductionServer(app: Express, server: Server) {
   const PORT = process.env.PORT || 5001;
   
+  // Log environment variables (excluding sensitive info)
+  log(`PRODUCTION MODE: Node env: ${process.env.NODE_ENV}`, "startup");
+  log(`Database URL configured: ${process.env.DATABASE_URL ? "Yes" : "No"}`, "database");
+  
+  // Add a diagnostic route for checking database connection
+  app.get("/api/health", async (req, res) => {
+    try {
+      // Import database module dynamically to avoid circular dependencies
+      const { db } = await import("../db/index.js");
+      // Try a simple query to verify database connection
+      const result = await db.execute("SELECT 1 as connected");
+      log(`Health check - Database connected: ${!!result}`, "health");
+      return res.json({ 
+        status: "ok", 
+        database: "connected",
+        timestamp: new Date().toISOString()
+      });
+    } catch (error: any) {
+      log(`Health check - Database error: ${error.message}`, "health");
+      return res.status(500).json({ 
+        status: "error", 
+        database: "disconnected",
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+  
   server.listen(PORT, "0.0.0.0")
     .on("listening", () => {
-      log(`Production server running on port ${PORT}`);
+      log(`Production server running on port ${PORT}`, "startup");
     })
     .on("error", (err: any) => {
-      log(`Failed to start production server: ${err.message}`);
+      log(`Failed to start production server: ${err.message}`, "startup");
       throw err;
     });
 }
