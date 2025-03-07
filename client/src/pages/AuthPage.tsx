@@ -33,7 +33,6 @@ interface AuthError {
   suggestion: string;
 }
 
-// Define the form schema
 const formSchema = z.object({
   username: z.string().min(1, "Username is required"),
   password: z.string().min(1, "Password is required"),
@@ -106,6 +105,7 @@ function AuthPage() {
                     <FormLabel>Username</FormLabel>
                     <FormControl>
                       <Input 
+                        type="text"
                         {...field} 
                         autoComplete="username"
                       />
