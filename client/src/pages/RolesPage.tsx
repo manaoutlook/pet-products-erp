@@ -73,35 +73,35 @@ const formSchema = z.object({
   roleTypeId: z.number(),
 });
 
-type InsertRole = z.infer<typeof formSchema>;
-
-// Default permissions structure exactly matching admin role format
+// Corrected default permissions structure
 const defaultPermissions: Permissions = {
   users: {
     read: true,
-    create: false,
-    update: false,
-    delete: false
+    create: true,
+    update: true,
+    delete: true
   },
   orders: {
     read: true,
-    create: false,
-    update: false,
-    delete: false
+    create: true,
+    update: true,
+    delete: true
   },
   products: {
     read: true,
-    create: false,
-    update: false,
-    delete: false
+    create: true,
+    update: true,
+    delete: true
   },
   inventory: {
     read: true,
-    create: false,
-    update: false,
-    delete: false
+    create: true,
+    update: true,
+    delete: true
   }
 };
+
+type InsertRole = z.infer<typeof formSchema>;
 
 function RolesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
