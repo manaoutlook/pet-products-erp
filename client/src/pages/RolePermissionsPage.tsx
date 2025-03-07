@@ -29,7 +29,8 @@ const permissionActions = [
   { id: 'delete', label: 'Delete', description: 'Remove items' },
 ];
 
-interface Permission {
+// Define interfaces
+interface PermissionActions {
   create?: boolean;
   read?: boolean;
   update?: boolean;
@@ -37,14 +38,17 @@ interface Permission {
 }
 
 interface Permissions {
-  [key: string]: Permission;
+  [module: string]: PermissionActions;
 }
 
 interface Role {
   id: number;
   name: string;
-  description: string;
+  description: string | null;
   permissions: Permissions;
+  roleTypeId: number;
+  createdAt: string;
+  updatedAt: string;
   roleType: {
     id: number;
     description: string;
@@ -245,31 +249,6 @@ function RolePermissionsPage() {
                 ))}
               </div>
             </CardContent>
-            <CardFooter className="text-xs text-muted-foreground">
-              <div className="flex items-center space-x-1">
-                {permissions[module.id]?.create && <Check className="h-3 w-3 text-green-500" />}
-                {!permissions[module.id]?.create && <X className="h-3 w-3 text-red-500" />}
-                <span>Create</span>
-              </div>
-              <span className="mx-1">•</span>
-              <div className="flex items-center space-x-1">
-                {permissions[module.id]?.read && <Check className="h-3 w-3 text-green-500" />}
-                {!permissions[module.id]?.read && <X className="h-3 w-3 text-red-500" />}
-                <span>View</span>
-              </div>
-              <span className="mx-1">•</span>
-              <div className="flex items-center space-x-1">
-                {permissions[module.id]?.update && <Check className="h-3 w-3 text-green-500" />}
-                {!permissions[module.id]?.update && <X className="h-3 w-3 text-red-500" />}
-                <span>Update</span>
-              </div>
-              <span className="mx-1">•</span>
-              <div className="flex items-center space-x-1">
-                {permissions[module.id]?.delete && <Check className="h-3 w-3 text-green-500" />}
-                {!permissions[module.id]?.delete && <X className="h-3 w-3 text-red-500" />}
-                <span>Delete</span>
-              </div>
-            </CardFooter>
           </Card>
         ))}
       </div>
