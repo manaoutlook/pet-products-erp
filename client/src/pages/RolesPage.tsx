@@ -32,18 +32,17 @@ import {
 } from "@/components/ui/select";
 import { fetchData, postData, putData, deleteData } from "@/lib/api";
 
-// Define the role type interface
+// Define interfaces
 interface RoleType {
   id: number;
   description: string;
 }
 
-// Define the role interface
 interface Role {
   id: number;
   name: string;
   description: string | null;
-  permissions: Record<string, any> | null;
+  permissions: Permissions;
   roleTypeId: number;
   createdAt: string;
   updatedAt: string;
@@ -53,16 +52,54 @@ interface Role {
   };
 }
 
-// Define the form schema
+interface Permissions {
+  users: PermissionActions;
+  orders: PermissionActions;
+  products: PermissionActions;
+  inventory: PermissionActions;
+}
+
+interface PermissionActions {
+  read: boolean;
+  create: boolean;
+  update: boolean;
+  delete: boolean;
+}
+
 const formSchema = z.object({
   name: z.string().min(3, "Name must be at least 3 characters"),
   description: z.string().optional(),
-  roleTypeId: z.string().or(z.number()).pipe(
-    z.coerce.number().min(1, "Role type is required")
-  ),
+  roleTypeId: z.number(),
 });
 
-// Define the insert role type
+// Default permissions structure matching database format
+const defaultPermissions: Permissions = {
+  users: {
+    read: true,
+    create: false,
+    update: false,
+    delete: false
+  },
+  orders: {
+    read: true,
+    create: false,
+    update: false,
+    delete: false
+  },
+  products: {
+    read: true,
+    create: false,
+    update: false,
+    delete: false
+  },
+  inventory: {
+    read: true,
+    create: false,
+    update: false,
+    delete: false
+  }
+};
+
 type InsertRole = z.infer<typeof formSchema>;
 
 function RolesPage() {
@@ -89,22 +126,18 @@ function RolesPage() {
     defaultValues: {
       name: "",
       description: "",
-      roleTypeId: "",
+      roleTypeId: undefined,
     },
   });
 
   // Mutation for creating a new role
   const createMutation = useMutation({
     mutationFn: async (data: InsertRole) => {
-      // Add default permissions structure
-      const defaultPermissions = {
-        products: { create: false, read: false, update: false, delete: false },
-        orders: { create: false, read: false, update: false, delete: false },
-        inventory: { create: false, read: false, update: false, delete: false },
-        users: { create: false, read: false, update: false, delete: false },
-        stores: { create: false, read: false, update: false, delete: false }
+      const roleData = {
+        ...data,
+        permissions: defaultPermissions
       };
-      const response = await postData('/roles', {...data, permissions: defaultPermissions});
+      const response = await postData('/roles', roleData);
       return response;
     },
     onSuccess: () => {
@@ -128,8 +161,13 @@ function RolesPage() {
 
   // Mutation for updating a role
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: InsertRole }) => 
-      putData(`/roles/${id}`, data),
+    mutationFn: ({ id, data }: { id: number; data: InsertRole }) => {
+      const roleData = {
+        ...data,
+        permissions: editingRole?.permissions || defaultPermissions
+      };
+      return putData(`/roles/${id}`, roleData);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/roles'] });
       setDialogOpen(false);
@@ -181,17 +219,15 @@ function RolesPage() {
     setDialogOpen(true);
   }
 
-  const onSubmit = async (data: z.infer<typeof formSchema>) => {
+  const onSubmit = async (data: InsertRole) => {
     try {
-      console.log("Form submission data:", data);
-
       if (editingRole) {
         await updateMutation.mutateAsync({ 
           id: editingRole.id, 
-          data: data as InsertRole 
+          data
         });
       } else {
-        await createMutation.mutateAsync(data as InsertRole);
+        await createMutation.mutateAsync(data);
       }
     } catch (error: any) {
       console.error("Error submitting form:", error);
@@ -230,7 +266,7 @@ function RolesPage() {
           form.reset({
             name: "",
             description: "",
-            roleTypeId: "",
+            roleTypeId: undefined,
           });
           setDialogOpen(true);
         }}>
@@ -317,8 +353,8 @@ function RolesPage() {
                   <FormItem>
                     <FormLabel>Role Type</FormLabel>
                     <Select 
-                      onValueChange={field.onChange} 
-                      defaultValue={field.value?.toString()}
+                      onValueChange={(value) => field.onChange(parseInt(value))}
+                      value={field.value?.toString()}
                     >
                       <FormControl>
                         <SelectTrigger>
