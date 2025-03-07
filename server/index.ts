@@ -78,15 +78,24 @@ app.use((req, res, next) => {
     serveStatic(app);
   }
 
-  // Serve the app on port 5000 only
-  const PORT = 5000;
+  // Try port 5000 first, then fall back to other ports if needed
+  const PORT = process.env.PORT || 5000;
   
-  server.listen(PORT, "0.0.0.0")
-    .on("listening", () => {
-      log(`serving on port ${PORT}`);
-    })
-    .on("error", (err: any) => {
-      log(`Failed to start server: ${err.message}`);
-      throw err;
-    });
+  const startServer = (port: number) => {
+    server.listen(port, "0.0.0.0")
+      .on("listening", () => {
+        log(`serving on port ${port}`);
+      })
+      .on("error", (err: any) => {
+        if (err.code === 'EADDRINUSE') {
+          log(`Port ${port} is busy, trying ${port + 1}...`);
+          startServer(port + 1);
+        } else {
+          log(`Failed to start server: ${err.message}`);
+          console.error(err);
+        }
+      });
+  };
+  
+  startServer(Number(PORT));
 })();
