@@ -126,6 +126,34 @@ export async function setupAdmin() {
     }
 
     console.log('Using role type:', adminRoleType);
+    
+    // Add Pet Store User role type if it doesn't exist
+    const petStoreRoleType = await db.query.roleTypes.findFirst({
+      where: eq(roleTypes.description, 'Pet Store User'),
+    });
+    
+    if (!petStoreRoleType) {
+      console.log('Pet Store User role type not found, creating it...');
+      await db
+        .insert(roleTypes)
+        .values({
+          description: 'Pet Store User',
+        });
+    }
+    
+    // Add Distribution Center User role type if it doesn't exist
+    const dcRoleType = await db.query.roleTypes.findFirst({
+      where: eq(roleTypes.description, 'Distribution Center User'),
+    });
+    
+    if (!dcRoleType) {
+      console.log('Distribution Center User role type not found, creating it...');
+      await db
+        .insert(roleTypes)
+        .values({
+          description: 'Distribution Center User',
+        });
+    }
 
     // Create admin role if it doesn't exist
     const [adminRole] = await db
