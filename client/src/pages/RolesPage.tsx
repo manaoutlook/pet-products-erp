@@ -1,3 +1,47 @@
+// lib/api.ts
+import { type InsertRole } from "@db/schema";
+
+async function fetchData(endpoint: string):Promise<any> {
+  const res = await fetch(`/api/${endpoint}`, { credentials: 'include' });
+  return res.json();
+}
+
+async function postData(endpoint: string, data: InsertRole): Promise<any> {
+  const res = await fetch(`/api/${endpoint}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+    credentials: 'include'
+  });
+  return res.json();
+}
+
+async function putData(endpoint: string, data: InsertRole): Promise<any> {
+  const res = await fetch(endpoint, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+    credentials: 'include'
+  });
+  return res.json();
+}
+
+async function deleteData(endpoint: string): Promise<any> {
+  const res = await fetch(endpoint, {
+    method: "DELETE",
+    credentials: 'include'
+  });
+  return res.json();
+}
+
+export { fetchData, postData, putData, deleteData };
+
+
+// client/src/pages/RolesPage.tsx
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -27,7 +71,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useToast } from "@/hooks/use-toast"; 
+import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -42,7 +86,7 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { insertRoleSchema, type InsertRole, type SelectRole } from "@db/schema";
-import { fetchApi } from "@/lib/api";
+import { fetchData, postData, putData, deleteData } from "@/lib/api";
 import { useRolePermissions } from "@/hooks/use-role-permissions";
 
 const formSchema = insertRoleSchema.pick({
@@ -61,11 +105,7 @@ function RolesPage() {
 
   const createMutation = useMutation({
     mutationFn: async (data: InsertRole) => {
-      return fetchApi("/api/roles", {
-        method: "POST",
-        body: JSON.stringify(data),
-        credentials: 'include'
-      });
+      return postData("/roles", data);
     },
     onSuccess: () => {
       refetch();
@@ -84,11 +124,7 @@ function RolesPage() {
 
   const updateMutation = useMutation({
     mutationFn: async (data: { id: number; data: InsertRole }) => {
-      return fetchApi(`/api/roles/${data.id}`, {
-        method: "PUT",
-        body: JSON.stringify(data.data),
-        credentials: 'include'
-      });
+      return putData(`/roles/${data.id}`, data.data);
     },
     onSuccess: () => {
       refetch();
@@ -108,10 +144,7 @@ function RolesPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      return fetchApi(`/api/roles/${id}`, {
-        method: "DELETE",
-        credentials: 'include'
-      });
+      return deleteData(`/roles/${id}`);
     },
     onSuccess: () => {
       refetch();
@@ -134,12 +167,18 @@ function RolesPage() {
     },
   });
 
-  const { data: roles, refetch, isLoading } = useQuery<SelectRole[]>({
-    queryKey: ["/api/roles"],
+  const { data: roles, refetch, isLoading } = useQuery({
+    queryKey: ["roles"],
+    queryFn: async () => {
+      return fetchData("/roles");
+    },
   });
 
   const { data: roleTypes, isLoading: isLoadingRoleTypes } = useQuery({
     queryKey: ["/api/role-types"],
+    queryFn: async () => {
+      return fetchData("/role-types");
+    }
   });
 
   function onOpenChange(open: boolean) {
@@ -164,12 +203,11 @@ function RolesPage() {
   }
 
   const onSubmit = async (data: z.infer<typeof formSchema>) => {
-    console.log("Form submission data:", data);
     try {
       if (editingRole) {
-        await updateMutation.mutateAsync({ 
-          id: editingRole.id, 
-          data: data as InsertRole 
+        await updateMutation.mutateAsync({
+          id: editingRole.id,
+          data: data as InsertRole,
         });
       } else {
         createMutation.mutateAsync(data as InsertRole);
