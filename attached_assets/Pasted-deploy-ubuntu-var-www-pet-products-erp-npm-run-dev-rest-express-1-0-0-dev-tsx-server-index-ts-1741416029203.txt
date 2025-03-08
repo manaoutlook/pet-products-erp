@@ -1,0 +1,43 @@
+deploy@ubuntu:/var/www/pet-products-erp$ npm run dev
+
+> rest-express@1.0.0 dev
+> tsx server/index.ts
+
+
+node:internal/modules/run_main:128
+    triggerUncaughtException(
+    ^
+Error [TransformError]: Transform failed with 1 error:
+/var/www/pet-products-erp/server/routes.ts:64:21: ERROR: "await" can only be used inside an "async" function
+    at failureErrorWithLog (/var/www/pet-products-erp/node_modules/tsx/node_modules/esbuild/lib/main.js:1476:15)
+    at /var/www/pet-products-erp/node_modules/tsx/node_modules/esbuild/lib/main.js:755:50
+    at responseCallbacks.<computed> (/var/www/pet-products-erp/node_modules/tsx/node_modules/esbuild/lib/main.js:622:9)
+    at handleIncomingPacket (/var/www/pet-products-erp/node_modules/tsx/node_modules/esbuild/lib/main.js:677:12)
+    at Socket.readFromStdout (/var/www/pet-products-erp/node_modules/tsx/node_modules/esbuild/lib/main.js:600:7)
+    at Socket.emit (node:events:518:28)
+    at addChunk (node:internal/streams/readable:561:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+    at Readable.push (node:internal/streams/readable:392:5)
+    at Pipe.onStreamRead (node:internal/stream_base_commons:191:23)
+
+Node.js v20.18.3
+deploy@ubuntu:/var/www/pet-products-erp$ node scripts/debug-login-auth.cjs
+Testing against server at: http://0.0.0.0:5001
+Note: If login fails, try running the reset-admin-password.cjs script first.
+Checking if server requires path prefix...
+=== Authentication Debug Script ===
+Testing login at http://0.0.0.0:5001/api/login
+Using credentials: username=admin, password=******
+
+0. Checking for correct API path structure...
+Trying health check at: http://0.0.0.0:5001/api/health
+
+1. Testing server availability...
+Server is responding with status: 401
+Server responded with non-JSON content:
+Content-Type: text/html; charset=utf-8
+Response (first 100 chars): Not authenticated...
+
+PROBLEM DETECTED: Server is not returning JSON for health check
+This suggests the server is not properly configured or not running correctly
+deploy@ubuntu:/var/www/pet-products-erp$ 
