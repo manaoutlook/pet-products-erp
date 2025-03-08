@@ -75,10 +75,10 @@ export async function startProductionServer(app: Express, server: Server) {
     log("Database connection successful", "startup");
   } catch (error) {
     log(`Database connection failed: ${error}`, "startup");
-    throw error; // Stop server if database connection fails
+    throw error;
   }
 
-  // Health check endpoint with detailed diagnostics
+  // Health check endpoint
   app.get("/api/health", async (req, res) => {
     try {
       const result = await db.execute("SELECT 1 as connected");
@@ -105,12 +105,15 @@ export async function startProductionServer(app: Express, server: Server) {
     }
   });
 
-  server.listen(PORT, "0.0.0.0")
-    .on("listening", () => {
-      log(`Production server running on port ${PORT}`, "startup");
-    })
-    .on("error", (err: any) => {
-      log(`Failed to start production server: ${err.message}`, "startup");
-      throw err;
-    });
+  return new Promise((resolve, reject) => {
+    server.listen(PORT)
+      .once('listening', () => {
+        log(`Production server running on port ${PORT}`, "startup");
+        resolve(server);
+      })
+      .once('error', (err) => {
+        log(`Failed to start production server: ${err.message}`, "startup");
+        reject(err);
+      });
+  });
 }

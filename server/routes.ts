@@ -12,7 +12,7 @@ import { sql } from "drizzle-orm";
 import { eq, and, desc, gte, lt } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
 import { z } from "zod";
-import { crypto } from "./auth";
+import { crypto, passport } from "./auth";
 
 // Schema validations
 const createPurchaseOrderSchema = z.object({
@@ -105,103 +105,87 @@ export function registerRoutes(app: Express): Server {
       .then(() => {
         console.log(`[${env}] Database connection verified before login attempt`);
 
-        try {
-          // Import passport from auth.ts
-          const { passport } = require("./auth");
+        passport.authenticate("local", (err: any, user: Express.User | false, info: any) => {
+          if (err) {
+            console.error(`[${env}] Login authentication error:`, {
+              error: err.message,
+              stack: err.stack,
+              timestamp: new Date().toISOString()
+            });
 
-          passport.authenticate("local", (err: any, user: Express.User | false, info: any) => {
+            // Enhanced error message to help with debugging
+            let errorMessage = "Internal server error";
+            let errorSuggestion = "Please try again later. If the problem persists, contact support.";
+
+            // Provide more specific error messages based on error type
+            if (err.message && (
+                err.message.includes('Database connection failed') ||
+                err.message.includes('database') ||
+                err.message.includes('pool') ||
+                err.message.includes('connection')
+              )) {
+              errorMessage = "Database connection error";
+              errorSuggestion = "Please try again later. If the problem persists, contact support.";
+            } else if (err.message && (
+                err.message.includes('Password verification failed') ||
+                err.message.includes('password')
+              )) {
+              errorMessage = "Password verification error";
+              errorSuggestion = "There might be an issue with the password format.";
+            } else if (err.message && err.message.includes('Both supplied and stored passwords are required')) {
+              errorMessage = "Authentication error";
+              errorSuggestion = "Please try again with valid credentials.";
+            }
+
+            return res.status(500).json({
+              message: errorMessage,
+              suggestion: errorSuggestion,
+              debug: process.env.NODE_ENV !== 'production' ? err.message : undefined
+            });
+          }
+
+          if (!user) {
+            console.log('Login failed:', {
+              reason: info.message,
+              username: req.body.username
+            });
+            return res.status(400).json({
+              message: info.message || "Invalid credentials",
+              suggestion: info.message?.includes("password")
+                ? "Please check your password and try again"
+                : "Please check your username and try again"
+            });
+          }
+
+          req.logIn(user, (err) => {
             if (err) {
-              console.error(`[${env}] Login authentication error:`, {
+              console.error('Login session error:', {
                 error: err.message,
                 stack: err.stack,
-                timestamp: new Date().toISOString()
+                userId: user.id
               });
-
-              // Enhanced error message to help with debugging
-              let errorMessage = "Internal server error";
-              let errorSuggestion = "Please try again later. If the problem persists, contact support.";
-
-              // Provide more specific error messages based on error type
-              if (err.message && (
-                  err.message.includes('Database connection failed') ||
-                  err.message.includes('database') ||
-                  err.message.includes('pool') ||
-                  err.message.includes('connection')
-                )) {
-                errorMessage = "Database connection error";
-                errorSuggestion = "Please try again later. If the problem persists, contact support.";
-              } else if (err.message && (
-                  err.message.includes('Password verification failed') ||
-                  err.message.includes('password')
-                )) {
-                errorMessage = "Password verification error";
-                errorSuggestion = "There might be an issue with the password format.";
-              } else if (err.message && err.message.includes('Both supplied and stored passwords are required')) {
-                errorMessage = "Authentication error";
-                errorSuggestion = "Please try again with valid credentials.";
-              }
-
               return res.status(500).json({
-                message: errorMessage,
-                suggestion: errorSuggestion,
-                debug: process.env.NODE_ENV !== 'production' ? err.message : undefined
+                message: "Failed to create session",
+                suggestion: "Please try again. If the problem persists, clear your browser cookies."
               });
             }
 
-            if (!user) {
-              console.log('Login failed:', {
-                reason: info.message,
-                username: req.body.username
-              });
-              return res.status(400).json({
-                message: info.message || "Invalid credentials",
-                suggestion: info.message?.includes("password")
-                  ? "Please check your password and try again"
-                  : "Please check your username and try again"
-              });
-            }
-
-            req.logIn(user, (err) => {
-              if (err) {
-                console.error('Login session error:', {
-                  error: err.message,
-                  stack: err.stack,
-                  userId: user.id
-                });
-                return res.status(500).json({
-                  message: "Failed to create session",
-                  suggestion: "Please try again. If the problem persists, clear your browser cookies."
-                });
-              }
-
-              console.log('Login successful:', {
-                userId: user.id,
-                username: user.username,
-                role: user.role.name
-              });
-
-              return res.json({
-                message: "Login successful",
-                user: {
-                  id: user.id,
-                  username: user.username,
-                  role: user.role
-                }
-              });
+            console.log('Login successful:', {
+              userId: user.id,
+              username: user.username,
+              role: user.role.name
             });
-          })(req, res, next);
-        } catch (error) {
-          console.error(`[${env}] Error during authentication:`, {
-            error: error.message,
-            stack: error.stack,
-            timestamp: new Date().toISOString()
-          });
 
-          return res.status(500).json({
-            message: "Authentication error",
-            suggestion: "Please try again later. If the problem persists, contact support."
+            return res.json({
+              message: "Login successful",
+              user: {
+                id: user.id,
+                username: user.username,
+                role: user.role
+              }
+            });
           });
-        }
+        })(req, res, next);
       });
   });
 
@@ -1032,7 +1016,7 @@ export function registerRoutes(app: Express): Server {
 
   app.delete("/api/categories/:id", requireRole(['admin']), async (req, res) => {
     try {
-      const{ id } = req.params;
+      const { id } = req.params;
 
       // Check if category is used by any products
       const products = await db.query.products.findMany({
@@ -1237,13 +1221,15 @@ export function registerRoutes(app: Express): Server {
             message: "Invalid role ID",
             suggestion: "Please provide a valid role ID"
           });
-        }      }
+        }
+      }
 
       // Update user
       const [updatedUser] = await db
         .update(users)
         .set({
-          ...(username && { username }),          ...(roleId && { roleId }),
+          ...(username && { username }),
+          ...(roleId && { roleId }),
           ...(password && { password: hashedPassword }),
           updatedAt: new Date(),
         })
