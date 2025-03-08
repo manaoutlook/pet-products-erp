@@ -1,13 +1,15 @@
 
 // Deep authentication debugging script
-const { config } = require('dotenv');
-const axios = require('axios');
-const { Pool } = require('pg');
-const { scrypt } = require('crypto');
-const { promisify } = require('util');
+import { config } from 'dotenv';
+import axios from 'axios';
+import pg from 'pg';
+import crypto from 'crypto';
+import { promisify } from 'util';
+
+const { Pool } = pg;
+const scryptAsync = promisify(crypto.scrypt);
 
 config();
-const scryptAsync = promisify(scrypt);
 
 async function deepAuthDebug() {
   console.log('=== DEEP AUTHENTICATION DEBUGGING ===');

@@ -189,7 +189,7 @@ export function registerRoutes(app: Express): Server {
           }
         });
       });
-      })(req, res, next);
+    })(req, res, next);
     })
     .catch(dbError => {
       console.error(`[${env}] Database connection failed during login:`, {
