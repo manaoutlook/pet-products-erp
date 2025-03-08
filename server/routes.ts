@@ -105,6 +105,9 @@ export function registerRoutes(app: Express): Server {
       .then(() => {
         console.log(`[${env}] Database connection verified before login attempt`);
         
+        // Import passport from auth.ts
+        const { passport } = require("./auth");
+        
         passport.authenticate("local", (err: any, user: Express.User | false, info: any) => {
           if (err) {
             console.error(`[${env}] Login authentication error:`, {

@@ -235,6 +235,9 @@ export function setupAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
 
+  // Explicitly import passport for use in routes.ts
+  export { passport };
+  
   passport.use(
     new LocalStrategy(async (username, password, done) => {
       try {
