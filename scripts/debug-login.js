@@ -1,8 +1,11 @@
 
 // Login debugging script
-require('dotenv').config();
-const { Client } = require('pg');
-const bcrypt = require('bcrypt');
+import dotenv from 'dotenv';
+import pg from 'pg';
+import bcrypt from 'bcrypt';
+
+dotenv.config();
+const { Client } = pg;
 
 async function debugLogin() {
   console.log('Debugging login issues...');
