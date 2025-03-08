@@ -1,7 +1,9 @@
 
 // Quick login fix verification script
-const { Pool } = require('pg');
-const fetch = require('node-fetch');
+import pg from 'pg';
+import fetch from 'node-fetch';
+
+const { Pool } = pg;
 
 async function quickFixLogin() {
   console.log('Running quick login fix...');
