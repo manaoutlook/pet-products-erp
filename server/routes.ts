@@ -2082,8 +2082,7 @@ export function registerRoutes(app: Express): Server {
           totalItems: sql<number>`count(distinct ${inventory.productId})`,
           lowStockItems: sql<number>`
             count(distinct case 
-              when ${inventory.quantity} <= ${products.minStock} 
-              then ${inventory.productId} 
+              when ${inventory.quantity} <= ${products.minStock}               then ${inventory.productId} 
               else null 
             end)
           `
