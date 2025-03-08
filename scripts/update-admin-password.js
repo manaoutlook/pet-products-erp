@@ -1,11 +1,11 @@
 
-// CommonJS version of the admin password update script
-const { scrypt, randomBytes } = require('crypto');
-const { promisify } = require('util');
+// ES Module version of the admin password update script
+import { scrypt, randomBytes } from 'crypto';
+import { promisify } from 'util';
 
 const scryptAsync = promisify(scrypt);
 
-// Recreate the crypto object from auth.ts
+// Recreate the crypto functions from auth.ts
 const crypto = {
   hash: async (password) => {
     try {
@@ -31,6 +31,7 @@ const crypto = {
 // Self-executing async function
 (async () => {
   try {
+    console.log("Starting admin password update script...");
     // Generate hash for 'admin123'
     const hashedPassword = await crypto.hash('admin123');
     
