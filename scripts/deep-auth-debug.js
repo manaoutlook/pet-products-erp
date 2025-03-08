@@ -14,115 +14,124 @@ config();
 async function deepAuthDebug() {
   console.log('=== DEEP AUTHENTICATION DEBUGGING ===');
   
+  // Step 1: Check environment variables
+  console.log('\n1. Checking environment variables...');
+  const dbUrl = process.env.DATABASE_URL;
+  const sessionSecret = process.env.SESSION_SECRET;
+  const port = process.env.PORT || 3000;
+  const baseUrl = `http://localhost:${port}`;
+  
+  console.log(`Database URL configured: ${dbUrl ? 'Yes' : 'No'}`);
+  console.log(`Session secret configured: ${sessionSecret ? 'Yes' : 'No'}`);
+  
+  // Step 2: Test database connection
+  console.log('\n2. Testing database connection...');
+  if (!dbUrl) {
+    console.error('❌ DATABASE_URL environment variable is not set!');
+    return;
+  }
+  
+  const pool = new Pool({
+    connectionString: dbUrl,
+  });
+  
   try {
-    // 1. Test database connection
-    console.log('\n1. Testing database connection...');
-    const pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-    });
-
-    try {
-      await pool.query('SELECT 1');
-      console.log('✅ Database connection successful');
-    } catch (dbError) {
-      console.error('❌ Database connection failed:', dbError.message);
-      return;
-    }
-
-    // 2. Validate admin user in database
-    console.log('\n2. Checking admin user record...');
-    try {
-      const userResult = await pool.query(`
-        SELECT u.id, u.username, u.password, r.name as role_name, r.id as role_id
-        FROM users u
-        JOIN roles r ON u.role_id = r.id
-        WHERE u.username = 'admin'
-      `);
+    const client = await pool.connect();
+    console.log('✅ Successfully connected to database');
+    
+    // Step 3: Check user table
+    console.log('\n3. Checking users table...');
+    const usersResult = await client.query('SELECT id, username, password FROM users LIMIT 5');
+    
+    if (usersResult.rows.length === 0) {
+      console.log('❌ No users found in the database');
+    } else {
+      console.log(`Found ${usersResult.rows.length} users`);
       
-      if (userResult.rows.length === 0) {
-        console.error('❌ Admin user not found in database');
-        return;
+      // Check admin user
+      const adminResult = await client.query("SELECT id, username, password FROM users WHERE username = 'admin'");
+      if (adminResult.rows.length === 0) {
+        console.log('❌ Admin user not found!');
+      } else {
+        const admin = adminResult.rows[0];
+        console.log(`Admin user found (ID: ${admin.id})`);
+        console.log(`Admin password hash length: ${admin.password.length}`);
+        console.log(`Hash format check: ${admin.password.includes(':') ? 'Contains separator' : 'Missing separator'}`);
       }
-      
-      const adminUser = userResult.rows[0];
-      console.log('✅ Found admin user:', {
-        id: adminUser.id,
-        username: adminUser.username,
-        roleId: adminUser.role_id,
-        roleName: adminUser.role_name,
+    }
+    
+    // Step 4: Test API health check
+    console.log('\n4. Testing API health check...');
+    try {
+      const healthResponse = await axios.get(`${baseUrl}/api/health`);
+      console.log(`Health check status: ${healthResponse.status}`);
+      console.log('Health check response:', healthResponse.data);
+    } catch (error) {
+      console.error(`❌ Health check failed: ${error.message}`);
+      if (error.response) {
+        console.log(`Status: ${error.response.status}`);
+        console.log('Response:', error.response.data);
+      }
+    }
+    
+    // Step 5: Test login
+    console.log('\n5. Testing login with admin credentials...');
+    try {
+      const loginResponse = await axios.post(`${baseUrl}/api/login`, {
+        username: 'admin',
+        password: 'admin123'
+      }, {
+        withCredentials: true
       });
       
-      // 3. Check password hash format
-      console.log('\n3. Validating password hash format...');
-      const passwordHash = adminUser.password;
-      console.log(`Hash: ${passwordHash.substring(0, 10)}...`);
-      console.log(`Hash length: ${passwordHash.length}`);
-      const hasSeparator = passwordHash.includes('.');
-      console.log(`Contains separator: ${hasSeparator}`);
+      console.log(`Login status: ${loginResponse.status}`);
+      console.log('Login response:', loginResponse.data);
       
-      if (!hasSeparator) {
-        console.error('❌ Password hash missing separator!');
-      } else {
-        const [hash, salt] = passwordHash.split('.');
-        console.log(`Hash part length: ${hash.length}`);
-        console.log(`Salt part length: ${salt.length}`);
-        
-        if (hash.length < 32 || salt.length < 8) {
-          console.error('❌ Hash or salt component too short!');
-        } else {
-          console.log('✅ Password hash appears to be in correct format');
-        }
+      const cookies = loginResponse.headers['set-cookie'];
+      console.log(`Cookies received: ${cookies ? 'Yes' : 'No'}`);
+      if (cookies) {
+        console.log('Cookie details:', cookies);
       }
-    } catch (userError) {
-      console.error('❌ Error checking admin user:', userError.message);
-    }
-
-    // 4. Test login API endpoint
-    console.log('\n4. Testing login API endpoint...');
-    const baseUrl = 'http://localhost:5002';
-    
-    try {
-      const loginResponse = await axios.post(
-        `${baseUrl}/api/login`,
-        {
-          username: 'admin',
-          password: 'admin123'
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          validateStatus: () => true
-        }
-      );
       
-      console.log(`Login API status: ${loginResponse.status}`);
-      console.log(`Login response:`, loginResponse.data);
-      
+      // Step 6: Test auth check after login
       if (loginResponse.status === 200) {
-        console.log('✅ Login successful!');
-      } else if (loginResponse.status === 500) {
-        console.error('❌ Server error during login');
-        console.log('Login Error:', loginResponse.data);
-      } else {
-        console.warn('⚠️ Login returned non-success status:', loginResponse.status);
+        console.log('\n6. Testing authentication after login...');
+        try {
+          const userResponse = await axios.get(`${baseUrl}/api/user`, {
+            headers: {
+              Cookie: cookies.join('; ')
+            }
+          });
+          
+          console.log(`Auth check status: ${userResponse.status}`);
+          console.log('Auth check response:', userResponse.data);
+        } catch (error) {
+          console.error(`❌ Auth check failed: ${error.message}`);
+          if (error.response) {
+            console.log(`Status: ${error.response.status}`);
+            console.log('Response:', error.response.data);
+          }
+        }
       }
       
-      // Check if cookie was set
-      const setCookieHeader = loginResponse.headers['set-cookie'];
-      if (setCookieHeader && setCookieHeader.length > 0) {
-        console.log('✅ Session cookie was set:', setCookieHeader[0].split(';')[0]);
-      } else {
-        console.error('❌ No session cookie was set');
+    } catch (error) {
+      console.error(`❌ Login failed: ${error.message}`);
+      if (error.response) {
+        console.log(`Status: ${error.response.status}`);
+        console.log('Response:', error.response.data);
       }
-    } catch (apiError) {
-      console.error('❌ Error testing login API:', apiError.message);
     }
-
-    console.log('\n=== DEBUGGING COMPLETED ===');
+    
+    client.release();
   } catch (error) {
-    console.error('Error during debugging:', error);
+    console.error(`❌ Database connection failed: ${error.message}`);
+  } finally {
+    pool.end();
   }
+  
+  console.log('\n=== DEBUGGING COMPLETE ===');
 }
 
-deepAuthDebug().catch(console.error);
+deepAuthDebug().catch(error => {
+  console.error('Uncaught error in debugging script:', error);
+});
