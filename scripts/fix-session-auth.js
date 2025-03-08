@@ -1,57 +1,70 @@
 
-// Fix session and authentication issues
-import { db } from '../db';
-import { users, roles } from '../db/schema';
-import { eq } from 'drizzle-orm';
-import { crypto } from '../server/auth';
+// Fix session authentication issues
+import { config } from 'dotenv';
+import pg from 'pg';
+import { scrypt, randomBytes } from 'crypto';
+import { promisify } from 'util';
+
+config();
+const { Pool } = pg;
+const scryptAsync = promisify(scrypt);
+
+// Improved crypto functions for password handling
+const crypto = {
+  hash: async (password) => {
+    const salt = randomBytes(16).toString("hex");
+    const derivedKey = (await scryptAsync(password, salt, 64));
+    return `${derivedKey.toString("hex")}.${salt}`;
+  },
+};
 
 async function fixSessionAuth() {
-  console.log('Fixing session and authentication issues...');
+  console.log('Starting session auth fix...');
   
   try {
-    // 1. Check if admin exists and reset password if needed
-    const adminUser = await db.query.users.findFirst({
-      where: eq(users.username, 'admin'),
-      with: {
-        role: true
-      }
+    // Create database connection
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
     });
 
-    if (!adminUser) {
-      console.error('Admin user not found in database!');
+    console.log('Connecting to database...');
+    await pool.query('SELECT 1');
+    console.log('✅ Connected to database');
+
+    // Get admin user details
+    const result = await pool.query(`
+      SELECT u.id, u.username, u.password, r.name as role_name
+      FROM users u
+      JOIN roles r ON u.role_id = r.id
+      WHERE u.username = 'admin'
+    `);
+
+    if (result.rows.length === 0) {
+      console.error('Admin user not found');
       return;
     }
 
-    console.log('Found admin user:', {
-      id: adminUser.id,
-      username: adminUser.username,
-      role: adminUser.role?.name
-    });
+    const adminUser = result.rows[0];
+    console.log(`Found admin user (ID: ${adminUser.id})`);
 
-    // 2. Re-hash the admin password to ensure it's in the correct format
+    // Reset admin password to 'admin123'
     const newPasswordHash = await crypto.hash('admin123');
-    console.log('Generated new password hash');
-
-    // 3. Update the admin password
-    const [updatedUser] = await db
-      .update(users)
-      .set({
-        password: newPasswordHash,
-        updatedAt: new Date()
-      })
-      .where(eq(users.id, adminUser.id))
-      .returning();
-
-    console.log('Updated admin user password');
-    console.log('Password hash updated successfully for user ID:', updatedUser.id);
-    console.log('New hash format contains dot separator:', updatedUser.password.includes('.'));
     
+    console.log('Updating admin password...');
+    const updateResult = await pool.query(
+      'UPDATE users SET password = $1, updated_at = NOW() WHERE id = $2 RETURNING id, username',
+      [newPasswordHash, adminUser.id]
+    );
+
+    console.log('Admin password updated successfully');
+    console.log('Updated user:', updateResult.rows[0]);
+    console.log('New hash length:', newPasswordHash.length);
+    console.log('Hash contains separator:', newPasswordHash.includes('.'));
+
     console.log('\nSession authentication fix complete!');
     console.log('Please restart the server and try logging in again.');
   } catch (error) {
     console.error('Error fixing session auth:', error);
-  } finally {
-    process.exit(0);
   }
 }
 

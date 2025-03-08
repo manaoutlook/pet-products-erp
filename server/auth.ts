@@ -97,24 +97,32 @@ export const crypto = {
       const derivedKey = (await scryptAsync(suppliedPassword, salt, 64)) as Buffer;
       const suppliedHash = derivedKey.toString("hex");
 
-      // Compare hashes using timing-safe comparison
-      const storedBuffer = Buffer.from(storedHash, "hex");
-      const suppliedBuffer = Buffer.from(suppliedHash, "hex");
-
       console.log('Comparing password hashes...', {
         storedHashLength: storedHash.length,
         suppliedHashLength: suppliedHash.length
       });
 
+      // Simple comparison first for debugging
+      const simpleEqual = storedHash === suppliedHash;
+      console.log(`Simple comparison result: ${simpleEqual}`);
+      
+      // Double-check with timing-safe comparison when possible
       try {
-        const isMatch = timingSafeEqual(storedBuffer, suppliedBuffer);
-        console.log(`Password comparison result: ${isMatch}`);
-        return isMatch;
+        if (storedBuffer.length === suppliedBuffer.length) {
+          const storedBuffer = Buffer.from(storedHash, "hex");
+          const suppliedBuffer = Buffer.from(suppliedHash, "hex");
+          const isMatch = timingSafeEqual(storedBuffer, suppliedBuffer);
+          console.log(`Timing-safe comparison result: ${isMatch}`);
+          return isMatch;
+        } else {
+          console.log('Buffer lengths do not match, using simple comparison');
+          return simpleEqual;
+        }
       } catch (timingError) {
         console.error('Timing-safe comparison error:', timingError);
-        // Fallback to regular comparison if timing-safe fails
+        // Fallback to regular comparison
         console.log('Falling back to regular comparison');
-        return storedHash === suppliedHash;
+        return simpleEqual;
       }
     } catch (error: any) {
       console.error('Error comparing passwords:', error);
@@ -216,23 +224,23 @@ export function setupAuth(app: Express) {
   const sessionSettings: session.SessionOptions = {
     secret: process.env.REPL_ID || "pet-products-erp-secret",
     name: 'sid',
-    resave: false,
-    saveUninitialized: false,
+    resave: true,
+    saveUninitialized: true,
     rolling: true,
     cookie: {
       httpOnly: true,
-      secure: app.get("env") === "production",
+      secure: false, // Set to false for development
       sameSite: 'lax',
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
+      // domain explicitly not set to allow automatic determination
     },
     store: new MemoryStore({
       checkPeriod: 86400000, // prune expired entries every 24h
     }),
   };
 
-  if (app.get("env") === "production") {
-    app.set("trust proxy", 1);
-  }
+  // Always trust proxy headers to ensure cookies work with reverse proxies
+  app.set("trust proxy", 1);
 
   app.use(session(sessionSettings));
   app.use(passport.initialize());

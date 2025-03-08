@@ -105,47 +105,48 @@ export function registerRoutes(app: Express): Server {
       .then(() => {
         console.log(`[${env}] Database connection verified before login attempt`);
         
-        // Import passport from auth.ts
-        const { passport } = require("./auth");
-        
-        passport.authenticate("local", (err: any, user: Express.User | false, info: any) => {
-          if (err) {
-            console.error(`[${env}] Login authentication error:`, {
-              error: err.message,
-              stack: err.stack,
-              timestamp: new Date().toISOString()
-            });
-            
-            // Enhanced error message to help with debugging
-            let errorMessage = "Internal server error";
-            let errorSuggestion = "Please try again later. If the problem persists, contact support.";
-            
-            // Provide more specific error messages based on error type
-            if (err.message && (
-                err.message.includes('Database connection failed') ||
-                err.message.includes('database') ||
-                err.message.includes('pool') ||
-                err.message.includes('connection')
-              )) {
-              errorMessage = "Database connection error";
-              errorSuggestion = "Please try again later. If the problem persists, contact support.";
-            } else if (err.message && (
-                err.message.includes('Password verification failed') ||
-                err.message.includes('password')
-              )) {
-              errorMessage = "Password verification error";
-              errorSuggestion = "There might be an issue with the password format.";
-            } else if (err.message && err.message.includes('Both supplied and stored passwords are required')) {
-              errorMessage = "Authentication error";
-              errorSuggestion = "Please try again with valid credentials.";
+        try {
+          // Import passport from auth.ts
+          const { passport } = require("./auth");
+          
+          passport.authenticate("local", (err: any, user: Express.User | false, info: any) => {
+            if (err) {
+              console.error(`[${env}] Login authentication error:`, {
+                error: err.message,
+                stack: err.stack,
+                timestamp: new Date().toISOString()
+              });
+              
+              // Enhanced error message to help with debugging
+              let errorMessage = "Internal server error";
+              let errorSuggestion = "Please try again later. If the problem persists, contact support.";
+              
+              // Provide more specific error messages based on error type
+              if (err.message && (
+                  err.message.includes('Database connection failed') ||
+                  err.message.includes('database') ||
+                  err.message.includes('pool') ||
+                  err.message.includes('connection')
+                )) {
+                errorMessage = "Database connection error";
+                errorSuggestion = "Please try again later. If the problem persists, contact support.";
+              } else if (err.message && (
+                  err.message.includes('Password verification failed') ||
+                  err.message.includes('password')
+                )) {
+                errorMessage = "Password verification error";
+                errorSuggestion = "There might be an issue with the password format.";
+              } else if (err.message && err.message.includes('Both supplied and stored passwords are required')) {
+                errorMessage = "Authentication error";
+                errorSuggestion = "Please try again with valid credentials.";
+              }
+              
+              return res.status(500).json({
+                message: errorMessage,
+                suggestion: errorSuggestion,
+                debug: process.env.NODE_ENV !== 'production' ? err.message : undefined
+              });
             }
-            
-            return res.status(500).json({
-              message: errorMessage,
-              suggestion: errorSuggestion,
-              debug: process.env.NODE_ENV !== 'production' ? err.message : undefined
-            });
-          }
 
       if (!user) {
         console.log('Login failed:', {
