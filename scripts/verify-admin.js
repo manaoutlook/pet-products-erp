@@ -64,6 +64,7 @@ const crypto = {
     if (!databaseUrl) {
       console.error("DATABASE_URL is not set. Please provide it as an environment variable or command-line argument:");
       console.error("Usage: node scripts/verify-admin.js <DATABASE_URL>");
+      console.error("Or: DATABASE_URL=your_connection_string node scripts/verify-admin.js");
       process.exit(1);
     }
     
