@@ -208,6 +208,9 @@ export async function setupAdmin() {
   }
 }
 
+// Export passport for use in routes.ts
+export { passport };
+
 export function setupAuth(app: Express) {
   const MemoryStore = createMemoryStore(session);
   const sessionSettings: session.SessionOptions = {
@@ -234,9 +237,6 @@ export function setupAuth(app: Express) {
   app.use(session(sessionSettings));
   app.use(passport.initialize());
   app.use(passport.session());
-
-  // Explicitly import passport for use in routes.ts
-  export { passport };
   
   passport.use(
     new LocalStrategy(async (username, password, done) => {
