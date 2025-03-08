@@ -190,7 +190,6 @@ export function registerRoutes(app: Express): Server {
               });
             });
           })(req, res, next);
-        })
         .catch(dbError => {
           console.error(`[${env}] Database connection failed during login:`, {
             error: dbError.message,
