@@ -4,10 +4,18 @@
     // Use dynamic import for node-fetch
     const fetch = (await import('node-fetch')).default;
 
-    const BASE_URL = process.env.APP_URL || 'http://0.0.0.0:5000';
+    // Try different potential base URLs
+    const BASE_URLS = [
+      process.env.APP_URL || 'http://127.0.0.1:5000',
+      'http://localhost:5000',
+      'http://0.0.0.0:5000'
+    ];
     
     console.log('=== API Endpoint Path Checker ===');
-    console.log(`Testing API endpoints at ${BASE_URL}`);
+    
+    // Test with each base URL
+    for (const BASE_URL of BASE_URLS) {
+      console.log(`\nTesting API endpoints at ${BASE_URL}`);
     
     // Define paths to test
     const paths = [
@@ -72,11 +80,14 @@ server {
     }
 }`);
 
+    }
+
     console.log('\n=== Possible Issues ===');
     console.log('1. API routes not configured correctly');
     console.log('2. Server not running or not listening on correct port/address');
-    console.log('3. Nginx or other proxy not configured correctly');
-    console.log('4. Firewall blocking connections');
+    console.log('3. Express router order - API routes may be registered after catch-all route');
+    console.log('4. Nginx or other proxy not configured correctly');
+    console.log('5. Firewall blocking connections');
     
   } catch (error) {
     console.error('Script error:', error);
