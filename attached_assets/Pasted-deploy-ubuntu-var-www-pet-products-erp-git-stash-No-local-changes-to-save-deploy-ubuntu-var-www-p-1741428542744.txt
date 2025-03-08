@@ -1,0 +1,49 @@
+deploy@ubuntu:/var/www/pet-products-erp$ git stash
+No local changes to save
+deploy@ubuntu:/var/www/pet-products-erp$ git pull
+remote: Enumerating objects: 7, done.
+remote: Counting objects: 100% (7/7), done.
+remote: Compressing objects: 100% (1/1), done.
+remote: Total 4 (delta 3), reused 4 (delta 3), pack-reused 0 (from 0)
+Unpacking objects: 100% (4/4), 1.09 KiB | 223.00 KiB/s, done.
+From https://github.com/manaoutlook/pet-products-erp
+   e9276cfb..aa70b5ff  deploy001  -> origin/deploy001
+Updating e9276cfb..aa70b5ff
+Fast-forward
+ server/routes.ts | 1 -
+ 1 file changed, 1 deletion(-)
+deploy@ubuntu:/var/www/pet-products-erp$ pkill -f "tsx server/index.ts" && npm run dev
+deploy@ubuntu:/var/www/pet-products-erp$ node scripts/verify-auth-fix.js
+Verifying authentication fix...
+
+Step 1: Testing API health...
+Health check status: 401
+
+Step 2: Testing login...
+Login status: 500
+❌ Login failed
+Login response: {
+  message: 'Internal server error',
+  suggestion: 'Please try again later. If the problem persists, contact support.'
+}
+
+Cookies received: No cookies received
+deploy@ubuntu:/var/www/pet-products-erp$ node scripts/debug-login-auth.js
+node:internal/modules/esm/resolve:873
+  throw new ERR_MODULE_NOT_FOUND(packageName, fileURLToPath(base), null);
+        ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'node-fetch' imported from /var/www/pet-products-erp/scripts/debug-login-auth.js
+    at packageResolve (node:internal/modules/esm/resolve:873:9)
+    at moduleResolve (node:internal/modules/esm/resolve:946:18)
+    at defaultResolve (node:internal/modules/esm/resolve:1188:11)
+    at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:542:12)
+    at ModuleLoader.resolve (node:internal/modules/esm/loader:510:25)
+    at ModuleLoader.getModuleJob (node:internal/modules/esm/loader:239:38)
+    at ModuleWrap.<anonymous> (node:internal/modules/esm/module_job:96:40)
+    at link (node:internal/modules/esm/module_job:95:36) {
+  code: 'ERR_MODULE_NOT_FOUND'
+}
+
+Node.js v20.18.3
+deploy@ubuntu:/var/www/pet-products-erp$ 
