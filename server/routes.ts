@@ -92,6 +92,14 @@ export function registerRoutes(app: Express): Server {
       timestamp: new Date().toISOString()
     });
 
+    // Check if username and password are provided
+    if (!req.body.username || !req.body.password) {
+      return res.status(400).json({
+        message: "Missing credentials",
+        suggestion: "Please provide both username and password"
+      });
+    }
+
     // Verify DB connection before authenticating
     db.execute("SELECT 1 as db_check")
       .then(() => {
@@ -116,6 +124,9 @@ export function registerRoutes(app: Express): Server {
             } else if (err.message.includes('Password verification failed')) {
               errorMessage = "Password verification error";
               errorSuggestion = "There might be an issue with the password hash format.";
+            } else if (err.message.includes('Both supplied and stored passwords are required')) {
+              errorMessage = "Authentication error";
+              errorSuggestion = "Please try again with valid credentials.";
             }
             
             return res.status(500).json({

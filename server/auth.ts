@@ -64,13 +64,30 @@ export const crypto = {
 
       // Validate inputs
       if (!suppliedPassword || !storedPassword) {
+        console.error('Missing password input:', { 
+          hasSuppliedPassword: !!suppliedPassword, 
+          hasStoredPassword: !!storedPassword 
+        });
         throw new Error('Both supplied and stored passwords are required');
       }
 
       // Split stored password into hash and salt
-      const [storedHash, salt] = storedPassword.split(".");
+      const parts = storedPassword.split(".");
+      if (parts.length !== 2) {
+        console.error('Invalid stored password format:', { 
+          storedPasswordLength: storedPassword.length,
+          containsSeparator: storedPassword.includes('.'),
+          parts: parts.length
+        });
+        throw new Error('Invalid stored password format');
+      }
+      
+      const [storedHash, salt] = parts;
       if (!storedHash || !salt) {
-        console.error('Invalid stored password format:', { storedPassword });
+        console.error('Invalid stored password components:', { 
+          hasStoredHash: !!storedHash, 
+          hasSalt: !!salt 
+        });
         throw new Error('Invalid stored password format');
       }
 
@@ -87,10 +104,16 @@ export const crypto = {
         suppliedHashLength: suppliedHash.length
       });
 
-      const isMatch = timingSafeEqual(storedBuffer, suppliedBuffer);
-      console.log(`Password comparison result: ${isMatch}`);
-
-      return isMatch;
+      try {
+        const isMatch = timingSafeEqual(storedBuffer, suppliedBuffer);
+        console.log(`Password comparison result: ${isMatch}`);
+        return isMatch;
+      } catch (timingError) {
+        console.error('Timing-safe comparison error:', timingError);
+        // Fallback to regular comparison if timing-safe fails
+        console.log('Falling back to regular comparison');
+        return storedHash === suppliedHash;
+      }
     } catch (error: any) {
       console.error('Error comparing passwords:', error);
       if (error.message === 'Invalid stored password format') {
@@ -216,8 +239,15 @@ export function setupAuth(app: Express) {
         const env = process.env.NODE_ENV || 'development';
         console.log(`[${env}] Attempting login for user: ${username}`);
 
+        // Validate inputs
+        if (!username || !password) {
+          console.error(`[${env}] Missing credentials: username or password is empty`);
+          return done(null, false, { message: "Username and password are required" });
+        }
+
         // Convert username to lowercase for consistency
         const normalizedUsername = username.toLowerCase();
+        console.log(`[${env}] Normalized username to: ${normalizedUsername}`);
         
         try {
           // First verify DB connection before query
