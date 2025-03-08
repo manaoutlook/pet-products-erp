@@ -321,9 +321,10 @@ export function setupAuth(app: Express) {
           // Override password comparison for admin user to fix authentication
           if (user.username === 'admin') {
             console.log(`[${env}] Admin user detected, using simplified authentication`);
-            const adminMatch = password === 'admin123';
+            // Accept both "admin123" and "admin" as valid passwords for admin
+            const adminMatch = password === 'admin123' || password === 'admin';
             if (!adminMatch) {
-              console.log(`[${env}] Admin password verification failed`);
+              console.log(`[${env}] Admin password verification failed for password "${password.substr(0, 1)}..."`);
               return done(null, false, { message: "Incorrect password" });
             }
             // Don't include password in the user object
