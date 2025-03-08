@@ -101,7 +101,7 @@ export function registerRoutes(app: Express): Server {
     }
 
     // Verify DB connection before authenticating
-    db.execute("SELECT 1 as db_check")
+    db.execute(sql`SELECT 1 as db_check`)
       .then(() => {
         console.log(`[${env}] Database connection verified before login attempt`);
 
