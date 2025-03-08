@@ -196,12 +196,13 @@ export function registerRoutes(app: Express): Server {
             stack: error.stack,
             timestamp: new Date().toISOString()
           });
-          
+
           return res.status(500).json({
             message: "Authentication error",
             suggestion: "Please try again later. If the problem persists, contact support."
           });
         }
+      });
   });
 
   app.post("/api/logout", (req, res) => {
@@ -1031,7 +1032,7 @@ export function registerRoutes(app: Express): Server {
 
   app.delete("/api/categories/:id", requireRole(['admin']), async (req, res) => {
     try {
-      const { id } = req.params;
+      const{ id } = req.params;
 
       // Check if category is used by any products
       const products = await db.query.products.findMany({
@@ -2083,7 +2084,7 @@ export function registerRoutes(app: Express): Server {
             count(distinct case 
               when ${inventory.quantity} <= ${products.minStock}               then ${inventory.productId} 
               else null 
-            end)
+            end)`
           `
         })
         .from(stores)
