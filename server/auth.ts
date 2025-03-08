@@ -360,9 +360,24 @@ export function setupAuth(app: Express) {
               stack: err.stack,
               timestamp: new Date().toISOString()
             });
+            
+            // Enhanced error message to help with debugging
+            let errorMessage = "Internal server error";
+            let errorSuggestion = "Please try again later. If the problem persists, contact support.";
+            
+            // Provide more specific error messages based on error type
+            if (err.message.includes('Database connection failed')) {
+              errorMessage = "Database connection error";
+              errorSuggestion = "Check your database connection and configuration.";
+            } else if (err.message.includes('Password verification failed')) {
+              errorMessage = "Password verification error";
+              errorSuggestion = "There might be an issue with the password hash format.";
+            }
+            
             return res.status(500).json({
-              message: "Internal server error",
-              suggestion: "Please try again later. If the problem persists, contact support."
+              message: errorMessage,
+              suggestion: errorSuggestion,
+              debug: process.env.NODE_ENV !== 'production' ? err.message : undefined
             });
           }
 
