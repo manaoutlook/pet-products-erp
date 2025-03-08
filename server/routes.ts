@@ -190,19 +190,18 @@ export function registerRoutes(app: Express): Server {
               });
             });
           })(req, res, next);
-        }).catch(dbError => {
-          console.error(`[${env}] Database connection failed during login:`, {
-            error: dbError.message,
-            stack: dbError.stack,
-            timestamp: new Date().toISOString(),
-            databaseUrl: process.env.DATABASE_URL ? "Configured" : "Missing"
+        } catch (error) {
+          console.error(`[${env}] Error during authentication:`, {
+            error: error.message,
+            stack: error.stack,
+            timestamp: new Date().toISOString()
           });
-
+          
           return res.status(500).json({
-            message: "Database connection error",
+            message: "Authentication error",
             suggestion: "Please try again later. If the problem persists, contact support."
           });
-        });
+        }
   });
 
   app.post("/api/logout", (req, res) => {
