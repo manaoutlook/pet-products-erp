@@ -1,0 +1,45 @@
+deploy@ubuntu:/var/www/pet-products-erp$ npm run build && node scripts/check-server-binding.cjs
+
+> rest-express@1.0.0 build
+> vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist
+
+vite v5.4.11 building for production...
+✓ 3234 modules transformed.
+../dist/public/index.html                     1.58 kB │ gzip:   0.63 kB
+../dist/public/assets/index-Cf_h3qIl.css     64.94 kB │ gzip:  11.52 kB
+../dist/public/assets/index-BEZPBKl2.js   1,175.24 kB │ gzip: 330.80 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 18.97s
+
+  dist/index.js  89.3kb
+
+⚡ Done in 25ms
+=== Server Binding Check ===
+
+Checking how server is binding to network interfaces:
+Found server.listen() calls:
+  server.listen(port, "0.0.0.0")
+✅ Server appears to be binding to 0.0.0.0 (all interfaces) - Good
+
+Checking middleware registration order:
+✅ express.json() middleware is registered
+✅ Authentication middleware is set up
+⚠️ Global requireAuth middleware found for /api paths - This will block /api/login access
+   Login endpoint must be defined BEFORE this middleware to work correctly
+✅ Found login route definition
+✅ Login route is defined before global auth middleware - Good
+
+Checking for other services that might be using port 5001:
+tcp   LISTEN 0      511                0.0.0.0:5001       0.0.0.0:*          
+
+
+=== Recommendations ===
+1. Ensure login endpoint is defined BEFORE applying requireAuth middleware to /api routes
+2. Verify the server is binding to 0.0.0.0:5001 and not just localhost
+3. Check if express.json() middleware is registered for parsing request bodies
+4. Verify the health check endpoint is accessible without authentication
+deploy@ubuntu:/var/www/pet-products-erp$ 
