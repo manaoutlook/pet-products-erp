@@ -56,13 +56,13 @@ export function registerRoutes(app: Express): Server {
     console.log(`${req.method} ${req.path}`);
     next();
   });
-  
+
   // Health check endpoint (no auth required) - MUST be defined before auth middleware
   app.get("/api/health", async (req, res) => {
     try {
       // Test database connection
       const result = await db.execute("SELECT 1 as db_check");
-      
+
       res.json({
         status: "ok",
         database: "connected",
@@ -104,11 +104,11 @@ export function registerRoutes(app: Express): Server {
     db.execute("SELECT 1 as db_check")
       .then(() => {
         console.log(`[${env}] Database connection verified before login attempt`);
-        
+
         try {
           // Import passport from auth.ts
           const { passport } = require("./auth");
-          
+
           passport.authenticate("local", (err: any, user: Express.User | false, info: any) => {
             if (err) {
               console.error(`[${env}] Login authentication error:`, {
@@ -116,11 +116,11 @@ export function registerRoutes(app: Express): Server {
                 stack: err.stack,
                 timestamp: new Date().toISOString()
               });
-              
+
               // Enhanced error message to help with debugging
               let errorMessage = "Internal server error";
               let errorSuggestion = "Please try again later. If the problem persists, contact support.";
-              
+
               // Provide more specific error messages based on error type
               if (err.message && (
                   err.message.includes('Database connection failed') ||
@@ -140,7 +140,7 @@ export function registerRoutes(app: Express): Server {
                 errorMessage = "Authentication error";
                 errorSuggestion = "Please try again with valid credentials.";
               }
-              
+
               return res.status(500).json({
                 message: errorMessage,
                 suggestion: errorSuggestion,
@@ -148,62 +148,62 @@ export function registerRoutes(app: Express): Server {
               });
             }
 
-      if (!user) {
-        console.log('Login failed:', {
-          reason: info.message,
-          username: req.body.username
-        });
-        return res.status(400).json({
-          message: info.message || "Invalid credentials",
-          suggestion: info.message?.includes("password")
-            ? "Please check your password and try again"
-            : "Please check your username and try again"
-        });
-      }
+            if (!user) {
+              console.log('Login failed:', {
+                reason: info.message,
+                username: req.body.username
+              });
+              return res.status(400).json({
+                message: info.message || "Invalid credentials",
+                suggestion: info.message?.includes("password")
+                  ? "Please check your password and try again"
+                  : "Please check your username and try again"
+              });
+            }
 
-      req.logIn(user, (err) => {
-        if (err) {
-          console.error('Login session error:', {
-            error: err.message,
-            stack: err.stack,
-            userId: user.id
+            req.logIn(user, (err) => {
+              if (err) {
+                console.error('Login session error:', {
+                  error: err.message,
+                  stack: err.stack,
+                  userId: user.id
+                });
+                return res.status(500).json({
+                  message: "Failed to create session",
+                  suggestion: "Please try again. If the problem persists, clear your browser cookies."
+                });
+              }
+
+              console.log('Login successful:', {
+                userId: user.id,
+                username: user.username,
+                role: user.role.name
+              });
+
+              return res.json({
+                message: "Login successful",
+                user: {
+                  id: user.id,
+                  username: user.username,
+                  role: user.role
+                }
+              });
+            });
+          })(req, res, next);
+        })
+        .catch(dbError => {
+          console.error(`[${env}] Database connection failed during login:`, {
+            error: dbError.message,
+            stack: dbError.stack,
+            timestamp: new Date().toISOString(),
+            databaseUrl: process.env.DATABASE_URL ? "Configured" : "Missing"
           });
+
           return res.status(500).json({
-            message: "Failed to create session",
-            suggestion: "Please try again. If the problem persists, clear your browser cookies."
+            message: "Database connection error",
+            suggestion: "Please try again later. If the problem persists, contact support."
           });
-        }
-
-        console.log('Login successful:', {
-          userId: user.id,
-          username: user.username,
-          role: user.role.name
         });
-
-        return res.json({
-          message: "Login successful",
-          user: {
-            id: user.id,
-            username: user.username,
-            role: user.role
-          }
-        });
-      });
-    })(req, res, next);
-    })
-    .catch(dbError => {
-      console.error(`[${env}] Database connection failed during login:`, {
-        error: dbError.message,
-        stack: dbError.stack,
-        timestamp: new Date().toISOString(),
-        databaseUrl: process.env.DATABASE_URL ? "Configured" : "Missing"
-      });
-      
-      return res.status(500).json({
-        message: "Database connection error",
-        suggestion: "Please try again later. If the problem persists, contact support."
-      });
-    });
   });
 
   app.post("/api/logout", (req, res) => {
@@ -2287,7 +2287,7 @@ export function registerRoutes(app: Express): Server {
         .returning();
 
       if (!updatedSupplier) {
-                return res.status(404).send("Supplier not found");
+        return res.status(404).send("Supplier not found");
       }
 
       res.json({
