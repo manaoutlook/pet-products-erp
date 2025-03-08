@@ -3,7 +3,6 @@
 require('dotenv').config();
 const { drizzle } = require("drizzle-orm/postgres-js");
 const postgres = require("postgres");
-const { eq } = require("drizzle-orm");
 const crypto = require("crypto");
 
 console.log("Database URL check:", process.env.DATABASE_URL ? "Found" : "Not found");
@@ -17,28 +16,20 @@ if (!process.env.DATABASE_URL) {
 // Use PostgreSQL connection string with postgres-js
 const queryClient = postgres(process.env.DATABASE_URL, { max: 10 });
 
-// Load schema manually for CommonJS
-const schema = {
-  users: {
-    id: { name: 'id' },
-    username: { name: 'username' },
-    password: { name: 'password' },
-    roleId: { name: 'role_id' },
-    createdAt: { name: 'created_at' },
-    updatedAt: { name: 'updated_at' }
-  },
-  roles: {
-    id: { name: 'id' },
-    name: { name: 'name' },
-    description: { name: 'description' },
-    roleTypeId: { name: 'role_type_id' },
-    permissions: { name: 'permissions' },
-    createdAt: { name: 'created_at' },
-    updatedAt: { name: 'updated_at' }
+// Setup DB with direct SQL approach
+const db = {
+  query: async (sql, params = []) => {
+    try {
+      console.log(`Executing SQL: ${sql}`);
+      const result = await queryClient.unsafe(sql, params);
+      console.log(`Query returned ${result.length} rows`);
+      return result;
+    } catch (error) {
+      console.error('SQL Error:', error.message);
+      throw error;
+    }
   }
 };
-
-const db = drizzle(queryClient, { schema });
 
 // Simple crypto implementation
 const hashPassword = async (password) => {
@@ -49,50 +40,50 @@ async function resetAdminPassword() {
   console.log('Starting admin password reset process...');
   
   try {
-    // Get admin user using raw SQL since we don't have the full schema
-    const adminUserResult = await db.execute(
-      `SELECT * FROM users WHERE username = 'admin'`
-    );
-    const adminUser = adminUserResult.rows[0];
+    // First, check if we can connect to the database
+    console.log('Testing database connection...');
+    await db.query('SELECT 1 as test');
+    console.log('Database connection successful');
     
-    if (!adminUser) {
+    // Check if admin user exists
+    console.log('Checking for admin user...');
+    const adminUsers = await db.query("SELECT * FROM users WHERE username = 'admin'");
+    
+    if (!adminUsers || adminUsers.length === 0) {
       console.log('Admin user not found, creating new admin user...');
       
-      // Get admin role using raw SQL
-      const adminRoleResult = await db.execute(
-        `SELECT * FROM roles WHERE name = 'admin'`
-      );
-      const adminRole = adminRoleResult.rows[0];
+      // Check if admin role exists
+      const adminRoles = await db.query("SELECT * FROM roles WHERE name = 'admin'");
       
-      if (!adminRole) {
+      if (!adminRoles || adminRoles.length === 0) {
         console.error('Admin role not found, cannot create admin user');
         return;
       }
       
+      const adminRole = adminRoles[0];
+      console.log('Found admin role with ID:', adminRole.id);
+      
       // Hash new admin password
       const hashedPassword = await hashPassword('admin123');
       
-      // Create admin user with raw SQL
-      const newUserResult = await db.execute(
+      // Create admin user
+      await db.query(
         `INSERT INTO users (username, password, role_id, created_at, updated_at) 
-         VALUES ('admin', $1, $2, NOW(), NOW()) 
-         RETURNING *`,
+         VALUES ('admin', $1, $2, NOW(), NOW())`,
         [hashedPassword, adminRole.id]
       );
-      const newUser = newUserResult.rows[0];
       
-      console.log('Created new admin user with ID:', newUser.id);
+      console.log('Created new admin user with username: admin and password: admin123');
     } else {
       console.log('Found existing admin user, resetting password...');
+      const adminUser = adminUsers[0];
       
       // Hash new admin password
       const hashedPassword = await hashPassword('admin123');
       
-      // Update admin password with raw SQL
-      await db.execute(
-        `UPDATE users 
-         SET password = $1, updated_at = NOW() 
-         WHERE id = $2`,
+      // Update admin password
+      await db.query(
+        `UPDATE users SET password = $1, updated_at = NOW() WHERE id = $2`,
         [hashedPassword, adminUser.id]
       );
       
@@ -103,8 +94,10 @@ async function resetAdminPassword() {
   } catch (error) {
     console.error('Error resetting admin password:', error);
   } finally {
+    // Close DB connection
+    await queryClient.end();
     process.exit(0);
   }
 }
 
-resetAdminPassword().catch(console.error);
+resetAdminPassword();
