@@ -341,22 +341,30 @@ export function setupAuth(app: Express) {
   });
 
   app.post("/api/login", (req, res, next) => {
-    console.log('Login request received:', {
+    const env = process.env.NODE_ENV || 'development';
+    console.log(`[${env}] Login request received:`, {
       username: req.body.username,
-      hasPassword: !!req.body.password
+      hasPassword: !!req.body.password,
+      timestamp: new Date().toISOString()
     });
 
-    passport.authenticate("local", (err: any, user: Express.User | false, info: any) => {
-      if (err) {
-        console.error('Login authentication error:', {
-          error: err.message,
-          stack: err.stack
-        });
-        return res.status(500).json({
-          message: "Internal server error",
-          suggestion: "Please try again later. If the problem persists, contact support."
-        });
-      }
+    // Verify DB connection before authenticating
+    db.execute("SELECT 1 as db_check")
+      .then(() => {
+        console.log(`[${env}] Database connection verified before login attempt`);
+        
+        passport.authenticate("local", (err: any, user: Express.User | false, info: any) => {
+          if (err) {
+            console.error(`[${env}] Login authentication error:`, {
+              error: err.message,
+              stack: err.stack,
+              timestamp: new Date().toISOString()
+            });
+            return res.status(500).json({
+              message: "Internal server error",
+              suggestion: "Please try again later. If the problem persists, contact support."
+            });
+          }
 
       if (!user) {
         console.log('Login failed:', {
@@ -399,7 +407,21 @@ export function setupAuth(app: Express) {
           }
         });
       });
-    })(req, res, next);
+      })(req, res, next);
+    })
+    .catch(dbError => {
+      console.error(`[${env}] Database connection failed during login:`, {
+        error: dbError.message,
+        stack: dbError.stack,
+        timestamp: new Date().toISOString(),
+        databaseUrl: process.env.DATABASE_URL ? "Configured" : "Missing"
+      });
+      
+      return res.status(500).json({
+        message: "Database connection error",
+        suggestion: "Please try again later. If the problem persists, contact support."
+      });
+    });
   });
 
   app.post("/api/logout", (req, res) => {

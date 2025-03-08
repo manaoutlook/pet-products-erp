@@ -56,6 +56,32 @@ export function registerRoutes(app: Express): Server {
     console.log(`${req.method} ${req.path}`);
     next();
   });
+  
+  // Health check endpoint (no auth required)
+  app.get("/api/health", async (req, res) => {
+    try {
+      // Test database connection
+      const result = await db.execute("SELECT 1 as db_check");
+      
+      res.json({
+        status: "ok",
+        database: "connected",
+        environment: process.env.NODE_ENV || "development",
+        timestamp: new Date().toISOString(),
+        databaseUrl: process.env.DATABASE_URL ? "configured" : "missing"
+      });
+    } catch (error: any) {
+      console.error('Health check error:', error.message);
+      res.status(500).json({
+        status: "error",
+        database: "disconnected",
+        error: error.message,
+        environment: process.env.NODE_ENV || "development",
+        timestamp: new Date().toISOString(),
+        databaseUrl: process.env.DATABASE_URL ? "configured" : "missing"
+      });
+    }
+  });
 
   app.use('/api', requireAuth);
 

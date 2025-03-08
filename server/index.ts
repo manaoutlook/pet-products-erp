@@ -64,7 +64,9 @@ app.use((req, res, next) => {
   const startServer = (port: number, retries = 0) => {
     server.listen(port, "0.0.0.0")
       .on("listening", () => {
-        log(`serving on port ${port}`);
+        const address = server.address();
+        log(`serving on ${typeof address === 'object' ? `${address?.address}:${address?.port}` : port}`);
+        log(`DATABASE_URL configured: ${process.env.DATABASE_URL ? "Yes" : "No"}`);
       })
       .on("error", (err: any) => {
         if (err.code === 'EADDRINUSE' && retries < MAX_RETRIES) {
