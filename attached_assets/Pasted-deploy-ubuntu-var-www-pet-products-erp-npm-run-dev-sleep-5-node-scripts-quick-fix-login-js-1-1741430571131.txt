@@ -1,0 +1,58 @@
+deploy@ubuntu:/var/www/pet-products-erp$ npm run dev & sleep 5 && node scripts/quick-fix-login.js
+[1] 875943
+
+> rest-express@1.0.0 dev
+> tsx server/index.ts
+
+Database URL check: Found
+Setting up admin user...
+5:42:27 PM [express] Port 5001 is in use, trying port 5002...
+5:42:27 PM [express] Port 5001 is in use, trying port 5002...
+5:42:27 PM [express] Port 5002 is in use, trying port 5003...
+5:42:27 PM [express] Port 5001 is in use, trying port 5002...
+5:42:27 PM [express] Port 5002 is in use, trying port 5003...
+5:42:27 PM [express] Port 5002 is in use, trying port 5003...
+5:42:27 PM [express] Port 5003 is in use, trying port 5004...
+5:42:27 PM [express] serving on 0.0.0.0:5004
+5:42:27 PM [express] DATABASE_URL configured: Yes
+5:42:27 PM [express] serving on 0.0.0.0:5004
+5:42:27 PM [express] DATABASE_URL configured: Yes
+5:42:27 PM [express] serving on 0.0.0.0:5004
+5:42:27 PM [express] DATABASE_URL configured: Yes
+5:42:27 PM [express] serving on 0.0.0.0:5004
+5:42:27 PM [express] DATABASE_URL configured: Yes
+5:42:27 PM [express] serving on 0.0.0.0:5004
+5:42:27 PM [express] DATABASE_URL configured: Yes
+5:42:27 PM [express] serving on 0.0.0.0:5004
+5:42:27 PM [express] DATABASE_URL configured: Yes
+5:42:27 PM [express] serving on 0.0.0.0:5004
+5:42:27 PM [express] DATABASE_URL configured: Yes
+5:42:27 PM [express] serving on 0.0.0.0:5004
+5:42:27 PM [express] DATABASE_URL configured: Yes
+Using role type: { id: 1, description: 'System Administrator' }
+Admin role: {
+  id: 12,
+  name: 'admin',
+  description: 'Administrator role with full access',
+  roleTypeId: 1,
+  permissions: {
+    users: { read: true, create: true, delete: true, update: true },
+    orders: { read: true, create: true, delete: true, update: true },
+    products: { read: true, create: true, delete: true, update: true },
+    inventory: { read: true, create: true, delete: true, update: true }
+  },
+  createdAt: 2025-03-06T12:12:00.968Z,
+  updatedAt: 2025-03-06T12:12:00.968Z
+}
+Running quick login fix...
+1. Checking server status...
+✅ Server is running on port 5003
+
+2. Testing login on port 5003...
+Login status: 500
+Login response: {
+  message: 'Authentication error',
+  suggestion: 'Please try again later. If the problem persists, contact support.'
+}
+❌ Login still failing. Additional troubleshooting needed.
+Try restarting the server with: npm run dev
