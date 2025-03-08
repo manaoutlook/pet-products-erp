@@ -5,7 +5,7 @@
   const fetch = (await import('node-fetch')).default;
 
   // Use IP address format to ensure connectivity from containers/VMs
-  const BASE_URL = process.env.APP_URL || 'http://0.0.0.0:5000';
+  const BASE_URL = process.env.APP_URL || 'http://0.0.0.0:5001';
   const username = 'admin';
   const password = 'admin123';
 
