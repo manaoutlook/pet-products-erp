@@ -121,13 +121,21 @@ export function registerRoutes(app: Express): Server {
             let errorSuggestion = "Please try again later. If the problem persists, contact support.";
             
             // Provide more specific error messages based on error type
-            if (err.message.includes('Database connection failed')) {
+            if (err.message && (
+                err.message.includes('Database connection failed') ||
+                err.message.includes('database') ||
+                err.message.includes('pool') ||
+                err.message.includes('connection')
+              )) {
               errorMessage = "Database connection error";
-              errorSuggestion = "Check your database connection and configuration.";
-            } else if (err.message.includes('Password verification failed')) {
+              errorSuggestion = "Please try again later. If the problem persists, contact support.";
+            } else if (err.message && (
+                err.message.includes('Password verification failed') ||
+                err.message.includes('password')
+              )) {
               errorMessage = "Password verification error";
-              errorSuggestion = "There might be an issue with the password hash format.";
-            } else if (err.message.includes('Both supplied and stored passwords are required')) {
+              errorSuggestion = "There might be an issue with the password format.";
+            } else if (err.message && err.message.includes('Both supplied and stored passwords are required')) {
               errorMessage = "Authentication error";
               errorSuggestion = "Please try again with valid credentials.";
             }
