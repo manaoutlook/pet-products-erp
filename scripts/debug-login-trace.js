@@ -1,4 +1,3 @@
-
 // Debug login with detailed tracing
 import { config } from 'dotenv';
 import pg from 'pg';
@@ -20,7 +19,7 @@ async function verifyPasswordHash(password, storedPassword) {
         reason: `Invalid stored password format: ${parts.length} parts found, expected 2` 
       };
     }
-    
+
     const [storedHash, salt] = parts;
     if (!storedHash || !salt) {
       return {
@@ -35,7 +34,7 @@ async function verifyPasswordHash(password, storedPassword) {
 
     // Compare
     const isMatch = storedHash === suppliedHash;
-    
+
     return {
       isValid: isMatch,
       storedHashLength: storedHash.length,
@@ -61,7 +60,7 @@ async function testApiLogin() {
     });
     console.log(`Health endpoint status: ${healthResponse.status}`);
     console.log('Health response:', healthResponse.data);
-    
+
     // Test login endpoint
     console.log('\nTesting login endpoint...');
     const loginResponse = await axios.post('http://localhost:5002/api/login', {
@@ -69,14 +68,21 @@ async function testApiLogin() {
       password: 'admin123'
     }, {
       validateStatus: () => true,
-      headers: {
-        'Content-Type': 'application/json'
-      }
+      timeout: 10000 // Add a longer timeout
     });
-    
+
     console.log(`Login endpoint status: ${loginResponse.status}`);
     console.log('Login response:', loginResponse.data);
-    
+
+    if (loginResponse.status === 500) {
+      console.log('\nServer Error Details:');
+      console.log('Message:', loginResponse.data.message);
+      console.log('Suggestion:', loginResponse.data.suggestion);
+      if (loginResponse.data.debug) {
+        console.log('Debug Info:', loginResponse.data.debug);
+      }
+    }
+
     return {
       healthStatus: healthResponse.status,
       loginStatus: loginResponse.status,
@@ -84,6 +90,9 @@ async function testApiLogin() {
     };
   } catch (error) {
     console.error('API test error:', error.message);
+    if (error.response) {
+      console.log('Error Response:', error.response.data);
+    }
     return {
       error: error.message,
       healthStatus: error.response?.status || 'connection failed',
@@ -94,23 +103,23 @@ async function testApiLogin() {
 
 async function debugLogin() {
   console.log('Debugging login issues...');
-  
+
   // Check DATABASE_URL
   if (!process.env.DATABASE_URL) {
     console.error('❌ DATABASE_URL environment variable is not set.');
     process.exit(1);
   }
-  
+
   console.log(`Using DATABASE_URL: ${process.env.DATABASE_URL.replace(/:[^:]*@/, ':****@')}`);
-  
+
   const client = new Client({
     connectionString: process.env.DATABASE_URL
   });
-  
+
   try {
     await client.connect();
     console.log('✅ Connected to database successfully');
-    
+
     // Get admin user details
     const userQuery = await client.query(`
       SELECT u.*, r.id as role_id, r.name as role_name, r.permissions 
@@ -118,19 +127,19 @@ async function debugLogin() {
       JOIN roles r ON u.role_id = r.id
       WHERE u.username = 'admin'
     `);
-    
+
     if (userQuery.rows.length === 0) {
       console.error('❌ Admin user not found!');
       return;
     }
-    
+
     const adminUser = userQuery.rows[0];
     console.log('\nAdmin user details:');
     console.log('- ID:', adminUser.id);
     console.log('- Username:', adminUser.username);
     console.log('- Role ID:', adminUser.role_id);
     console.log('- Role Name:', adminUser.role_name);
-    
+
     // Check password hash format
     console.log('\nPassword hash check:');
     const passwordHash = adminUser.password;
@@ -138,24 +147,24 @@ async function debugLogin() {
     console.log('- Length:', passwordHash.length);
     console.log('- Contains dot separator:', passwordHash.includes('.'));
     console.log('- Appears to be bcrypt:', passwordHash.startsWith('$2'));
-    
+
     if (passwordHash.includes('.')) {
       const [hash, salt] = passwordHash.split('.');
       console.log('- Hash part length:', hash.length);
       console.log('- Salt part length:', salt.length);
     }
-    
+
     // Test password verification
     console.log('\nDefault password \'admin123\' matches:');
     const verification = await verifyPasswordHash('admin123', passwordHash);
-    
+
     if (verification.isValid) {
       console.log('✅ YES');
     } else {
       console.log('❌ NO');
       console.log('\nVerification details:', verification);
     }
-    
+
     // Check permissions
     console.log('\nPermissions check:');
     if (adminUser.permissions) {
@@ -163,11 +172,11 @@ async function debugLogin() {
     } else {
       console.log('No permissions found in user record');
     }
-    
+
     // Test API login
     console.log('\n========== TESTING API LOGIN ==========');
     const apiTest = await testApiLogin();
-    
+
     // Overall diagnosis
     console.log('\n========== DIAGNOSIS ==========');
     if (verification.isValid && apiTest.loginStatus === 200) {
@@ -184,7 +193,7 @@ async function debugLogin() {
       console.log('1. Incorrect password hashing implementation');
       console.log('2. Database corruption');
     }
-    
+
   } catch (err) {
     console.error('Error debugging login:', err);
   } finally {
