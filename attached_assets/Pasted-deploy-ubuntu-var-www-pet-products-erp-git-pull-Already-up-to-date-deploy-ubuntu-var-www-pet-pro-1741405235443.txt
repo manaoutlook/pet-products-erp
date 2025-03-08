@@ -1,0 +1,59 @@
+deploy@ubuntu:/var/www/pet-products-erp$ git pull
+Already up to date.
+deploy@ubuntu:/var/www/pet-products-erp$ npm install --save-dev ts-node node-fetch
+
+added 21 packages, removed 34 packages, and audited 531 packages in 6s
+
+63 packages are looking for funding
+  run `npm fund` for details
+
+7 moderate severity vulnerabilities
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+deploy@ubuntu:/var/www/pet-products-erp$ ls scripts/test-db-connection.cjs
+scripts/test-db-connection.cjs
+deploy@ubuntu:/var/www/pet-products-erp$ rm scripts/test-db-connection.cjs
+deploy@ubuntu:/var/www/pet-products-erp$ mv scripts/test-db-connection.js scripts/test-db-connection.cjs
+deploy@ubuntu:/var/www/pet-products-erp$ rm scripts/debug-login-auth.cjs 
+deploy@ubuntu:/var/www/pet-products-erp$ mv scripts/debug-login-auth.js scripts/debug-login-auth.cjs
+deploy@ubuntu:/var/www/pet-products-erp$ node scripts/test-db-connection.cjs 
+(node:800366) Warning: To load an ES module, set "type": "module" in the package.json or use the .mjs extension.
+(Use `node --trace-warnings ...` to show where the warning was created)
+/var/www/pet-products-erp/scripts/test-db-connection.cjs:5
+import pg from 'pg';
+^^^^^^
+
+SyntaxError: Cannot use import statement outside a module
+    at wrapSafe (node:internal/modules/cjs/loader:1378:20)
+    at Module._compile (node:internal/modules/cjs/loader:1428:41)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1548:10)
+    at Module.load (node:internal/modules/cjs/loader:1288:32)
+    at Module._load (node:internal/modules/cjs/loader:1104:12)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:173:12)
+    at node:internal/main/run_main_module:28:49
+
+Node.js v20.18.3
+deploy@ubuntu:/var/www/pet-products-erp$ node scripts/debug-login-auth.cjs
+(node:800410) Warning: To load an ES module, set "type": "module" in the package.json or use the .mjs extension.
+(Use `node --trace-warnings ...` to show where the warning was created)
+/var/www/pet-products-erp/scripts/debug-login-auth.cjs:3
+import fetch from 'node-fetch';
+^^^^^^
+
+SyntaxError: Cannot use import statement outside a module
+    at wrapSafe (node:internal/modules/cjs/loader:1378:20)
+    at Module._compile (node:internal/modules/cjs/loader:1428:41)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1548:10)
+    at Module.load (node:internal/modules/cjs/loader:1288:32)
+    at Module._load (node:internal/modules/cjs/loader:1104:12)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:173:12)
+    at node:internal/main/run_main_module:28:49
+
+Node.js v20.18.3
+deploy@ubuntu:/var/www/pet-products-erp$ 
