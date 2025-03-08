@@ -56,9 +56,9 @@ app.use((req, res, next) => {
     serveStatic(app);
   }
 
-  // Try to serve the app on port 5000, fall back to alternative ports if needed
+  // Try to serve the app on port 5001, fall back to alternative ports if needed
   // this serves both the API and the client
-  const PORT = 5000;
+  const PORT = 5001;
   const MAX_RETRIES = 3;
   
   const startServer = (port: number, retries = 0) => {

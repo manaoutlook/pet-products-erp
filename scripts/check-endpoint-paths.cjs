@@ -2,7 +2,7 @@
 // Script to check API endpoint accessibility
 const fetch = require('node-fetch');
 
-const BASE_URL = process.env.API_URL || 'http://0.0.0.0:5000';
+const BASE_URL = process.env.API_URL || 'http://0.0.0.0:5001';
 const ROUTES_TO_CHECK = [
   '/',                 // Root path
   '/api',              // API root
@@ -49,7 +49,7 @@ server {
     server_name your-domain.com;
 
     location / {
-        proxy_pass http://localhost:5000;  # Make sure this matches your app's port
+        proxy_pass http://localhost:5001;  # Make sure this matches your app's port
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';

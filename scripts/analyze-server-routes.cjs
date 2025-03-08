@@ -100,7 +100,7 @@ try {
   
   console.log('\n=== Recommended Fixes ===');
   console.log('1. Make sure API routes are registered BEFORE any catch-all routes');
-  console.log('2. Verify the server is listening on 0.0.0.0:5000 (not just localhost)');
+  console.log('2. Verify the server is listening on 0.0.0.0:5001 (not just localhost)');
   console.log('3. Check for middleware that might intercept API requests');
   console.log('4. Ensure routes are properly exported and registered');
   console.log('5. Make sure login and health endpoints are defined BEFORE app.use(\'/api\', requireAuth)');
