@@ -83,6 +83,143 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Important: Login route must be defined BEFORE the global auth middleware
+  app.post("/api/login", (req, res, next) => {
+    const env = process.env.NODE_ENV || 'development';
+    console.log(`[${env}] Login request received:`, {
+      username: req.body.username,
+      hasPassword: !!req.body.password,
+      timestamp: new Date().toISOString()
+    });
+
+    // Verify DB connection before authenticating
+    db.execute("SELECT 1 as db_check")
+      .then(() => {
+        console.log(`[${env}] Database connection verified before login attempt`);
+        
+        passport.authenticate("local", (err: any, user: Express.User | false, info: any) => {
+          if (err) {
+            console.error(`[${env}] Login authentication error:`, {
+              error: err.message,
+              stack: err.stack,
+              timestamp: new Date().toISOString()
+            });
+            
+            // Enhanced error message to help with debugging
+            let errorMessage = "Internal server error";
+            let errorSuggestion = "Please try again later. If the problem persists, contact support.";
+            
+            // Provide more specific error messages based on error type
+            if (err.message.includes('Database connection failed')) {
+              errorMessage = "Database connection error";
+              errorSuggestion = "Check your database connection and configuration.";
+            } else if (err.message.includes('Password verification failed')) {
+              errorMessage = "Password verification error";
+              errorSuggestion = "There might be an issue with the password hash format.";
+            }
+            
+            return res.status(500).json({
+              message: errorMessage,
+              suggestion: errorSuggestion,
+              debug: process.env.NODE_ENV !== 'production' ? err.message : undefined
+            });
+          }
+
+      if (!user) {
+        console.log('Login failed:', {
+          reason: info.message,
+          username: req.body.username
+        });
+        return res.status(400).json({
+          message: info.message || "Invalid credentials",
+          suggestion: info.message?.includes("password")
+            ? "Please check your password and try again"
+            : "Please check your username and try again"
+        });
+      }
+
+      req.logIn(user, (err) => {
+        if (err) {
+          console.error('Login session error:', {
+            error: err.message,
+            stack: err.stack,
+            userId: user.id
+          });
+          return res.status(500).json({
+            message: "Failed to create session",
+            suggestion: "Please try again. If the problem persists, clear your browser cookies."
+          });
+        }
+
+        console.log('Login successful:', {
+          userId: user.id,
+          username: user.username,
+          role: user.role.name
+        });
+
+        return res.json({
+          message: "Login successful",
+          user: {
+            id: user.id,
+            username: user.username,
+            role: user.role
+          }
+        });
+      });
+      })(req, res, next);
+    })
+    .catch(dbError => {
+      console.error(`[${env}] Database connection failed during login:`, {
+        error: dbError.message,
+        stack: dbError.stack,
+        timestamp: new Date().toISOString(),
+        databaseUrl: process.env.DATABASE_URL ? "Configured" : "Missing"
+      });
+      
+      return res.status(500).json({
+        message: "Database connection error",
+        suggestion: "Please try again later. If the problem persists, contact support."
+      });
+    });
+  });
+
+  app.post("/api/logout", (req, res) => {
+    req.logout((err) => {
+      if (err) {
+        return res.status(500).json({
+          message: "Error during logout",
+          suggestion: "Please try again"
+        });
+      }
+      req.session.destroy((err) => {
+        if (err) {
+          return res.status(500).json({
+            message: "Error clearing session",
+            suggestion: "Please try again"
+          });
+        }
+        res.json({ message: "Logout successful" });
+      });
+    });
+  });
+
+  app.get("/api/user", (req, res) => {
+    console.log('User info request:', {
+      isAuthenticated: req.isAuthenticated(),
+      user: req.user
+    });
+
+    if (req.isAuthenticated()) {
+      const { id, username, role } = req.user;
+      return res.json({ id, username, role });
+    }
+    res.status(401).json({
+      message: "Not logged in",
+      suggestion: "Please log in to access this resource"
+    });
+  });
+
+  // Now apply the auth middleware to protect other API routes
   app.use('/api', requireAuth);
 
   // Purchase Orders endpoints
