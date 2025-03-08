@@ -1,15 +1,13 @@
 
-// Admin password reset script
-import { db } from "../db/index.js";
-import { users, roles } from "../db/schema.js";
-import { eq } from "drizzle-orm";
-import { createHash } from "crypto";
+// Admin password reset script (CommonJS version)
+const { db } = require("../db");
+const { users, roles } = require("../db/schema");
+const { eq } = require("drizzle-orm");
+const crypto = require("crypto");
 
-// Simple crypto implementation since we can't import from server/auth
-const crypto = {
-  async hash(password) {
-    return createHash('sha256').update(password).digest('hex');
-  }
+// Simple crypto implementation
+const hashPassword = async (password) => {
+  return crypto.createHash('sha256').update(password).digest('hex');
 };
 
 async function resetAdminPassword() {
@@ -38,7 +36,7 @@ async function resetAdminPassword() {
       }
       
       // Hash new admin password
-      const hashedPassword = await crypto.hash('admin123');
+      const hashedPassword = await hashPassword('admin123');
       
       // Create admin user
       const [newUser] = await db
@@ -55,7 +53,7 @@ async function resetAdminPassword() {
       console.log('Found existing admin user, resetting password...');
       
       // Hash new admin password
-      const hashedPassword = await crypto.hash('admin123');
+      const hashedPassword = await hashPassword('admin123');
       
       // Update admin password
       await db
