@@ -1,69 +1,49 @@
 
-(async () => {
-  try {
-    // Use dynamic import for node-fetch
-    const fetch = (await import('node-fetch')).default;
+// Script to check API endpoint accessibility
+const fetch = require('node-fetch');
 
-    // Try different potential base URLs
-    const BASE_URLS = [
-      process.env.APP_URL || 'http://127.0.0.1:5000',
-      'http://localhost:5000',
-      'http://0.0.0.0:5000'
-    ];
-    
-    console.log('=== API Endpoint Path Checker ===');
-    
-    // Test with each base URL
-    for (const BASE_URL of BASE_URLS) {
-      console.log(`\nTesting API endpoints at ${BASE_URL}`);
-    
-    // Define paths to test
-    const paths = [
-      { path: '/', name: 'Root' },
-      { path: '/api', name: 'API Root' },
-      { path: '/api/health', name: 'Health Check' },
-      { path: '/api/login', name: 'Login' },
-      { path: '/api/user', name: 'User' }
-    ];
-    
-    // Test each path
-    for (const { path, name } of paths) {
+const BASE_URL = process.env.API_URL || 'http://0.0.0.0:5000';
+const ROUTES_TO_CHECK = [
+  '/',                 // Root path
+  '/api',              // API root
+  '/api/health',       // Health check
+  '/api/login',        // Login
+  '/api/user'          // User info
+];
+
+async function checkEndpoints() {
+  console.log('=== API Endpoint Path Checker ===');
+  console.log(`Testing API endpoints at ${BASE_URL}\n`);
+
+  for (const route of ROUTES_TO_CHECK) {
+    console.log(`Testing ${route === '/' ? 'Root' : route} (${route})...`);
+    try {
+      const response = await fetch(`${BASE_URL}${route}`);
+      const contentType = response.headers.get('content-type');
+      console.log(`Status: ${response.status} ${response.statusText}`);
+      console.log(`Content-Type: ${contentType}`);
+      
+      let responseText = '';
       try {
-        console.log(`\nTesting ${name} (${path})...`);
-        const response = await fetch(`${BASE_URL}${path}`, {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json, text/plain, */*',
-            'User-Agent': 'API-Endpoint-Check-Script'
-          },
-          timeout: 5000
-        });
-        
-        console.log(`Status: ${response.status} ${response.statusText}`);
-        console.log(`Content-Type: ${response.headers.get('content-type') || 'Not specified'}`);
-        
-        // Try to get response as text
-        const text = await response.text();
-        
-        // If it looks like JSON, try to parse it
-        if (text.trim().startsWith('{') || text.trim().startsWith('[')) {
-          try {
-            const json = JSON.parse(text);
-            console.log('Response (JSON):', json);
-          } catch (e) {
-            console.log(`Response (first 150 chars): ${text.substring(0, 150)}...`);
-          }
+        if (contentType && contentType.includes('application/json')) {
+          const json = await response.json();
+          responseText = JSON.stringify(json, null, 2);
         } else {
-          console.log(`Response (first 150 chars): ${text.substring(0, 150)}...`);
+          responseText = await response.text();
         }
-      } catch (error) {
-        console.error(`Error testing ${path}:`, error.message);
+      } catch (e) {
+        responseText = 'Error parsing response: ' + e.message;
       }
+      
+      console.log(`Response (first 150 chars): ${responseText.substring(0, 150)}${responseText.length > 150 ? '...' : ''}\n`);
+    } catch (error) {
+      console.log(`Error: ${error.message}\n`);
     }
-    
-    console.log('\n=== Nginx Configuration Check ===');
-    console.log('If you are using Nginx as a reverse proxy, make sure your configuration contains:');
-    console.log(`
+  }
+  
+  console.log('=== Nginx Configuration Check ===');
+  console.log('If you are using Nginx as a reverse proxy, make sure your configuration contains:');
+  console.log(`
 server {
     listen 80;
     server_name your-domain.com;
@@ -78,18 +58,14 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
-}`);
+}
+`);
 
-    }
+  console.log('=== Possible Issues ===');
+  console.log('1. API routes not configured correctly');
+  console.log('2. Server not running or not listening on correct port/address');
+  console.log('3. Nginx or other proxy not configured correctly');
+  console.log('4. Firewall blocking connections');
+}
 
-    console.log('\n=== Possible Issues ===');
-    console.log('1. API routes not configured correctly');
-    console.log('2. Server not running or not listening on correct port/address');
-    console.log('3. Express router order - API routes may be registered after catch-all route');
-    console.log('4. Nginx or other proxy not configured correctly');
-    console.log('5. Firewall blocking connections');
-    
-  } catch (error) {
-    console.error('Script error:', error);
-  }
-})();
+checkEndpoints().catch(console.error);
