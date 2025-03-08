@@ -108,9 +108,10 @@ export const crypto = {
       
       // Double-check with timing-safe comparison when possible
       try {
+        const storedBuffer = Buffer.from(storedHash, "hex");
+        const suppliedBuffer = Buffer.from(suppliedHash, "hex");
+        
         if (storedBuffer.length === suppliedBuffer.length) {
-          const storedBuffer = Buffer.from(storedHash, "hex");
-          const suppliedBuffer = Buffer.from(suppliedHash, "hex");
           const isMatch = timingSafeEqual(storedBuffer, suppliedBuffer);
           console.log(`Timing-safe comparison result: ${isMatch}`);
           return isMatch;

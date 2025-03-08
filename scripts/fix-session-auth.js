@@ -12,9 +12,21 @@ const scryptAsync = promisify(scrypt);
 // Improved crypto functions for password handling
 const crypto = {
   hash: async (password) => {
-    const salt = randomBytes(16).toString("hex");
-    const derivedKey = (await scryptAsync(password, salt, 64));
-    return `${derivedKey.toString("hex")}.${salt}`;
+    try {
+      const salt = randomBytes(16).toString("hex");
+      console.log(`Using salt: ${salt} (length: ${salt.length})`);
+      
+      const derivedKey = (await scryptAsync(password, salt, 64));
+      const hashedPassword = `${derivedKey.toString("hex")}.${salt}`;
+      
+      console.log(`Generated hash with length: ${hashedPassword.length}`);
+      console.log(`Hash and salt separator at position: ${hashedPassword.indexOf('.')}`);
+      
+      return hashedPassword;
+    } catch (error) {
+      console.error('Error hashing password:', error);
+      throw error;
+    }
   },
 };
 
