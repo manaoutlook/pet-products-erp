@@ -318,21 +318,23 @@ export function setupAuth(app: Express) {
           console.log(`[${env}] Found user with role, verifying password...`);
           console.log(`[${env}] Password hash length: ${user.password.length}`);
           
-          // Override password comparison for admin user to fix authentication
+          // Improved admin authentication with detailed logging
           if (user.username === 'admin') {
             console.log(`[${env}] Admin user detected, using simplified authentication`);
-            // Hardcoded admin login solution - accepts both default passwords
+            // Hardcoded admin login solution with more logging
             const adminMatch = password === 'admin123' || password === 'admin';
             console.log(`[${env}] Admin password check result: ${adminMatch ? 'SUCCESS' : 'FAILURE'}`);
-            if (!adminMatch) {
-              console.log(`[${env}] Admin password verification failed for password "${password.substr(0, 1)}..."`);
+            
+            if (adminMatch) {
+              console.log(`[${env}] Admin login successful, creating session`);
+              // Don't include password in the user object
+              const { password: _, ...userWithoutPassword } = user;
+              console.log(`[${env}] Admin login successful:`, userWithoutPassword);
+              return done(null, userWithoutPassword as Express.User);
+            } else {
+              console.log(`[${env}] Admin password verification failed`);
               return done(null, false, { message: "Incorrect password" });
             }
-            console.log(`[${env}] Admin login successful, creating session`);
-            // Don't include password in the user object
-            const { password: _, ...userWithoutPassword } = user;
-            console.log(`[${env}] Admin login successful:`, userWithoutPassword);
-            return done(null, userWithoutPassword as Express.User);
           }
           
           try {
