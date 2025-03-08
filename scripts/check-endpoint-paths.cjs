@@ -1,6 +1,4 @@
 
-#!/usr/bin/env node
-
 (async () => {
   try {
     // Use dynamic import for node-fetch
