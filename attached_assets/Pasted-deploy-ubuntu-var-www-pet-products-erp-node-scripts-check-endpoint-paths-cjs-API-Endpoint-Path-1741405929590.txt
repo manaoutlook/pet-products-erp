@@ -1,0 +1,74 @@
+deploy@ubuntu:/var/www/pet-products-erp$ node scripts/check-endpoint-paths.cjs
+=== API Endpoint Path Checker ===
+Testing API endpoints at http://0.0.0.0:5000
+
+Testing Root (/)...
+Status: 200 OK
+Content-Type: text/html; charset=utf-8
+Response (first 150 chars): <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scal...
+
+Testing API Root (/api)...
+Status: 404 NOT FOUND
+Content-Type: text/html; charset=utf-8
+Response (first 150 chars): <!doctype html>
+<html lang=en>
+<title>404 Not Found</title>
+<h1>Not Found</h1>
+<p>The requested URL was not found on the server. If you entered the UR...
+
+Testing Health Check (/api/health)...
+Status: 404 NOT FOUND
+Content-Type: text/html; charset=utf-8
+Response (first 150 chars): <!doctype html>
+<html lang=en>
+<title>404 Not Found</title>
+<h1>Not Found</h1>
+<p>The requested URL was not found on the server. If you entered the UR...
+
+Testing Login (/api/login)...
+Status: 404 NOT FOUND
+Content-Type: text/html; charset=utf-8
+Response (first 150 chars): <!doctype html>
+<html lang=en>
+<title>404 Not Found</title>
+<h1>Not Found</h1>
+<p>The requested URL was not found on the server. If you entered the UR...
+
+Testing User (/api/user)...
+Status: 404 NOT FOUND
+Content-Type: text/html; charset=utf-8
+Response (first 150 chars): <!doctype html>
+<html lang=en>
+<title>404 Not Found</title>
+<h1>Not Found</h1>
+<p>The requested URL was not found on the server. If you entered the UR...
+
+=== Nginx Configuration Check ===
+If you are using Nginx as a reverse proxy, make sure your configuration contains:
+
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    location / {
+        proxy_pass http://localhost:5000;  # Make sure this matches your app's port
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+=== Possible Issues ===
+1. API routes not configured correctly
+2. Server not running or not listening on correct port/address
+3. Nginx or other proxy not configured correctly
+4. Firewall blocking connections
+deploy@ubuntu:/var/www/pet-products-erp$ 
