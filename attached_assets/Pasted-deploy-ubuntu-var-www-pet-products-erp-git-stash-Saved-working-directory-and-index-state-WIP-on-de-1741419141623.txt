@@ -1,0 +1,44 @@
+deploy@ubuntu:/var/www/pet-products-erp$ git stash
+Saved working directory and index state WIP on deploy001: 1e83d3be Assistant checkpoint: Updated fix-admin-password.js script to reset admin password
+deploy@ubuntu:/var/www/pet-products-erp$ git pull
+remote: Enumerating objects: 7, done.
+remote: Counting objects: 100% (7/7), done.
+remote: Compressing objects: 100% (3/3), done.
+remote: Total 5 (delta 2), reused 5 (delta 2), pack-reused 0 (from 0)
+Unpacking objects: 100% (5/5), 3.91 KiB | 3.91 MiB/s, done.
+From https://github.com/manaoutlook/pet-products-erp
+   1e83d3be..80a9ef94  deploy001  -> origin/deploy001
+Updating 1e83d3be..80a9ef94
+Fast-forward
+ scripts/debug-login-trace.js | 184 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ scripts/debug-session.js     | 108 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 292 insertions(+)
+ create mode 100644 scripts/debug-login-trace.js
+ create mode 100644 scripts/debug-session.js
+deploy@ubuntu:/var/www/pet-products-erp$ node -r dotenv/config scripts/debug-login-trace.js
+file:///var/www/pet-products-erp/scripts/debug-login-trace.js:3
+require('dotenv').config();
+^
+
+ReferenceError: require is not defined in ES module scope, you can use import instead
+This file is being treated as an ES module because it has a '.js' file extension and '/var/www/pet-products-erp/package.json' contains "type": "module". To treat it as a CommonJS script, rename it to use the '.cjs' file extension.
+    at file:///var/www/pet-products-erp/scripts/debug-login-trace.js:3:1
+    at ModuleJob.run (node:internal/modules/esm/module_job:234:25)
+    at async ModuleLoader.import (node:internal/modules/esm/loader:473:24)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:122:5)
+
+Node.js v20.18.3
+deploy@ubuntu:/var/www/pet-products-erp$ node -r dotenv/config scripts/debug-session.js
+file:///var/www/pet-products-erp/scripts/debug-session.js:3
+require('dotenv').config();
+^
+
+ReferenceError: require is not defined in ES module scope, you can use import instead
+This file is being treated as an ES module because it has a '.js' file extension and '/var/www/pet-products-erp/package.json' contains "type": "module". To treat it as a CommonJS script, rename it to use the '.cjs' file extension.
+    at file:///var/www/pet-products-erp/scripts/debug-session.js:3:1
+    at ModuleJob.run (node:internal/modules/esm/module_job:234:25)
+    at async ModuleLoader.import (node:internal/modules/esm/loader:473:24)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:122:5)
+
+Node.js v20.18.3
+deploy@ubuntu:/var/www/pet-products-erp$ 
