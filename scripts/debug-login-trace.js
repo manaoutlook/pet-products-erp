@@ -1,11 +1,14 @@
 
 // Debug login with detailed tracing
-require('dotenv').config();
-const { Client } = require('pg');
-const axios = require('axios');
-const util = require('util');
-const crypto = require('crypto');
-const scryptAsync = util.promisify(crypto.scrypt);
+import { config } from 'dotenv';
+import pg from 'pg';
+import axios from 'axios';
+import { promisify } from 'util';
+import { scrypt } from 'crypto';
+
+const { Client } = pg;
+config();
+const scryptAsync = promisify(scrypt);
 
 async function verifyPasswordHash(password, storedPassword) {
   try {
@@ -131,9 +134,10 @@ async function debugLogin() {
     // Check password hash format
     console.log('\nPassword hash check:');
     const passwordHash = adminUser.password;
-    console.log('- Full hash:', passwordHash);
+    console.log('- Hash:', passwordHash.substring(0, 10) + '...');
     console.log('- Length:', passwordHash.length);
     console.log('- Contains dot separator:', passwordHash.includes('.'));
+    console.log('- Appears to be bcrypt:', passwordHash.startsWith('$2'));
     
     if (passwordHash.includes('.')) {
       const [hash, salt] = passwordHash.split('.');
@@ -142,15 +146,22 @@ async function debugLogin() {
     }
     
     // Test password verification
-    console.log('\nVerifying password hash against "admin123"...');
+    console.log('\nDefault password \'admin123\' matches:');
     const verification = await verifyPasswordHash('admin123', passwordHash);
-    console.log('Verification result:', verification);
     
     if (verification.isValid) {
-      console.log('✅ Password "admin123" is valid against the stored hash');
+      console.log('✅ YES');
     } else {
-      console.log('❌ Password "admin123" is NOT valid against the stored hash');
-      console.log('Reason:', verification.reason);
+      console.log('❌ NO');
+      console.log('\nVerification details:', verification);
+    }
+    
+    // Check permissions
+    console.log('\nPermissions check:');
+    if (adminUser.permissions) {
+      console.log(adminUser.permissions);
+    } else {
+      console.log('No permissions found in user record');
     }
     
     // Test API login

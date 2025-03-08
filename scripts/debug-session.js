@@ -1,7 +1,9 @@
 
 // Debug Express session and auth issues
-require('dotenv').config();
-const axios = require('axios');
+import { config } from 'dotenv';
+import axios from 'axios';
+
+config();
 
 async function debugSession() {
   console.log('Debugging session and authentication issues...');
