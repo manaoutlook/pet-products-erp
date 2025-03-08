@@ -1,0 +1,53 @@
+deploy@ubuntu:/var/www/pet-products-erp$ npm run build
+
+> rest-express@1.0.0 build
+> vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist
+
+vite v5.4.11 building for production...
+✓ 3234 modules transformed.
+../dist/public/index.html                     1.58 kB │ gzip:   0.63 kB
+../dist/public/assets/index-Cf_h3qIl.css     64.94 kB │ gzip:  11.52 kB
+../dist/public/assets/index-BEZPBKl2.js   1,175.24 kB │ gzip: 330.80 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 18.66s
+
+  dist/index.js  93.0kb
+
+⚡ Done in 41ms
+deploy@ubuntu:/var/www/pet-products-erp$ npm run dev
+
+> rest-express@1.0.0 dev
+> tsx server/index.ts
+
+Database URL check: Found
+Setting up admin user...
+2:12:28 PM [express] Port 5001 is in use, trying port 5002...
+2:12:28 PM [express] Port 5001 is in use, trying port 5002...
+2:12:28 PM [express] Port 5002 is in use, trying port 5003...
+2:12:28 PM [express] serving on 0.0.0.0:5003
+2:12:28 PM [express] DATABASE_URL configured: Yes
+2:12:28 PM [express] serving on 0.0.0.0:5003
+2:12:28 PM [express] DATABASE_URL configured: Yes
+2:12:28 PM [express] serving on 0.0.0.0:5003
+2:12:28 PM [express] DATABASE_URL configured: Yes
+2:12:28 PM [express] serving on 0.0.0.0:5003
+2:12:28 PM [express] DATABASE_URL configured: Yes
+Using role type: { id: 1, description: 'System Administrator' }
+Admin role: {
+  id: 12,
+  name: 'admin',
+  description: 'Administrator role with full access',
+  roleTypeId: 1,
+  permissions: {
+    users: { read: true, create: true, delete: true, update: true },
+    orders: { read: true, create: true, delete: true, update: true },
+    products: { read: true, create: true, delete: true, update: true },
+    inventory: { read: true, create: true, delete: true, update: true }
+  },
+  createdAt: 2025-03-06T12:12:00.968Z,
+  updatedAt: 2025-03-06T12:12:00.968Z
+}
