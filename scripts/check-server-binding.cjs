@@ -78,10 +78,10 @@ try {
 }
 
 // Check for port conflicts
-console.log('\nChecking for other services that might be using port 5000:');
+console.log('\nChecking for other services that might be using port 5001:');
 const { execSync } = require('child_process');
 try {
-  const portCheck = execSync('ss -tuln | grep :5000 || echo "No processes found on port 5000"').toString();
+  const portCheck = execSync('ss -tuln | grep :5001 || echo "No processes found on port 5001"').toString();
   console.log(portCheck);
 } catch (err) {
   console.log('Could not check for port conflicts:', err.message);
@@ -89,6 +89,6 @@ try {
 
 console.log('\n=== Recommendations ===');
 console.log('1. Ensure login endpoint is defined BEFORE applying requireAuth middleware to /api routes');
-console.log('2. Verify the server is binding to 0.0.0.0:5000 and not just localhost');
+console.log('2. Verify the server is binding to 0.0.0.0:5001 and not just localhost');
 console.log('3. Check if express.json() middleware is registered for parsing request bodies');
 console.log('4. Verify the health check endpoint is accessible without authentication');
