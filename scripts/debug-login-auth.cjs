@@ -4,7 +4,8 @@
   // Use dynamic import for node-fetch
   const fetch = (await import('node-fetch')).default;
 
-  const BASE_URL = process.env.APP_URL || 'http://localhost:5000';
+  // Use IP address format to ensure connectivity from containers/VMs
+  const BASE_URL = process.env.APP_URL || 'http://0.0.0.0:5000';
   const username = 'admin';
   const password = 'admin123';
 
@@ -14,16 +15,49 @@
     console.log(`Using credentials: username=${username}, password=******`);
     
     try {
-      // 1. Check DB connection first
-      console.log('\n1. Testing database connection via health check...');
-      const healthResponse = await fetch(`${BASE_URL}/api/health`);
-      const healthData = await healthResponse.json();
-      console.log('Health check response:', healthData);
-      
-      if (healthData.database !== 'connected') {
-        console.error('DATABASE CONNECTION ISSUE DETECTED');
-        console.log('Database URL configured:', process.env.DATABASE_URL ? 'Yes' : 'No');
-        console.log('Please check your DATABASE_URL environment variable');
+      // 1. Check if server is running first
+      console.log('\n1. Testing server availability...');
+      try {
+        const serverResponse = await fetch(`${BASE_URL}/api/health`, {
+          timeout: 5000
+        });
+        console.log(`Server is responding with status: ${serverResponse.status}`);
+        
+        // Try to parse response as JSON
+        let healthData;
+        const contentType = serverResponse.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          healthData = await serverResponse.json();
+          console.log('Health check response:', healthData);
+          
+          if (healthData.database !== 'connected') {
+            console.error('DATABASE CONNECTION ISSUE DETECTED');
+            console.log('Database URL configured:', healthData.databaseUrl || 'Unknown');
+            console.log('Please check your DATABASE_URL environment variable');
+            return;
+          }
+        } else {
+          const text = await serverResponse.text();
+          console.error('Server responded with non-JSON content:');
+          console.log(`Content-Type: ${contentType}`);
+          console.log(`Response (first 100 chars): ${text.substring(0, 100)}...`);
+          console.log('\nPROBLEM DETECTED: Server is not returning JSON for health check');
+          console.log('This suggests the server is not properly configured or not running correctly');
+          return;
+        }
+      } catch (error) {
+        console.error('ERROR CONNECTING TO SERVER:');
+        console.error(error.message);
+        console.log('\nPOSSIBLE CAUSES:');
+        console.log('1. Server is not running');
+        console.log('2. Server is running on a different port or URL');
+        console.log('3. Network connectivity issues');
+        console.log('4. Firewall blocking the connection');
+        console.log('\nSUGGESTIONS:');
+        console.log('- Verify the server is running with: ps aux | grep node');
+        console.log('- Check the server logs for errors');
+        console.log('- Verify the URL is correct (currently using ' + BASE_URL + ')');
+        console.log('- Try setting the APP_URL environment variable if needed');
         return;
       }
       
@@ -44,10 +78,11 @@
       console.log('Login status code:', loginStatus);
       
       let responseBody;
-      try {
+      const contentType = loginResponse.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
         responseBody = await loginResponse.json();
         console.log('Login response body:', responseBody);
-      } catch (e) {
+      } else {
         console.log('Login response is not JSON:', await loginResponse.text());
       }
       
@@ -58,6 +93,15 @@
           console.log('- Database connection issues');
           console.log('- Password hash format issues');
           console.log('- Server-side exception during authentication');
+        } else if (loginStatus === 401) {
+          console.log('\nAUTHENTICATION FAILED. Possible causes:');
+          console.log('- Incorrect username or password');
+          console.log('- User account does not exist');
+          console.log('- User account is locked or disabled');
+        } else if (loginStatus === 404) {
+          console.log('\nAPI ENDPOINT NOT FOUND. Possible causes:');
+          console.log('- Login endpoint is not properly configured');
+          console.log('- Server routing issue');
         }
       } else {
         console.log('LOGIN SUCCESSFUL');
@@ -67,5 +111,5 @@
     }
   }
 
-  await debugLogin().catch(console.error);
+  await debugLogin();
 })();
