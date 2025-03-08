@@ -14,7 +14,8 @@
  * 3. No database-level policies, triggers, or stored procedures are used
  */
 
-import { drizzle } from "drizzle-orm/neon-serverless";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import * as schema from "@db/schema";
 import * as dotenv from "dotenv";
 
@@ -29,8 +30,6 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-// Use PostgreSQL connection string
-export const db = drizzle({
-  connection: process.env.DATABASE_URL,
-  schema,
-});
+// Use PostgreSQL connection string with postgres-js (HTTP mode for compatibility)
+const queryClient = postgres(process.env.DATABASE_URL, { max: 10 });
+export const db = drizzle(queryClient, { schema });
