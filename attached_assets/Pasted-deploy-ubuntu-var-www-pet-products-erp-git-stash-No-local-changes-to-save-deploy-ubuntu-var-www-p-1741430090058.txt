@@ -1,0 +1,75 @@
+deploy@ubuntu:/var/www/pet-products-erp$ git stash
+No local changes to save
+deploy@ubuntu:/var/www/pet-products-erp$ git pull
+remote: Enumerating objects: 7, done.
+remote: Counting objects: 100% (7/7), done.
+remote: Compressing objects: 100% (1/1), done.
+remote: Total 4 (delta 3), reused 4 (delta 3), pack-reused 0 (from 0)
+Unpacking objects: 100% (4/4), 704 bytes | 176.00 KiB/s, done.
+From https://github.com/manaoutlook/pet-products-erp
+   3270bbe5..fed68c12  deploy001  -> origin/deploy001
+Updating 3270bbe5..fed68c12
+Fast-forward
+ server/auth.ts | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+deploy@ubuntu:/var/www/pet-products-erp$ node scripts/debug-login-auth.js
+=== Authentication Debug Script ===
+Testing login at http://localhost:5000/api/login
+Using credentials: username=admin, password=******
+
+1. Testing database connection via health check...
+Error during debug: SyntaxError: Unexpected token '<', "<!doctype "... is not valid JSON
+    at JSON.parse (<anonymous>)
+    at Response.json (file:///var/www/pet-products-erp/node_modules/node-fetch/src/body.js:149:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async debugLogin (file:///var/www/pet-products-erp/scripts/debug-login-auth.js:18:24)
+deploy@ubuntu:/var/www/pet-products-erp$ node scripts/verify-admin.js
+Starting admin account verification...
+Querying database for admin user...
+Found admin user with role: admin
+Password hash length: 161
+Password hash format: Valid (contains separator)
+Testing if default password 'admin123' would authenticate...
+Starting password comparison...
+Generating hash with stored salt for comparison
+Comparing password hashes... { storedHashLength: 128, suppliedHashLength: 128 }
+Password comparison result: true
+Would 'admin123' work for login? YES
+deploy@ubuntu:/var/www/pet-products-erp$ node scripts/reset-admin-password.cjs
+Checking if server build is needed...
+
+> rest-express@1.0.0 build
+> vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist
+
+vite v5.4.11 building for production...
+✓ 3234 modules transformed.
+../dist/public/index.html                     1.58 kB │ gzip:   0.63 kB
+../dist/public/assets/index-Cf_h3qIl.css     64.94 kB │ gzip:  11.52 kB
+../dist/public/assets/index-BEZPBKl2.js   1,175.24 kB │ gzip: 330.80 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 19.37s
+
+  dist/index.js  94.3kb
+
+⚡ Done in 29ms
+Server built successfully!
+Importing modules...
+Error resetting admin password: Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/var/www/pet-products-erp/db/index.js' imported from /var/www/pet-products-erp/scripts/reset-admin-password.cjs
+    at finalizeResolution (node:internal/modules/esm/resolve:283:11)
+    at moduleResolve (node:internal/modules/esm/resolve:952:10)
+    at defaultResolve (node:internal/modules/esm/resolve:1188:11)
+    at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:542:12)
+    at ModuleLoader.resolve (node:internal/modules/esm/loader:510:25)
+    at ModuleLoader.getModuleJob (node:internal/modules/esm/loader:239:38)
+    at ModuleLoader.import (node:internal/modules/esm/loader:472:34)
+    at defaultImportModuleDynamicallyForScript (node:internal/modules/esm/utils:227:31)
+    at importModuleDynamicallyCallback (node:internal/modules/esm/utils:249:12)
+    at /var/www/pet-products-erp/scripts/reset-admin-password.cjs:22:20 {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///var/www/pet-products-erp/db/index.js'
+}
+deploy@ubuntu:/var/www/pet-products-erp$ 
