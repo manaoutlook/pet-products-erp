@@ -15,7 +15,6 @@
  */
 
 import { drizzle } from "drizzle-orm/neon-serverless";
-import ws from "ws";
 import * as schema from "@db/schema";
 import * as dotenv from "dotenv";
 
@@ -30,7 +29,7 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-// Use PostgreSQL connection string (not WebSocket)
+// Use PostgreSQL connection string
 export const db = drizzle({
   connection: process.env.DATABASE_URL,
   schema,
