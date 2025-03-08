@@ -3,10 +3,15 @@ import fs from "fs";
 import path, { dirname } from "path";
 import { fileURLToPath } from "url";
 import { type Server } from "http";
-import { db } from "@db"; // Added import for database interaction
+import { db } from "@db";
+import session from "express-session";
+import MemoryStore from "memorystore";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// Create MemoryStore instance
+const MemoryStoreSession = MemoryStore(session);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -30,7 +35,6 @@ export function serveStatic(app: Express) {
 
   app.use(express.static(distPath));
 
-  // fall through to index.html if the file doesn't exist
   app.use("*", (_req, res) => {
     res.sendFile(path.resolve(distPath, "index.html"));
   });
@@ -39,32 +43,46 @@ export function serveStatic(app: Express) {
 export async function startProductionServer(app: Express, server: Server) {
   const PORT = process.env.PORT || 5001;
 
+  // Set up session middleware with secure configuration
+  const sessionSecret = process.env.SESSION_SECRET || process.env.REPL_ID || 'fallback-secret-key-change-in-production';
+
+  app.use(session({
+    secret: sessionSecret,
+    saveUninitialized: false,
+    resave: false,
+    store: new MemoryStoreSession({
+      checkPeriod: 86400000 // prune expired entries every 24h
+    }),
+    cookie: {
+      secure: process.env.NODE_ENV === 'production',
+      httpOnly: true,
+      sameSite: 'lax',
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
+  }));
+
+  // Parse JSON bodies
+  app.use(express.json());
+
   // Enhanced logging for production environment
   log(`PRODUCTION MODE: Node env: ${process.env.NODE_ENV}`, "startup");
   log(`Database URL configured: ${process.env.DATABASE_URL ? "Yes" : "No"}`, "database");
-  log(`Session secret configured: ${process.env.SESSION_SECRET ? "Yes" : "No"}`, "session");
-
+  log(`Session secret configured: ${sessionSecret ? "Yes" : "No"}`, "session");
 
   // Test database connection
   try {
-    const result = await db.execute("SELECT 1 as db_check");
-    log("Database connection successful:", "startup");
+    await db.execute("SELECT 1 as db_check");
+    log("Database connection successful", "startup");
   } catch (error) {
     log(`Database connection failed: ${error}`, "startup");
-    log(`DATABASE_URL configured: ${process.env.DATABASE_URL ? "Yes" : "No"}`, "database");
-    //Consider more robust error handling here, like process exit.
+    throw error; // Stop server if database connection fails
   }
-
-  // Add comprehensive debugging routes
 
   // Health check endpoint with detailed diagnostics
   app.get("/api/health", async (req, res) => {
     try {
-      // Try a simple query to verify database connection
       const result = await db.execute("SELECT 1 as connected");
-
-      // Check session configuration
-      const sessionConfigured = !!process.env.SESSION_SECRET || !!process.env.REPL_ID;
+      const sessionConfigured = !!sessionSecret;
 
       log(`Health check - Database connected: ${!!result}`, "health");
       return res.json({ 
@@ -85,92 +103,6 @@ export async function startProductionServer(app: Express, server: Server) {
         timestamp: new Date().toISOString()
       });
     }
-  });
-
-  // Add a debug route to show user sessions
-  app.get("/api/debug/session", (req, res) => {
-    if (process.env.NODE_ENV !== "production" || req.query.secret === process.env.DEBUG_SECRET) {
-      return res.json({
-        session: req.session,
-        isAuthenticated: req.isAuthenticated(),
-        user: req.user || null,
-        cookies: req.headers.cookie
-      });
-    }
-    return res.status(403).json({ message: "Unauthorized debug request" });
-  });
-
-  // Add a debug route for auth testing
-  app.post("/api/debug/login-test", async (req, res) => {
-    if (process.env.NODE_ENV !== "production" || req.query.secret === process.env.DEBUG_SECRET) {
-      try {
-        const { username, password } = req.body;
-        log(`Debug login test for username: ${username}`, "debug");
-
-        const { crypto } = await import("./auth.js");
-        const { users, roles } = await import("../db/schema.js");
-        const { eq } = await import("drizzle-orm");
-
-        // Get user from database
-        const usersResult = await db
-          .select()
-          .from(users)
-          .where(eq(users.username, username))
-          .limit(1);
-
-        if (usersResult.length === 0) {
-          return res.json({ 
-            status: "error", 
-            message: "User not found",
-            step: "user-query"
-          });
-        }
-
-        const user = usersResult[0];
-
-        // Get role
-        const rolesResult = await db
-          .select()
-          .from(roles)
-          .where(eq(roles.id, user.roleId))
-          .limit(1);
-
-        if (rolesResult.length === 0) {
-          return res.json({ 
-            status: "error", 
-            message: "Role not found",
-            step: "role-query"
-          });
-        }
-
-        // Test password comparison
-        try {
-          const isMatch = await crypto.compare(password, user.password);
-          return res.json({
-            status: "success",
-            passwordMatch: isMatch,
-            user: {
-              id: user.id,
-              username: user.username,
-              role: rolesResult[0]
-            }
-          });
-        } catch (err: any) {
-          return res.json({
-            status: "error",
-            message: err.message,
-            step: "password-compare"
-          });
-        }
-      } catch (error: any) {
-        return res.json({
-          status: "error",
-          message: error.message,
-          stack: error.stack
-        });
-      }
-    }
-    return res.status(403).json({ message: "Unauthorized debug request" });
   });
 
   server.listen(PORT, "0.0.0.0")
