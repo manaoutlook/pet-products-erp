@@ -2,7 +2,8 @@
 // Database connection test script
 // Run with: node scripts/test-db-connection.js
 
-const { Client } = require('pg');
+import pg from 'pg';
+const { Client } = pg;
 
 async function testConnection() {
   console.log('Testing database connection...');
