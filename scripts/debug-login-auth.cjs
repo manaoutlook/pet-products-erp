@@ -7,7 +7,10 @@
   // Use IP address format to ensure connectivity from containers/VMs
   const BASE_URL = process.env.APP_URL || 'http://0.0.0.0:5001';
   const username = 'admin';
-  const password = 'admin123';
+  const password = 'admin123'; // This is the default password for testing
+
+  console.log(`Testing against server at: ${BASE_URL}`);
+  console.log(`Note: If login fails, try running the reset-admin-password.cjs script first.`);
 
   // Test URL to check if we need to prepend /api
   console.log('Checking if server requires path prefix...');

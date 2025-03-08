@@ -54,6 +54,8 @@ export const crypto = {
       return hashedPassword;
     } catch (error) {
       console.error('Error in password hashing:', error);
+      console.error('Password length:', password ? password.length : 0);
+      console.error('Stack trace:', error instanceof Error ? error.stack : 'Unknown');
       throw new Error('Failed to secure password. Please try again.');
     }
   },
