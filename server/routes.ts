@@ -58,7 +58,7 @@ export function registerRoutes(app: Express): Server {
   });
   
   // Health check endpoint (no auth required) - MUST be defined before auth middleware
-  app.get("/api/health", (req, res) => {
+  app.get("/api/health", async (req, res) => {
     try {
       // Test database connection
       const result = await db.execute("SELECT 1 as db_check");
