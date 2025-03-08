@@ -58,14 +58,18 @@ const crypto = {
   try {
     console.log("Starting admin account verification...");
     
-    if (!process.env.DATABASE_URL) {
-      console.error("DATABASE_URL environment variable is not set");
+    // Accept the DATABASE_URL from command line argument or environment variable
+    const databaseUrl = process.argv[2] || process.env.DATABASE_URL;
+    
+    if (!databaseUrl) {
+      console.error("DATABASE_URL is not set. Please provide it as an environment variable or command-line argument:");
+      console.error("Usage: node scripts/verify-admin.js <DATABASE_URL>");
       process.exit(1);
     }
     
     // Connect to database
     const pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
+      connectionString: databaseUrl,
     });
     
     // Get admin user from database
