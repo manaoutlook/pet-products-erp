@@ -231,6 +231,25 @@ export function setupAuth(app: Express) {
 
         // Include role information in the login query
         try {
+          console.log(`[${env}] Querying for user: ${normalizedUsername}`);
+          
+          // First check if the user exists at all
+          const userCheck = await db
+            .select({ id: users.id, username: users.username })
+            .from(users)
+            .where(eq(users.username, normalizedUsername))
+            .limit(1);
+            
+          console.log(`[${env}] User check result:`, userCheck);
+          
+          if (userCheck.length === 0) {
+            console.log(`[${env}] User not found in database: ${normalizedUsername}`);
+            return done(null, false, { message: "Username not found" });
+          }
+          
+          // Now get the complete user with role
+          console.log(`[${env}] User exists, getting role information...`);
+          
           const [user] = await db
             .select({
               id: users.id,
@@ -248,22 +267,31 @@ export function setupAuth(app: Express) {
             .limit(1);
 
           if (!user) {
-            console.log(`[${env}] User not found in database: ${normalizedUsername}`);
-            return done(null, false, { message: "Username not found" });
+            console.log(`[${env}] User found but role information missing for: ${normalizedUsername}`);
+            return done(null, false, { message: "User account configuration issue" });
           }
 
-          console.log(`[${env}] Found user, verifying password...`);
-          const isMatch = await crypto.compare(password, user.password);
+          console.log(`[${env}] Found user with role, verifying password...`);
+          console.log(`[${env}] Password hash length: ${user.password.length}`);
+          
+          try {
+            const isMatch = await crypto.compare(password, user.password);
+            console.log(`[${env}] Password comparison result: ${isMatch}`);
 
-          if (!isMatch) {
-            console.log(`[${env}] Password verification failed for user: ${normalizedUsername}`);
-            return done(null, false, { message: "Incorrect password" });
+            if (!isMatch) {
+              console.log(`[${env}] Password verification failed for user: ${normalizedUsername}`);
+              return done(null, false, { message: "Incorrect password" });
+            }
+
+            // Don't include password in the user object
+            const { password: _, ...userWithoutPassword } = user;
+            console.log(`[${env}] Login successful:`, userWithoutPassword);
+            return done(null, userWithoutPassword as Express.User);
+          } catch (passwordError: any) {
+            console.error(`[${env}] PASSWORD VERIFICATION ERROR:`, passwordError.message);
+            console.error(`[${env}] Password hash format:`, user.password.includes('.') ? 'Valid (contains separator)' : 'Invalid (missing separator)');
+            return done(new Error(`Password verification failed: ${passwordError.message}`));
           }
-
-          // Don't include password in the user object
-          const { password: _, ...userWithoutPassword } = user;
-          console.log(`[${env}] Login successful:`, userWithoutPassword);
-          return done(null, userWithoutPassword as Express.User);
         } catch (queryError: any) {
           console.error(`[${env}] USER QUERY ERROR:`, queryError.message);
           return done(new Error(`Database query failed: ${queryError.message}`));
