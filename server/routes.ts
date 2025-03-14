@@ -7,7 +7,7 @@ import {
   roles, roleTypes, stores, userStoreAssignments,
   categories, brands, suppliers, purchaseOrders,
   purchaseOrderItems, customerProfiles, insertCustomerProfileSchema,
-  insertStoreSchema
+  insertStoreSchema, insertUserSchema
 } from "@db/schema";
 import { sql } from "drizzle-orm";
 import { eq, and, desc, gte, lt } from "drizzle-orm";
@@ -42,6 +42,14 @@ function generateInventoryBarcode(
   inventoryType: 'DC' | 'STORE',
   productSku: string,
   storeId?: number | null
+
+// Schema for user updates
+const updateUserSchema = z.object({
+  username: z.string().min(3).optional(),
+  password: z.string().min(6).optional(),
+  roleId: z.number().positive().optional(),
+});
+
 ): string {
   const prefix = inventoryType === 'DC' ? 'DC' : 'ST';
   const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
