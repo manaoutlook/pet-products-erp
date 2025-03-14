@@ -46,6 +46,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { 
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle 
+} from "@/components/ui/alert-dialog";
 
 // Update the product schema to include brandId
 const productSchema = z.object({
@@ -107,6 +117,9 @@ function ProductsPage() {
   const { toast } = useToast();
   const { hasPermission } = usePermissions();
   const isAdmin = true; //This needs to be fetched from auth context
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+
 
   const { data: products, isLoading, refetch } = useQuery<Product[]>({
     queryKey: ['/api/products'],
@@ -182,6 +195,8 @@ function ProductsPage() {
     onSuccess: () => {
       refetch();
       toast({ title: "Success", description: "Product deleted successfully" });
+      setIsDeleteDialogOpen(false); // Close the dialog after successful deletion
+      setProductToDelete(null); //Reset product to delete
     },
     onError: (error: Error) => {
       toast({ 
@@ -189,6 +204,8 @@ function ProductsPage() {
         description: error.message,
         variant: "destructive"
       });
+      setIsDeleteDialogOpen(false); // Close the dialog after failed deletion
+      setProductToDelete(null); //Reset product to delete
     },
   });
 
@@ -252,26 +269,17 @@ function ProductsPage() {
     }
   };
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async () => {
+    if(productToDelete){
+      await deleteMutation.mutateAsync(productToDelete.id);
+    }
+  };
+
+  const handleDeleteClick = (id: number) => {
     // Find the product to get its name for the confirmation message
     const productToDelete = products?.find(product => product.id === id);
-    const productName = productToDelete ? productToDelete.name : 'this product';
-
-    if (window.confirm(`Are you sure you want to delete "${productName}"?`)) {
-      try {
-        await deleteMutation.mutateAsync(id);
-        toast({
-          title: "Product deleted",
-          description: `"${productName}" has been deleted successfully`,
-        });
-      } catch (error) {
-        toast({
-          variant: "destructive",
-          title: "Failed to delete product",
-          description: error.message || "Please try again later",
-        });
-      }
-    }
+    setProductToDelete(productToDelete);
+    setIsDeleteDialogOpen(true);
   };
 
 
@@ -565,11 +573,11 @@ function ProductsPage() {
                                 </Button>
                               </DialogTrigger>
                             </Dialog>
-                            {(hasPermission('products', 'delete') || isAdmin) && (
+                            {hasPermission('products', 'delete') && (
                               <Button
-                                variant="outline"
+                                onClick={() => handleDeleteClick(product.id)}
+                                variant="ghost"
                                 size="icon"
-                                onClick={() => handleDelete(product.id)}
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
@@ -585,6 +593,27 @@ function ProductsPage() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure you want to delete this product?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the product
+              {productToDelete ? ` "${productToDelete.name}"` : ''}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setProductToDelete(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
