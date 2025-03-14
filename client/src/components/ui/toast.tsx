@@ -1,7 +1,7 @@
 import * as React from "react"
 import * as ToastPrimitives from "@radix-ui/react-toast"
 import { cva, type VariantProps } from "class-variance-authority"
-import { X } from "lucide-react"
+import { Copy, X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
@@ -100,14 +100,41 @@ ToastTitle.displayName = ToastPrimitives.Title.displayName
 
 const ToastDescription = React.forwardRef<
   React.ElementRef<typeof ToastPrimitives.Description>,
-  React.ComponentPropsWithoutRef<typeof ToastPrimitives.Description>
->(({ className, ...props }, ref) => (
-  <ToastPrimitives.Description
-    ref={ref}
-    className={cn("text-sm opacity-90", className)}
-    {...props}
-  />
-))
+  React.ComponentPropsWithoutRef<typeof ToastPrimitives.Description> & {
+    showCopy?: boolean;
+  }
+>(({ className, children, showCopy = false, ...props }, ref) => {
+  const [copied, setCopied] = React.useState(false);
+
+  const handleCopy = async () => {
+    if (typeof children === 'string') {
+      await navigator.clipboard.writeText(children);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+    <div className="flex items-start justify-between gap-2">
+      <ToastPrimitives.Description
+        ref={ref}
+        className={cn("text-sm opacity-90", className)}
+        {...props}
+      >
+        {children}
+      </ToastPrimitives.Description>
+      {showCopy && typeof children === 'string' && (
+        <button
+          onClick={handleCopy}
+          className="rounded p-1 hover:bg-background/10 focus:outline-none focus:ring-2 focus:ring-ring"
+          title={copied ? "Copied!" : "Copy error message"}
+        >
+          <Copy className="h-4 w-4" />
+        </button>
+      )}
+    </div>
+  )
+})
 ToastDescription.displayName = ToastPrimitives.Description.displayName
 
 type ToastProps = React.ComponentPropsWithoutRef<typeof Toast>
