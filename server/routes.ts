@@ -1603,7 +1603,7 @@ export function registerRoutes(app: Express): Server {
         return res.status(404).send("User not found");
       }
 
-      if (user.role?.roleType?.description !== 'Pet Store') {
+      if (user.role?.roleType?.description !== 'Pet Store Users') {
         return res.status(400).send("Only Pet Store users can be assigned to stores");
       }
 
