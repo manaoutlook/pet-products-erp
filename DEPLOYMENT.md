@@ -85,15 +85,21 @@ mkdir -p /var/www/peterp.sourceperfect.net/uploads
 chmod 755 /var/www/peterp.sourceperfect.net/uploads
 ```
 
-## 4. Database Backup Process
+## 4. Database Backup and Data Migration
 
-Since we're working in a Replit environment where pg_dump isn't available, follow these steps to backup your database:
+Since we're working in a Replit environment where pg_dump isn't available, we need to backup using SQL queries.
 
-### On Development Server (Replit)
+### Step 1: Schema Export (On Development Server)
 
-1. First, let's create the schema backup. Run this in your PostgreSQL console:
+1. Connect to PostgreSQL in Replit:
+```bash
+# Connect using DATABASE_URL (already set in Replit environment)
+psql $DATABASE_URL
+```
 
+2. Generate schema (in psql console):
 ```sql
+\o schema.sql
 -- Generate CREATE TABLE statements
 SELECT 
     'CREATE TABLE IF NOT EXISTS ' || table_schema || '.' || table_name || ' (' ||
@@ -115,66 +121,217 @@ SELECT
 FROM information_schema.columns
 WHERE table_schema = 'public'
 GROUP BY table_schema, table_name;
+\o
 ```
 
-2. Save the output as `schema.sql`.
+### Step 2: Data Export (On Development Server)
 
-3. Next, generate the data INSERT statements for each table. Run this for each table:
+Generate INSERT statements for each table in the following order:
 
 ```sql
--- For each table, run:
+\o data.sql
+
+-- 1. Role Types
 SELECT 
-    'INSERT INTO ' || table_name || ' (' ||
-    string_agg(column_name, ', ') || ') SELECT ' ||
-    string_agg(
-        CASE 
-            WHEN data_type IN ('timestamp', 'date') 
-                THEN 'COALESCE(' || column_name || '::text, NULL)'
-            WHEN data_type = 'boolean'
-                THEN 'COALESCE(' || column_name || '::text, false)'
-            WHEN data_type IN ('integer', 'numeric', 'bigint')
-                THEN 'COALESCE(' || column_name || '::text, 0)'
-            ELSE 'COALESCE(' || column_name || '::text, NULL)'
-        END,
-        ', '
-    ) || ' FROM ' || table_name || ';'
-FROM information_schema.columns
-WHERE table_schema = 'public' AND table_name = 'your_table_name'
-GROUP BY table_schema, table_name;
+    'INSERT INTO role_types (id, description) VALUES (' ||
+    id || ', ''' || 
+    description || ''');'
+FROM role_types;
+
+-- 2. Roles
+SELECT 
+    'INSERT INTO roles (id, name, description, role_type_id, permissions, created_at, updated_at) VALUES (' ||
+    id || ', ''' || 
+    name || ''', ' ||
+    COALESCE('''' || description || '''', 'NULL') || ', ' ||
+    role_type_id || ', ''' ||
+    permissions || ''', ' ||
+    COALESCE('''' || created_at || '''', 'NULL') || ', ' ||
+    COALESCE('''' || updated_at || '''', 'NULL') || ');'
+FROM roles;
+
+-- 3. Users
+SELECT 
+    'INSERT INTO users (id, username, password, role_id, created_at, updated_at) VALUES (' ||
+    id || ', ''' || 
+    username || ''', ''' || 
+    password || ''', ' ||
+    role_id || ', ' ||
+    COALESCE('''' || created_at || '''', 'NULL') || ', ' ||
+    COALESCE('''' || updated_at || '''', 'NULL') || ');'
+FROM users;
+
+-- 4. categories
+SELECT 
+    'INSERT INTO categories (id, name, description, created_at, updated_at) VALUES (' ||
+    id || ', ''' || 
+    name || ''', ' ||
+    COALESCE('''' || description || '''', 'NULL') || ', ' ||
+    COALESCE('''' || created_at || '''', 'NULL') || ', ' ||
+    COALESCE('''' || updated_at || '''', 'NULL') || ');'
+FROM categories;
+
+-- 5. brands
+SELECT 
+    'INSERT INTO brands (id, name, description, created_at, updated_at) VALUES (' ||
+    id || ', ''' || 
+    name || ''', ' ||
+    COALESCE('''' || description || '''', 'NULL') || ', ' ||
+    COALESCE('''' || created_at || '''', 'NULL') || ', ' ||
+    COALESCE('''' || updated_at || '''', 'NULL') || ');'
+FROM brands;
+
+-- 6. products
+SELECT 
+    'INSERT INTO products (id, name, description, category_id, brand_id, price, stock_quantity, created_at, updated_at) VALUES (' ||
+    id || ', ''' || 
+    name || ''', ' ||
+    COALESCE('''' || description || '''', 'NULL') || ', ' ||
+    category_id || ', ' ||
+    brand_id || ', ' ||
+    price || ', ' ||
+    stock_quantity || ', ' ||
+    COALESCE('''' || created_at || '''', 'NULL') || ', ' ||
+    COALESCE('''' || updated_at || '''', 'NULL') || ');'
+FROM products;
+
+-- 7. stores
+SELECT 
+    'INSERT INTO stores (id, name, address, phone_number, created_at, updated_at) VALUES (' ||
+    id || ', ''' || 
+    name || ''', ''' || 
+    address || ''', ''' || 
+    phone_number || ''', ' ||
+    COALESCE('''' || created_at || '''', 'NULL') || ', ' ||
+    COALESCE('''' || updated_at || '''', 'NULL') || ');'
+FROM stores;
+
+-- 8. customer_profiles
+SELECT 
+    'INSERT INTO customer_profiles (id, first_name, last_name, email, phone_number, address, created_at, updated_at) VALUES (' ||
+    id || ', ''' || 
+    first_name || ''', ''' || 
+    last_name || ''', ''' || 
+    email || ''', ''' || 
+    phone_number || ''', ''' || 
+    address || ''', ' ||
+    COALESCE('''' || created_at || '''', 'NULL') || ', ' ||
+    COALESCE('''' || updated_at || '''', 'NULL') || ');'
+FROM customer_profiles;
+
+-- 9. orders
+SELECT 
+    'INSERT INTO orders (id, customer_profile_id, order_date, total_amount, created_at, updated_at) VALUES (' ||
+    id || ', ' || 
+    customer_profile_id || ', ''' || 
+    order_date || ''', ' || 
+    total_amount || ', ' ||
+    COALESCE('''' || created_at || '''', 'NULL') || ', ' ||
+    COALESCE('''' || updated_at || '''', 'NULL') || ');'
+FROM orders;
+
+-- 10. order_items
+SELECT 
+    'INSERT INTO order_items (id, order_id, product_id, quantity, price, created_at, updated_at) VALUES (' ||
+    id || ', ' || 
+    order_id || ', ' || 
+    product_id || ', ' || 
+    quantity || ', ' || 
+    price || ', ' ||
+    COALESCE('''' || created_at || '''', 'NULL') || ', ' ||
+    COALESCE('''' || updated_at || '''', 'NULL') || ');'
+FROM order_items;
+
+
+-- 11. suppliers
+SELECT 
+    'INSERT INTO suppliers (id, name, contact_person, phone_number, email, address, created_at, updated_at) VALUES (' ||
+    id || ', ''' || 
+    name || ''', ''' || 
+    contact_person || ''', ''' || 
+    phone_number || ''', ''' || 
+    email || ''', ''' || 
+    address || ''', ' ||
+    COALESCE('''' || created_at || '''', 'NULL') || ', ' ||
+    COALESCE('''' || updated_at || '''', 'NULL') || ');'
+FROM suppliers;
+
+-- 12. purchase_orders
+SELECT 
+    'INSERT INTO purchase_orders (id, supplier_id, order_date, total_amount, created_at, updated_at) VALUES (' ||
+    id || ', ' || 
+    supplier_id || ', ''' || 
+    order_date || ''', ' || 
+    total_amount || ', ' ||
+    COALESCE('''' || created_at || '''', 'NULL') || ', ' ||
+    COALESCE('''' || updated_at || '''', 'NULL') || ');'
+FROM purchase_orders;
+
+-- 13. purchase_order_items
+SELECT 
+    'INSERT INTO purchase_order_items (id, purchase_order_id, product_id, quantity, price, created_at, updated_at) VALUES (' ||
+    id || ', ' || 
+    purchase_order_id || ', ' || 
+    product_id || ', ' || 
+    quantity || ', ' || 
+    price || ', ' ||
+    COALESCE('''' || created_at || '''', 'NULL') || ', ' ||
+    COALESCE('''' || updated_at || '''', 'NULL') || ');'
+FROM purchase_order_items;
+
+-- 14. inventory
+SELECT 
+    'INSERT INTO inventory (id, product_id, store_id, quantity, created_at, updated_at) VALUES (' ||
+    id || ', ' || 
+    product_id || ', ' || 
+    store_id || ', ' || 
+    quantity || ', ' ||
+    COALESCE('''' || created_at || '''', 'NULL') || ', ' ||
+    COALESCE('''' || updated_at || '''', 'NULL') || ');'
+FROM inventory;
+
+-- 15. user_store_assignments
+SELECT 
+    'INSERT INTO user_store_assignments (id, user_id, store_id, role_id, created_at, updated_at) VALUES (' ||
+    id || ', ' || 
+    user_id || ', ' || 
+    store_id || ', ' || 
+    role_id || ', ' ||
+    COALESCE('''' || created_at || '''', 'NULL') || ', ' ||
+    COALESCE('''' || updated_at || '''', 'NULL') || ');'
+FROM user_store_assignments;
+
+\o
 ```
 
-4. Save all INSERT statements to `data.sql`.
+### Step 3: Database Import (On Production Server)
 
-### On Production Server
-
-1. Create the database and user:
-
+1. First verify database connection:
 ```bash
-# Connect to PostgreSQL
-sudo -u postgres psql
-
-# Create database and user
-CREATE DATABASE pet_erp;
-CREATE USER pet_user WITH PASSWORD 'your_secure_password';
-GRANT ALL PRIVILEGES ON DATABASE pet_erp TO pet_user;
-\q
-
-# Test the connection
+# Test PostgreSQL connection
 psql -U pet_user -d pet_erp -c "\conninfo"
 ```
 
-2. Import the schema and data:
-
+2. Import the schema:
 ```bash
-# Import schema first
 psql -U pet_user -d pet_erp -f schema.sql
+```
 
-# Then import data
-psql -U pet_user -d pet_erp -f data.sql
-
-# Verify the import
+3. Verify schema import:
+```bash
 psql -U pet_user -d pet_erp -c "\dt"
+```
+
+4. Import the data:
+```bash
+psql -U pet_user -d pet_erp -f data.sql
+```
+
+5. Verify data import:
+```bash
 psql -U pet_user -d pet_erp -c "SELECT COUNT(*) FROM users;"
+psql -U pet_user -d pet_erp -c "SELECT COUNT(*) FROM roles;"
+psql -U pet_user -d pet_erp -c "SELECT COUNT(*) FROM products;"
 ```
 
 ## 5. Nginx and SSL Configuration
