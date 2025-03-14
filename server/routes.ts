@@ -747,7 +747,7 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/roles", requireRole(['admin']), async (req, res) => {
     try {
-      const { name, description, roleTypeId } = req.body;
+      const { name, description, roleTypeId, permissions } = req.body;
 
       if (!name || !roleTypeId) {
         return res.status(400).send("Role name and role type are required");
@@ -771,12 +771,22 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).send("Invalid role type");
       }
 
+      // Set default permissions if none provided
+      const defaultPermissions = permissions || {
+        products: { create: false, read: true, update: false, delete: false },
+        orders: { create: false, read: false, update: false, delete: false },
+        inventory: { create: false, read: false, update: false, delete: false },
+        users: { create: false, read: false, update: false, delete: false },
+        stores: { create: false, read: false, update: false, delete: false }
+      };
+
       const [newRole] = await db
         .insert(roles)
         .values({
           name,
           description,
           roleTypeId,
+          permissions: defaultPermissions,
         })
         .returning();
 
