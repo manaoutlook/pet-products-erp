@@ -11,6 +11,11 @@ export function requireRole(allowedRoles: string[]) {
       return res.status(403).send('Access denied: No role assigned');
     }
 
+    // Admin role always has access
+    if (req.user.role.name === 'admin') {
+      return next();
+    }
+
     if (!allowedRoles.includes(req.user.role.name)) {
       return res.status(403).send('Access denied: Insufficient permissions');
     }
@@ -28,6 +33,17 @@ export function requirePermission(module: string, action: 'create' | 'read' | 'u
 
     if (!req.user || !req.user.role) {
       return res.status(403).send('Access denied: No role assigned');
+    }
+
+    // Admin role always has all permissions
+    if (req.user.role.name === 'admin') {
+      // Add permissions to the request for use in routes
+      req.permissions = {
+        module,
+        action,
+        granted: true
+      };
+      return next();
     }
 
     if (!req.user.role.permissions) {

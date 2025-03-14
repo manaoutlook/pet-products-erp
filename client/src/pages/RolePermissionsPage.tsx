@@ -37,6 +37,7 @@ interface Permissions {
   orders: Permission;
   inventory: Permission;
   users: Permission;
+  stores: Permission;
 }
 
 interface Role {
@@ -57,7 +58,7 @@ function RolePermissionsPage() {
 
   const { data: roles, isLoading: isLoadingRoles } = useQuery<Role[]>({
     queryKey: ['/api/roles'],
-    staleTime: 0, // Disable automatic background updates
+    staleTime: 0,
   });
 
   const updatePermissionsMutation = useMutation({
@@ -72,7 +73,6 @@ function RolePermissionsPage() {
       return res.json();
     },
     onSuccess: (data, variables) => {
-      // Update the roles cache optimistically to maintain order
       queryClient.setQueryData<Role[]>(['/api/roles'], (oldRoles) => {
         if (!oldRoles) return oldRoles;
         return oldRoles.map(role =>
@@ -89,7 +89,6 @@ function RolePermissionsPage() {
         description: error.message,
         variant: "destructive"
       });
-      // Invalidate the cache to refetch the correct data
       queryClient.invalidateQueries({ queryKey: ['/api/roles'] });
     },
   });
@@ -102,6 +101,16 @@ function RolePermissionsPage() {
   ) => {
     const role = roles?.find(r => r.id === roleId);
     if (!role) return;
+
+    // Prevent modifying admin role permissions
+    if (role.name === 'admin') {
+      toast({
+        title: "Warning",
+        description: "Admin role permissions cannot be modified",
+        variant: "destructive"
+      });
+      return;
+    }
 
     // Create a new permissions object with the updated value
     const newPermissions = {
@@ -128,6 +137,7 @@ function RolePermissionsPage() {
     { key: 'orders' as const, label: 'Orders Module' },
     { key: 'inventory' as const, label: 'Inventory Module' },
     { key: 'users' as const, label: 'User Management Module' },
+    { key: 'stores' as const, label: 'Store Management Module' },
   ];
 
   const permissions = [
@@ -234,7 +244,7 @@ function RolePermissionsPage() {
                           <div key={permission.key} className="flex items-center justify-between gap-2">
                             <span className="text-sm">{permission.label}</span>
                             <Switch
-                              checked={role.permissions[module.key][permission.key]}
+                              checked={role.permissions[module.key]?.[permission.key] ?? false}
                               onCheckedChange={(checked) => {
                                 handlePermissionChange(role.id, module.key, permission.key, checked);
                               }}
