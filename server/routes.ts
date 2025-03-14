@@ -1566,7 +1566,7 @@ export function registerRoutes(app: Express): Server {
         .from(users)
         .innerJoin(roles, eq(users.roleId, roles.id))
         .innerJoin(roleTypes, eq(roles.roleTypeId, roleTypes.id))
-        .where(eq(roleTypes.description, 'Pet Store'));
+        .where(eq(roleTypes.description, 'Pet Store Users'));
 
       console.log('Pet Store users found:', petStoreUsers.length);
       res.json(petStoreUsers);
