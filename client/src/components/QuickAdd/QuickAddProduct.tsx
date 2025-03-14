@@ -101,6 +101,8 @@ export function QuickAddProduct() {
   const onSubmit = async (data: ProductFormValues) => {
     try {
       await createProductMutation.mutateAsync(data);
+      methods.reset();
+      setOpen(false); 
     } catch (error: any) {
       toast({
         title: "Error",
@@ -113,7 +115,7 @@ export function QuickAddProduct() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
+        <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
           Quick Add Product
         </Button>

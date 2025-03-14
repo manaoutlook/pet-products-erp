@@ -46,7 +46,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { 
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -54,7 +54,7 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogTitle 
+  AlertDialogTitle
 } from "@/components/ui/alert-dialog";
 
 // Update the product schema to include brandId
@@ -119,6 +119,7 @@ function ProductsPage() {
   const isAdmin = true; //This needs to be fetched from auth context
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const [open, setOpen] = useState(false);
 
 
   const { data: products, isLoading, refetch } = useQuery<Product[]>({
@@ -250,20 +251,17 @@ function ProductsPage() {
   const onSubmit = async (data: ProductFormData) => {
     try {
       if (editingProduct) {
-        await updateMutation.mutateAsync({ id: editingProduct.id, data });
+        await updateMutation.mutateAsync({ 
+          id: editingProduct.id, 
+          data: data
+        });
       } else {
         await createMutation.mutateAsync(data);
       }
 
-      // Reset form and clear editing state
       form.reset();
       setEditingProduct(null);
-
-      // Properly close the dialog by clicking the X button (DialogPrimitive.Close)
-      const closeButton = document.querySelector('[data-state="open"] [aria-label="Close"]');
-      if (closeButton instanceof HTMLElement) {
-        closeButton.click();
-      }
+      setOpen(false); // Close the dialog
     } catch (error) {
       // Error is handled by the mutation
     }
@@ -281,7 +279,6 @@ function ProductsPage() {
     setProductToDelete(productToDelete);
     setIsDeleteDialogOpen(true);
   };
-
 
   // If user doesn't have read permission, show access denied
   if (!hasPermission('products', 'read')) {
@@ -307,11 +304,12 @@ function ProductsPage() {
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Products</h1>
         {hasPermission('products', 'create') && (
-          <Dialog>
+          <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button onClick={() => {
                 setEditingProduct(null);
                 form.reset();
+                setOpen(true);
               }}>
                 <Plus className="mr-2 h-4 w-4" />
                 Add Product
@@ -551,7 +549,7 @@ function ProductsPage() {
                       {hasPermission('products', 'update') && (
                         <TableCell>
                           <div className="flex items-center gap-2">
-                            <Dialog>
+                            <Dialog open={open} onOpenChange={setOpen}>
                               <DialogTrigger asChild>
                                 <Button
                                   variant="ghost"
@@ -568,6 +566,7 @@ function ProductsPage() {
                                       brandId: product.brandId,
                                       minStock: product.minStock,
                                     });
+                                    setOpen(true);
                                   }}
                                 >
                                   <Pencil className="h-4 w-4" />
