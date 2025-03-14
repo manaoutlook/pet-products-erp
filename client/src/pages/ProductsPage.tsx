@@ -250,19 +250,22 @@ function ProductsPage() {
   const onSubmit = async (data: ProductFormData) => {
     try {
       if (editingProduct) {
-        await updateMutation.mutateAsync({ 
-          id: editingProduct.id, 
-          data: data
-        });
+        await updateMutation.mutateAsync({ id: editingProduct.id, data });
       } else {
         await createMutation.mutateAsync(data);
       }
 
+      // Reset form and clear editing state
       form.reset();
-      // Close dialog using our standard implementation
-      const dialogCloseButton = document.querySelector('[data-state="open"] button[type="button"]');
-      if (dialogCloseButton instanceof HTMLElement) {
-        dialogCloseButton.click();
+      setEditingProduct(null);
+
+      // Find and close the dialog by clicking the close button
+      const dialogElement = document.querySelector('[data-state="open"]');
+      if (dialogElement) {
+        const closeButton = dialogElement.querySelector('button[type="button"]');
+        if (closeButton instanceof HTMLElement) {
+          closeButton.click();
+        }
       }
     } catch (error) {
       // Error is handled by the mutation
