@@ -1047,7 +1047,7 @@ export function registerRoutes(app: Express): Server {
         return res.status(404).send("Category not found");
       }
 
-      res.json({```javascript
+      res.json({
         message: "Category updated successfully",
         category: updatedCategory,
       });
