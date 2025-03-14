@@ -166,6 +166,31 @@ function ProductsPage() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      if (!hasPermission('products', 'delete')) {
+        throw new Error("You don't have permission to delete products");
+      }
+      const res = await fetch(`/api/products/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => {
+      refetch();
+      toast({ title: "Success", description: "Product deleted successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Error", 
+        description: error.message,
+        variant: "destructive"
+      });
+    },
+  });
+
   // Add categories query
   const { data: categories } = useQuery<Category[]>({
     queryKey: ['/api/categories'],
@@ -515,176 +540,17 @@ function ProductsPage() {
                                   <Pencil className="h-4 w-4" />
                                 </Button>
                               </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>Edit Product</DialogTitle>
-                                </DialogHeader>
-                                <Form {...form}>
-                                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                                    <FormField
-                                      control={form.control}
-                                      name="name"
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel>Name</FormLabel>
-                                          <FormControl>
-                                            <Input {...field} />
-                                          </FormControl>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
-                                    <FormField
-                                      control={form.control}
-                                      name="description"
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel>Description</FormLabel>
-                                          <FormControl>
-                                            <Input {...field} />
-                                          </FormControl>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
-                                    <FormField
-                                      control={form.control}
-                                      name="sku"
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel>SKU</FormLabel>
-                                          <FormControl>
-                                            <Input {...field} />
-                                          </FormControl>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
-                                    <FormField
-                                      control={form.control}
-                                      name="price"
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel>Price</FormLabel>
-                                          <FormControl>
-                                            <Input 
-                                              type="number" 
-                                              step="0.01"
-                                              {...field}
-                                              onChange={(e) => field.onChange(parseFloat(e.target.value))}
-                                            />
-                                          </FormControl>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
-                                    <FormField
-                                      control={form.control}
-                                      name="categoryId"
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel>Category</FormLabel>
-                                          <Select
-                                            onValueChange={(value) => field.onChange(parseInt(value))}
-                                            defaultValue={field.value.toString()}
-                                          >
-                                            <FormControl>
-                                              <SelectTrigger>
-                                                <SelectValue placeholder="Select a category" />
-                                              </SelectTrigger>
-                                            </FormControl>
-                                            <SelectContent>
-                                              {categories?.map((category) => (
-                                                <SelectItem
-                                                  key={category.id}
-                                                  value={category.id.toString()}
-                                                >
-                                                  {category.name}
-                                                </SelectItem>
-                                              ))}
-                                            </SelectContent>
-                                          </Select>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
-                                    <FormField
-                                      control={form.control}
-                                      name="brandId"
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel>Brand</FormLabel>
-                                          <div className="flex gap-2">
-                                            <Select
-                                              value={field.value?.toString()}
-                                              onValueChange={(value) => field.onChange(parseInt(value))}
-                                            >
-                                              <FormControl>
-                                                <SelectTrigger className="flex-1">
-                                                  <SelectValue placeholder="Select a brand" />
-                                                </SelectTrigger>
-                                              </FormControl>
-                                              <SelectContent>
-                                                {brands?.map((brand) => (
-                                                  <SelectItem
-                                                    key={brand.id}
-                                                    value={brand.id.toString()}
-                                                  >
-                                                    {brand.name}
-                                                  </SelectItem>
-                                                ))}
-                                              </SelectContent>
-                                            </Select>
-                                            <BrandQuickAddModal
-                                              onSuccess={(brand) => {
-                                                // Set the newly created brand as the selected brand
-                                                field.onChange(brand.id);
-                                              }}
-                                              trigger={
-                                                <Button
-                                                  type="button"
-                                                  variant="outline"
-                                                  size="icon"
-                                                >
-                                                  <Plus className="h-4 w-4" />
-                                                </Button>
-                                              }
-                                            />
-                                          </div>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
-                                    <FormField
-                                      control={form.control}
-                                      name="minStock"
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel>Minimum Stock</FormLabel>
-                                          <FormControl>
-                                            <Input 
-                                              type="number" 
-                                              {...field}
-                                              onChange={(e) => field.onChange(parseInt(e.target.value))}
-                                            />
-                                          </FormControl>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
-                                    <Button
-                                      type="submit"
-                                      className="w-full"
-                                      disabled={form.formState.isSubmitting}
-                                    >
-                                      {form.formState.isSubmitting && (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                      )}
-                                      Update Product
-                                    </Button>
-                                  </form>
-                                </Form>
-                              </DialogContent>
+                            </Dialog>
+                            <Dialog>
+                              <DialogTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  onClick={() => deleteMutation.mutate(product.id)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </DialogTrigger>
                             </Dialog>
                           </div>
                         </TableCell>
