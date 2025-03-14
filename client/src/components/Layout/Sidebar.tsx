@@ -21,7 +21,9 @@ import {
   Building2,
   ChevronRight,
   ClipboardList,
-  UserCircle
+  UserCircle,
+  StoreIcon,
+  ListIcon
 } from "lucide-react";
 import { useState } from "react";
 
@@ -122,19 +124,27 @@ function Sidebar() {
       module: 'inventory',
       action: 'read'
     },
-    { 
-      name: "Store Management", 
-      href: "/stores", 
+    {
+      name: "Stores",
       icon: Store,
       module: 'stores',
-      action: 'read'
-    },
-    { 
-      name: "Store Analytics", 
-      href: "/store-performance", 
-      icon: BarChart,
-      module: 'stores',
-      action: 'read'
+      action: 'read',
+      children: [
+        {
+          name: "Store List",
+          href: "/stores",
+          icon: ListIcon,
+          module: 'stores',
+          action: 'read'
+        },
+        {
+          name: "Store Analytics",
+          href: "/store-performance",
+          icon: BarChart,
+          module: 'stores',
+          action: 'read'
+        }
+      ]
     },
     { 
       name: "Customer Profiles", 
