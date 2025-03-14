@@ -97,11 +97,23 @@ function RolesPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Partial<InsertRole> }) => {
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      // Preserve existing permissions when updating
+      const roleData = {
+        ...data,
+        permissions: editingRole?.permissions || {
+          products: { create: false, read: true, update: false, delete: false },
+          orders: { create: false, read: true, update: false, delete: false },
+          inventory: { create: false, read: true, update: false, delete: false },
+          users: { create: false, read: false, update: false, delete: false },
+          stores: { create: false, read: true, update: false, delete: false }
+        }
+      };
+
       const res = await fetch(`/api/roles/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify(roleData),
         credentials: 'include',
       });
       if (!res.ok) throw new Error(await res.text());
