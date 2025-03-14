@@ -360,7 +360,10 @@ export type InsertPurchaseOrderItem = typeof purchaseOrderItems.$inferInsert;
 export type SelectPurchaseOrderItem = typeof purchaseOrderItems.$inferSelect;
 
 // Add customer profile schemas
-export const insertCustomerProfileSchema = createInsertSchema(customerProfiles);
+export const insertCustomerProfileSchema = createInsertSchema(customerProfiles, {
+  photo: z.string().nullable().optional(),
+  petBirthday: z.string().nullable().optional()
+});
 export const selectCustomerProfileSchema = createSelectSchema(customerProfiles);
 export type InsertCustomerProfile = typeof customerProfiles.$inferInsert;
 export type SelectCustomerProfile = typeof customerProfiles.$inferSelect;
