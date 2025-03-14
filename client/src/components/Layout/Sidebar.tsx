@@ -123,33 +123,25 @@ function Sidebar() {
       action: 'read'
     },
     { 
+      name: "Store Management", 
+      href: "/stores", 
+      icon: Store,
+      module: 'stores',
+      action: 'read'
+    },
+    { 
+      name: "Store Analytics", 
+      href: "/store-performance", 
+      icon: BarChart,
+      module: 'stores',
+      action: 'read'
+    },
+    { 
       name: "Customer Profiles", 
       href: "/customers", 
       icon: UserCircle,
       module: 'users',
       action: 'read'
-    },
-    { 
-      name: "Stores", 
-      icon: Store,
-      module: 'stores',
-      action: 'read',
-      children: [
-        { 
-          name: "Store List", 
-          href: "/stores", 
-          icon: Store,
-          module: 'stores',
-          action: 'read'
-        },
-        { 
-          name: "Store Performance", 
-          href: "/store-performance", 
-          icon: BarChart,
-          module: 'stores',
-          action: 'read'
-        }
-      ]
     },
     {
       name: "User Management",
