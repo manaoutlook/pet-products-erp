@@ -46,6 +46,13 @@ function StorePage() {
 
   const { data: stores, isLoading, refetch } = useQuery<SelectStore[]>({
     queryKey: ['/api/stores'],
+    queryFn: async () => {
+      const response = await fetch('/api/stores', {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error(await response.text());
+      return response.json();
+    }
   });
 
   const form = useForm<InsertStore>({
@@ -71,6 +78,7 @@ function StorePage() {
     onSuccess: () => {
       refetch();
       setDialogOpen(false);
+      form.reset();
       toast({ title: "Success", description: "Store created successfully" });
     },
     onError: (error: Error) => {
@@ -83,7 +91,7 @@ function StorePage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Partial<InsertStore> }) => {
+    mutationFn: async ({ id, data }: { id: number; data: InsertStore }) => {
       const res = await fetch(`/api/stores/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -96,7 +104,30 @@ function StorePage() {
     onSuccess: () => {
       refetch();
       setDialogOpen(false);
+      form.reset();
       toast({ title: "Success", description: "Store updated successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Error", 
+        description: error.message,
+        variant: "destructive"
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/stores/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => {
+      refetch();
+      toast({ title: "Success", description: "Store deleted successfully" });
     },
     onError: (error: Error) => {
       toast({ 
@@ -112,12 +143,11 @@ function StorePage() {
       if (editingStore) {
         await updateMutation.mutateAsync({ 
           id: editingStore.id, 
-          data: data
+          data
         });
       } else {
         await createMutation.mutateAsync(data);
       }
-      form.reset();
     } catch (error) {
       // Error is handled by the mutation
     }
@@ -143,7 +173,17 @@ function StorePage() {
     setDialogOpen(true);
   };
 
-  const filteredStores = stores?.filter(store => 
+  const handleDeleteStore = async (store: SelectStore) => {
+    if (confirm('Are you sure you want to delete this store?')) {
+      try {
+        await deleteMutation.mutateAsync(store.id);
+      } catch (error) {
+        // Error is handled by the mutation
+      }
+    }
+  };
+
+  const filteredStores = stores?.filter((store: SelectStore) => 
     store.name.toLowerCase().includes(search.toLowerCase()) ||
     store.location.toLowerCase().includes(search.toLowerCase()) ||
     store.contactInfo.toLowerCase().includes(search.toLowerCase())
@@ -261,7 +301,7 @@ function StorePage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredStores?.map((store) => (
+                {filteredStores?.map((store: SelectStore) => (
                   <TableRow key={store.id}>
                     <TableCell className="font-medium">{store.name}</TableCell>
                     <TableCell>{store.location}</TableCell>
@@ -279,11 +319,7 @@ function StorePage() {
                           variant="outline"
                           size="icon"
                           className="text-destructive"
-                          onClick={() => {
-                            if (confirm('Are you sure you want to delete this store?')) {
-                              // deleteMutation.mutate(store.id);  Removed
-                            }
-                          }}
+                          onClick={() => handleDeleteStore(store)}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>

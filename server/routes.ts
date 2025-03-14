@@ -59,6 +59,201 @@ export function registerRoutes(app: Express): Server {
 
   app.use('/api', requireAuth);
 
+  // Store Management endpoints
+  app.get("/api/stores", requireAuth, async (req, res) => {
+    try {
+      const allStores = await db.query.stores.findMany({
+        orderBy: [desc(stores.updatedAt)],
+      });
+      res.json(allStores);
+    } catch (error) {
+      console.error('Error fetching stores:', error);
+      res.status(500).json({
+        message: "Failed to fetch stores",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.post("/api/stores", requireAuth, async (req, res) => {
+    try {
+      const result = insertStoreSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({
+          message: "Invalid input",
+          errors: result.error.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message
+          }))
+        });
+      }
+
+      const { name, location, contactInfo } = result.data;
+
+      // Check if store exists
+      const existingStore = await db.query.stores.findFirst({
+        where: eq(stores.name, name),
+      });
+
+      if (existingStore) {
+        return res.status(400).json({
+          message: "Store with this name already exists",
+          suggestion: "Please use a different store name"
+        });
+      }
+
+      const [newStore] = await db
+        .insert(stores)
+        .values({
+          name,
+          location,
+          contactInfo,
+        })
+        .returning();
+
+      res.json({
+        message: "Store created successfully",
+        store: newStore,
+      });
+    } catch (error) {
+      console.error('Error creating store:', error);
+      res.status(500).json({
+        message: "Failed to create store",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.put("/api/stores/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const result = insertStoreSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({
+          message: "Invalid input",
+          errors: result.error.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message
+          }))
+        });
+      }
+
+      const { name, location, contactInfo } = result.data;
+
+      // Check if store exists
+      const existingStore = await db.query.stores.findFirst({
+        where: and(
+          eq(stores.name, name),
+          sql`id != ${id}`
+        ),
+      });
+
+      if (existingStore) {
+        return res.status(400).json({
+          message: "Store with this name already exists",
+          suggestion: "Please use a different store name"
+        });
+      }
+
+      const [updatedStore] = await db
+        .update(stores)
+        .set({
+          name,
+          location,
+          contactInfo,
+          updatedAt: new Date()
+        })
+        .where(eq(stores.id, parseInt(id)))
+        .returning();
+
+      if (!updatedStore) {
+        return res.status(404).json({
+          message: "Store not found",
+          suggestion: "Please verify the store ID"
+        });
+      }
+
+      res.json({
+        message: "Store updated successfully",
+        store: updatedStore,
+      });
+    } catch (error) {
+      console.error('Error updating store:', error);
+      res.status(500).json({
+        message: "Failed to update store",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.delete("/api/stores/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if store exists
+      const store = await db.query.stores.findFirst({
+        where: eq(stores.id, parseInt(id)),
+      });
+
+      if (!store) {
+        return res.status(404).json({
+          message: "Store not found",
+          suggestion: "Please verify the store ID"
+        });
+      }
+
+      // Check if store has any inventory
+      const inventory = await db.query.inventory.findFirst({
+        where: eq(inventory.storeId, parseInt(id)),
+      });
+
+      if (inventory) {
+        return res.status(400).json({
+          message: "Cannot delete store with existing inventory",
+          suggestion: "Please transfer or remove all inventory items first"
+        });
+      }
+
+      // Check if store has any orders
+      const orders = await db.query.orders.findFirst({
+        where: eq(orders.storeId, parseInt(id)),
+      });
+
+      if (orders) {
+        return res.status(400).json({
+          message: "Cannot delete store with existing orders",
+          suggestion: "Please archive or reassign orders first"
+        });
+      }
+
+      // Check if store has any user assignments
+      const assignments = await db.query.userStoreAssignments.findFirst({
+        where: eq(userStoreAssignments.storeId, parseInt(id)),
+      });
+
+      if (assignments) {
+        return res.status(400).json({
+          message: "Cannot delete store with active user assignments",
+          suggestion: "Please remove all user assignments first"
+        });
+      }
+
+      await db
+        .delete(stores)
+        .where(eq(stores.id, parseInt(id)));
+
+      res.json({
+        message: "Store deleted successfully"
+      });
+    } catch (error) {
+      console.error('Error deleting store:', error);
+      res.status(500).json({
+        message: "Failed to delete store",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
   // Purchase Orders endpoints
   app.get("/api/purchase-orders", requireAuth, async (req, res) => {
     try {
@@ -751,7 +946,6 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-
   // Category Management endpoints
   app.get("/api/categories", requireAuth, async (req, res) => {
     try {
@@ -1052,13 +1246,15 @@ export function registerRoutes(app: Express): Server {
             message: "Invalid role ID",
             suggestion: "Please provide a valid role ID"
           });
-        }      }
+        }
+      }
 
       // Update user
       const [updatedUser] = await db
         .update(users)
         .set({
-          ...(username && { username }),          ...(roleId && { roleId }),
+          ...(username && { username }),
+          ...(roleId && { roleId }),
           ...(password && { password: hashedPassword }),
           updatedAt: new Date(),
         })
@@ -1140,10 +1336,29 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/stores", requireRole(['admin']), async (req, res) => {
     try {
-      const { name, location, contactInfo } = req.body;
+      const result = insertStoreSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({
+          message: "Invalid input",
+          errors: result.error.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message
+          }))
+        });
+      }
 
-      if (!name || !location || !contactInfo) {
-        return res.status(400).send("Name, location, and contact information are required");
+      const { name, location, contactInfo } = result.data;
+
+      // Check if store exists
+      const existingStore = await db.query.stores.findFirst({
+        where: eq(stores.name, name),
+      });
+
+      if (existingStore) {
+        return res.status(400).json({
+          message: "Store with this name already exists",
+          suggestion: "Please use a different store name"
+        });
       }
 
       const [newStore] = await db
@@ -1161,17 +1376,42 @@ export function registerRoutes(app: Express): Server {
       });
     } catch (error) {
       console.error('Error creating store:', error);
-      res.status(500).send("Failed to create store");
+      res.status(500).json({
+        message: "Failed to create store",
+        suggestion: "Please try again later"
+      });
     }
   });
 
   app.put("/api/stores/:id", requireRole(['admin']), async (req, res) => {
     try {
       const { id } = req.params;
-      const { name, location, contactInfo } = req.body;
+      const result = insertStoreSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({
+          message: "Invalid input",
+          errors: result.error.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message
+          }))
+        });
+      }
 
-      if (!name || !location || !contactInfo) {
-        return res.status(400).send("Name, location, and contact information are required");
+      const { name, location, contactInfo } = result.data;
+
+      // Check if store exists
+      const existingStore = await db.query.stores.findFirst({
+        where: and(
+          eq(stores.name, name),
+          sql`id != ${id}`
+        ),
+      });
+
+      if (existingStore) {
+        return res.status(400).json({
+          message: "Store with this name already exists",
+          suggestion: "Please use a different store name"
+        });
       }
 
       const [updatedStore] = await db
@@ -1180,13 +1420,16 @@ export function registerRoutes(app: Express): Server {
           name,
           location,
           contactInfo,
-          updatedAt: new Date(),
+          updatedAt: new Date()
         })
         .where(eq(stores.id, parseInt(id)))
         .returning();
 
       if (!updatedStore) {
-        return res.status(404).send("Store not found");
+        return res.status(404).json({
+          message: "Store not found",
+          suggestion: "Please verify the store ID"
+        });
       }
 
       res.json({
@@ -1195,7 +1438,10 @@ export function registerRoutes(app: Express): Server {
       });
     } catch (error) {
       console.error('Error updating store:', error);
-      res.status(500).send("Failed to update store");
+      res.status(500).json({
+        message: "Failed to update store",
+        suggestion: "Please try again later"
+      });
     }
   });
 
@@ -1204,44 +1450,66 @@ export function registerRoutes(app: Express): Server {
       const { id } = req.params;
 
       // Check if store exists
-      const [store] = await db
-        .select()
-        .from(stores)
-        .where(eq(stores.id, parseInt(id)))
-        .limit(1);
+      const store = await db.query.stores.findFirst({
+        where: eq(stores.id, parseInt(id)),
+      });
 
       if (!store) {
-        return res.status(404).send("Store not found");
+        return res.status(404).json({
+          message: "Store not found",
+          suggestion: "Please verify the store ID"
+        });
       }
 
       // Check if store has any inventory
-      const [inventoryCount] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(inventory)
-        .where(eq(inventory.storeId, parseInt(id)));
+      const inventory = await db.query.inventory.findFirst({
+        where: eq(inventory.storeId, parseInt(id)),
+      });
 
-      if (inventoryCount.count > 0) {
-        return res.status(400).send("Cannot delete store with existing inventory");
+      if (inventory) {
+        return res.status(400).json({
+          message: "Cannot delete store with existing inventory",
+          suggestion: "Please transfer or remove all inventory items first"
+        });
       }
 
       // Check if store has any orders
-      const [orderCount] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(orders)
-        .where(eq(orders.storeId, parseInt(id)));
+      const orders = await db.query.orders.findFirst({
+        where: eq(orders.storeId, parseInt(id)),
+      });
 
-      if (orderCount.count > 0) {
-        return res.status(400).send("Cannot delete store with existing orders");
+      if (orders) {
+        return res.status(400).json({
+          message: "Cannot delete store with existing orders",
+          suggestion: "Please archive or reassign orders first"
+        });
+      }
+
+      // Check if store has any user assignments
+      const assignments = await db.query.userStoreAssignments.findFirst({
+        where: eq(userStoreAssignments.storeId, parseInt(id)),
+      });
+
+      if (assignments) {
+        return res.status(400).json({
+          message: "Cannot delete store with active user assignments",
+          suggestion: "Please remove all user assignments first"
+        });
       }
 
       await db
         .delete(stores)
         .where(eq(stores.id, parseInt(id)));
 
-      res.json({ message: "Store deleted successfully" });
+      res.json({
+        message: "Store deleted successfully"
+      });
     } catch (error) {
       console.error('Error deleting store:', error);
-      res.status(500).send("Failed to delete store");
+      res.status(500).json({
+        message: "Failed to delete store",
+        suggestion: "Please try again later"
+      });
     }
   });
 
@@ -1828,35 +2096,24 @@ export function registerRoutes(app: Express): Server {
   app.get("/api/stores/performance", requireAuth, async (req, res) => {
     try {
       // Get current month's start and end dates
-      const currentMonthStart = sql`date_trunc('month', current_date)`;
-      const nextMonthStart = sql`date_trunc('month', current_date) + interval '1 month'`;
+      const currentMonthStart = new Date();
+      currentMonthStart.setDate(1);
+      currentMonthStart.setHours(0, 0, 0, 0);
+      const nextMonthStart = new Date(currentMonthStart);
+      nextMonthStart.setMonth(nextMonthStart.getMonth() + 1);
+      nextMonthStart.setHours(0, 0, 0, 0);
+
+      const startDate = currentMonthStart;
+      const endDate = nextMonthStart;
 
       // Get performance metrics for each store
       const storeMetrics = await db
         .select({
           storeId: stores.id,
           storeName: stores.name,
-          // Monthly order count
-          orderCount: sql<number>`count(distinct ${orders.id})`,
-          // Total revenue
-          revenue: sql<number>`coalesce(sum(${orders.total}), 0)`,
-          // Average order value
-          averageOrderValue: sql<number>`coalesce(avg(${orders.total}), 0)`,
-          // Order fulfillment rate (completed orders / total orders)
-          fulfillmentRate: sql<number>`
-            case 
-              when count(${orders.id}) > 0 
-              then sum(case when ${orders.status} = 'completed' then 1 else 0 end)::float / count(${orders.id}) 
-              else 0 
-            end
-          `,
-          // Inventory turnover (items sold / average inventory)
-          inventoryTurnover: sql<number>`
-            coalesce(
-              sum(${orderItems.quantity})::float / nullif(avg(${inventory.quantity}), 0),
-              0
-            )
-          `
+          totalSales: sql`sum(${orderItems.price} * ${orderItems.quantity})`,
+          orderCount: sql`count(distinct ${orders.id})`,
+          inventoryCount: sql`count(distinct ${inventory.id})`
         })
         .from(stores)
         .leftJoin(orders, eq(orders.storeId, stores.id))
@@ -1864,12 +2121,11 @@ export function registerRoutes(app: Express): Server {
         .leftJoin(inventory, eq(inventory.storeId, stores.id))
         .where(
           and(
-            gte(orders.createdAt, currentMonthStart),
-            lt(orders.createdAt, nextMonthStart)
+            gte(orders.createdAt, startDate),
+            lt(orders.createdAt, endDate)
           )
         )
-        .groupBy(stores.id)
-        .orderBy(stores.name);
+        .groupBy(stores.id, stores.name);
 
       // Get historical performance data for trending
       const historicalData = await db
@@ -1896,10 +2152,10 @@ export function registerRoutes(app: Express): Server {
           storeId: stores.id,
           totalItems: sql<number>`count(distinct ${inventory.productId})`,
           lowStockItems: sql<number>`
-            count(distinct case 
-              when ${inventory.quantity} <= ${products.minStock} 
-              then ${inventory.productId} 
-              else null 
+            count(distinct case
+              when ${inventory.quantity} <= ${products.minStock}
+              then ${inventory.productId}
+              else null
             end)
           `
         })
@@ -2101,7 +2357,7 @@ export function registerRoutes(app: Express): Server {
         .returning();
 
       if (!updatedSupplier) {
-                return res.status(404).send("Supplier not found");
+        return res.status(404).send("Supplier not found");
       }
 
       res.json({
