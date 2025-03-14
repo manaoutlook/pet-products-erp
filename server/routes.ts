@@ -1730,7 +1730,18 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Products API - Create product (admin only)
+  // Products schema
+const insertProductSchema = z.object({
+  name: z.string().min(1, "Product name is required"),
+  description: z.string().optional(),
+  sku: z.string().min(1, "SKU is required"),
+  price: z.number().min(0, "Price must be positive"),
+  categoryId: z.number().positive("Category ID is required"),
+  minStock: z.number().int().min(0, "Minimum stock must be positive").optional(),
+  brandId: z.number().positive("Brand ID is required").optional(),
+});
+
+// Products API - Create product (admin only)
   app.post("/api/products", requireRole(['admin']), async (req, res) => {
     try {
       const result = insertProductSchema.safeParse(req.body);
