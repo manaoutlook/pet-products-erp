@@ -6,7 +6,8 @@ import {
   products, inventory, orders, orderItems, users,
   roles, roleTypes, stores, userStoreAssignments,
   categories, brands, suppliers, purchaseOrders,
-  purchaseOrderItems, customerProfiles, insertCustomerProfileSchema
+  purchaseOrderItems, customerProfiles, insertCustomerProfileSchema,
+  insertStoreSchema
 } from "@db/schema";
 import { sql } from "drizzle-orm";
 import { eq, and, desc, gte, lt } from "drizzle-orm";
