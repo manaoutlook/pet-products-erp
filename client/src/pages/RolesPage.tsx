@@ -229,7 +229,7 @@ function RolesPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Role Type</FormLabel>
-                      <Select 
+                      <Select
                         onValueChange={(value) => field.onChange(parseInt(value))}
                         value={field.value?.toString()}
                       >
@@ -239,8 +239,11 @@ function RolesPage() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {roleTypes?.map(type => (
-                            <SelectItem key={type.id} value={type.id.toString()}>
+                          {roleTypes?.map((type) => (
+                            <SelectItem
+                              key={type.id}
+                              value={type.id.toString()}
+                            >
                               {type.description}
                             </SelectItem>
                           ))}
@@ -253,9 +256,12 @@ function RolesPage() {
                 <Button
                   type="submit"
                   className="w-full"
-                  disabled={form.formState.isSubmitting}
+                  disabled={createMutation.isPending || updateMutation.isPending}
+                  onClick={() => {
+                    console.log("Button clicked, form state:", form.getValues());
+                  }}
                 >
-                  {form.formState.isSubmitting && (
+                  {(createMutation.isPending || updateMutation.isPending) && (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   )}
                   {editingRole ? 'Update Role' : 'Create Role'}
