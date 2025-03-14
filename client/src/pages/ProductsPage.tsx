@@ -542,17 +542,19 @@ function ProductsPage() {
                                 </Button>
                               </DialogTrigger>
                             </Dialog>
-                            <Dialog>
-                              <DialogTrigger asChild>
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  onClick={() => deleteMutation.mutate(product.id)}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </DialogTrigger>
-                            </Dialog>
+                            {(hasPermission('products', 'delete') || isAdmin) && (
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => {
+                                  if (confirm('Are you sure you want to delete this product?')) {
+                                    deleteMutation.mutate(product.id);
+                                  }
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       )}
