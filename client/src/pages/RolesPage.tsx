@@ -61,24 +61,36 @@ function RolesPage() {
 
   const createMutation = useMutation({
     mutationFn: async (data: InsertRole) => {
+      console.log("Sending create role request with data:", data);
       const res = await fetch('/api/roles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
         credentials: 'include',
       });
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
+
+      console.log("Create role response status:", res.status);
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error("API error response:", errorText);
+        throw new Error(errorText);
+      }
+
+      const responseData = await res.json();
+      console.log("Create role success response:", responseData);
+      return responseData;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      console.log("Role created successfully:", data);
       refetch();
-      setDialogOpen(false);
       toast({ title: "Success", description: "Role created successfully" });
     },
     onError: (error: Error) => {
+      console.error("Create role mutation error:", error);
       toast({ 
         title: "Error", 
-        description: error.message,
+        description: error.message || "Failed to create role",
         variant: "destructive"
       });
     },
@@ -147,16 +159,48 @@ function RolesPage() {
 
   const onSubmit = async (data: InsertRole) => {
     try {
+      console.log("Form submission triggered with data:", data);
+
+      // Validate required fields
+      if (!data.name) {
+        console.error("Name is required");
+        toast({ 
+          title: "Validation Error", 
+          description: "Role name is required",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      if (!data.roleTypeId) {
+        console.error("Role Type is required");
+        toast({ 
+          title: "Validation Error", 
+          description: "Role Type is required",
+          variant: "destructive"
+        });
+        return;
+      }
+
       if (editingRole) {
+        console.log("Updating role:", data);
         await updateMutation.mutateAsync({ 
-          id: editingRole.id, 
-          data
+          id: editingRole.id,
+          data 
         });
       } else {
+        console.log("Creating role:", data);
         await createMutation.mutateAsync(data);
       }
+      setDialogOpen(false);
+      form.reset();
     } catch (error) {
-      // Error is handled by the mutation
+      console.error("Error submitting form:", error);
+      toast({ 
+        title: "Error", 
+        description: error instanceof Error ? error.message : "An unknown error occurred",
+        variant: "destructive"
+      });
     }
   };
 
@@ -257,9 +301,7 @@ function RolesPage() {
                   type="submit"
                   className="w-full"
                   disabled={createMutation.isPending || updateMutation.isPending}
-                  onClick={() => {
-                    console.log("Button clicked, form state:", form.getValues());
-                  }}
+                  
                 >
                   {(createMutation.isPending || updateMutation.isPending) && (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
