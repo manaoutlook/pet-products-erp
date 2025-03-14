@@ -732,6 +732,15 @@ function ProductsPage() {
                                 </Form>
                               </DialogContent>
                             </Dialog>
+                            {(hasPermission('products', 'delete') || isAdmin) && (
+                              <Button
+                                onClick={() => handleDeleteClick(product.id)}
+                                variant="ghost"
+                                size="icon"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       )}
