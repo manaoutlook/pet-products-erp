@@ -216,7 +216,7 @@ function ProductsPage() {
   });
 
   // Add brands query
-  const { data: brands } = useQuery<Brand[]>({
+  const { data: brands, refetch: refetchBrands } = useQuery<Brand[]>({
     queryKey: ['/api/brands'],
     enabled: hasPermission('products', 'read'),
   });
@@ -554,17 +554,18 @@ function ProductsPage() {
                             <Dialog>
                               <DialogTrigger asChild>
                                 <Button
-                                  variant="outline"
+                                  variant="ghost"
                                   size="icon"
                                   onClick={() => {
                                     setEditingProduct(product);
+                                    // Pre-populate the form with the product details
                                     form.reset({
                                       name: product.name,
                                       description: product.description,
                                       sku: product.sku,
-                                      price: Number(product.price),
+                                      price: normalizePrice(product.price),
                                       categoryId: product.categoryId,
-                                      brandId: product.brandId, //Added brandId to reset
+                                      brandId: product.brandId,
                                       minStock: product.minStock,
                                     });
                                   }}
@@ -572,16 +573,165 @@ function ProductsPage() {
                                   <Pencil className="h-4 w-4" />
                                 </Button>
                               </DialogTrigger>
+                              <DialogContent>
+                                <DialogHeader>
+                                  <DialogTitle>Edit Product</DialogTitle>
+                                </DialogHeader>
+                                <Form {...form}>
+                                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                                    {/* Form fields (same as in the add product dialog) */}
+                                    <FormField
+                                      control={form.control}
+                                      name="name"
+                                      render={({ field }) => (
+                                        <FormItem>
+                                          <FormLabel>Name</FormLabel>
+                                          <FormControl>
+                                            <Input {...field} />
+                                          </FormControl>
+                                          <FormMessage />
+                                        </FormItem>
+                                      )}
+                                    />
+                                    <FormField
+                                      control={form.control}
+                                      name="description"
+                                      render={({ field }) => (
+                                        <FormItem>
+                                          <FormLabel>Description</FormLabel>
+                                          <FormControl>
+                                            <Input {...field} />
+                                          </FormControl>
+                                          <FormMessage />
+                                        </FormItem>
+                                      )}
+                                    />
+                                    <FormField
+                                      control={form.control}
+                                      name="sku"
+                                      render={({ field }) => (
+                                        <FormItem>
+                                          <FormLabel>SKU</FormLabel>
+                                          <FormControl>
+                                            <Input {...field} />
+                                          </FormControl>
+                                          <FormMessage />
+                                        </FormItem>
+                                      )}
+                                    />
+                                    <FormField
+                                      control={form.control}
+                                      name="price"
+                                      render={({ field }) => (
+                                        <FormItem>
+                                          <FormLabel>Price (VND)</FormLabel>
+                                          <FormControl>
+                                            <Input
+                                              {...field}
+                                              value={formatPrice(field.value)}
+                                              onChange={(e) => {
+                                                const value = validatePrice(e.target.value);
+                                                if (value !== null) {
+                                                  field.onChange(value);
+                                                }
+                                              }}
+                                            />
+                                          </FormControl>
+                                          <FormMessage />
+                                        </FormItem>
+                                      )}
+                                    />
+                                    <FormField
+                                      control={form.control}
+                                      name="categoryId"
+                                      render={({ field }) => (
+                                        <FormItem>
+                                          <FormLabel>Category</FormLabel>
+                                          <Select
+                                            value={field.value?.toString()}
+                                            onValueChange={(value) => field.onChange(parseInt(value))}
+                                          >
+                                            <FormControl>
+                                              <SelectTrigger>
+                                                <SelectValue placeholder="Select a category" />
+                                              </SelectTrigger>
+                                            </FormControl>
+                                            <SelectContent>
+                                              {categories?.map((category) => (
+                                                <SelectItem
+                                                  key={category.id}
+                                                  value={category.id.toString()}
+                                                >
+                                                  {category.name}
+                                                </SelectItem>
+                                              ))}
+                                            </SelectContent>
+                                          </Select>
+                                          <FormMessage />
+                                        </FormItem>
+                                      )}
+                                    />
+                                    <FormField
+                                      control={form.control}
+                                      name="brandId"
+                                      render={({ field }) => (
+                                        <FormItem>
+                                          <FormLabel>Brand</FormLabel>
+                                          <div className="flex space-x-2">
+                                            <Select
+                                              value={field.value?.toString()}
+                                              onValueChange={(value) => field.onChange(parseInt(value))}
+                                              className="flex-1"
+                                            >
+                                              <FormControl>
+                                                <SelectTrigger>
+                                                  <SelectValue placeholder="Select a brand" />
+                                                </SelectTrigger>
+                                              </FormControl>
+                                              <SelectContent>
+                                                {brands?.map((brand) => (
+                                                  <SelectItem
+                                                    key={brand.id}
+                                                    value={brand.id.toString()}
+                                                  >
+                                                    {brand.name}
+                                                  </SelectItem>
+                                                ))}
+                                              </SelectContent>
+                                            </Select>
+                                            <BrandQuickAddModal onSuccess={refetchBrands} />
+                                          </div>
+                                          <FormMessage />
+                                        </FormItem>
+                                      )}
+                                    />
+                                    <FormField
+                                      control={form.control}
+                                      name="minStock"
+                                      render={({ field }) => (
+                                        <FormItem>
+                                          <FormLabel>Minimum Stock</FormLabel>
+                                          <FormControl>
+                                            <Input
+                                              type="number"
+                                              {...field}
+                                              onChange={(e) => field.onChange(Number(e.target.value))}
+                                            />
+                                          </FormControl>
+                                          <FormMessage />
+                                        </FormItem>
+                                      )}
+                                    />
+                                    <Button type="submit" className="w-full" disabled={updateMutation.isPending}>
+                                      {updateMutation.isPending && (
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                      )}
+                                      Update Product
+                                    </Button>
+                                  </form>
+                                </Form>
+                              </DialogContent>
                             </Dialog>
-                            {hasPermission('products', 'delete') && (
-                              <Button
-                                onClick={() => handleDeleteClick(product.id)}
-                                variant="ghost"
-                                size="icon"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            )}
                           </div>
                         </TableCell>
                       )}
