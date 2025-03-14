@@ -1,0 +1,56 @@
+0|pet.sour | DATABASE_URL: postgresql://postgres:admin123@localhost:5432/pet_erp
+0|pet.sour | Setting up admin user...
+0|pet.sour | Server is running on port 3000
+0|pet.sour | 
+0|pet.sour | > rest-express@1.0.0 start
+0|pet.sour | > NODE_ENV=production node dist/index.js
+0|pet.sour | 
+0|pet.sour | DATABASE_URL: postgresql://postgres:admin123@localhost:5432/pet_erp
+0|pet.sour | Setting up admin user...
+0|pet.sour | Server is running on port 3000
+
+/root/.pm2/logs/pet.sourceperfect.net-error.log last 15 lines:
+0|pet.sour |     at file:///var/www/pet.sourceperfect.net/dist/index.js:2413:3
+0|pet.sour |     at ModuleJob.run (node:internal/modules/esm/module_job:234:25)
+0|pet.sour |     at async ModuleLoader.import (node:internal/modules/esm/loader:473:24)
+0|pet.sour |     at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:122:5)
+0|pet.sour | Emitted 'error' event on Server instance at:
+0|pet.sour |     at emitErrorNT (node:net:1944:8)
+0|pet.sour |     at process.processTicksAndRejections (node:internal/process/task_queues:82:21) {
+0|pet.sour |   code: 'EADDRINUSE',
+0|pet.sour |   errno: -98,
+0|pet.sour |   syscall: 'listen',
+0|pet.sour |   address: '::',
+0|pet.sour |   port: 3000
+0|pet.sour | }
+0|pet.sour | 
+0|pet.sour | Node.js v20.18.3
+
+0|pet.sourceperfect.net  | > rest-express@1.0.0 start
+0|pet.sourceperfect.net  | > NODE_ENV=production node dist/index.js
+0|pet.sourceperfect.net  | DATABASE_URL: postgresql://postgres:admin123@localhost:5432/pet_erp
+0|pet.sourceperfect.net  | Setting up admin user...
+0|pet.sourceperfect.net  | Server is running on port 3000
+0|pet.sourceperfect.net  | node:events:496
+0|pet.sourceperfect.net  |       throw er; // Unhandled 'error' event
+0|pet.sourceperfect.net  |       ^
+0|pet.sourceperfect.net  | Error: listen EADDRINUSE: address already in use :::3000
+0|pet.sourceperfect.net  |     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+0|pet.sourceperfect.net  |     at listenInCluster (node:net:1965:12)
+0|pet.sourceperfect.net  |     at Server.listen (node:net:2067:7)
+0|pet.sourceperfect.net  |     at file:///var/www/pet.sourceperfect.net/dist/index.js:2410:10
+0|pet.sourceperfect.net  |     at file:///var/www/pet.sourceperfect.net/dist/index.js:2413:3
+0|pet.sourceperfect.net  |     at ModuleJob.run (node:internal/modules/esm/module_job:234:25)
+0|pet.sourceperfect.net  |     at async ModuleLoader.import (node:internal/modules/esm/loader:473:24)
+0|pet.sourceperfect.net  |     at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:122:5)
+0|pet.sourceperfect.net  | Emitted 'error' event on Server instance at:
+0|pet.sourceperfect.net  |     at emitErrorNT (node:net:1944:8)
+0|pet.sourceperfect.net  |     at process.processTicksAndRejections (node:internal/process/task_queues:82:21) {
+0|pet.sourceperfect.net  |   code: 'EADDRINUSE',
+0|pet.sourceperfect.net  |   errno: -98,
+0|pet.sourceperfect.net  |   syscall: 'listen',
+0|pet.sourceperfect.net  |   address: '::',
+0|pet.sourceperfect.net  |   port: 3000
+0|pet.sourceperfect.net  | }
+0|pet.sourceperfect.net  | Node.js v20.18.3
+^C
