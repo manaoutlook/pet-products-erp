@@ -172,6 +172,29 @@ function RolesPage() {
         });
         return;
       }
+      
+      if (!data.roleTypeId) {
+        console.error("Role type is required");
+        toast({ 
+          title: "Validation Error", 
+          description: "Role type is required",
+          variant: "destructive"
+        });
+        return;
+      }
+      
+      console.log("About to submit role creation with:", data);
+      
+      if (editingRole) {
+        await updateMutation.mutateAsync({ id: editingRole.id, data });
+      } else {
+        await createMutation.mutateAsync(data);
+      }
+      
+      // Close dialog and reset form on success
+      setDialogOpen(false);
+      form.reset();
+      }
 
       if (!data.roleTypeId) {
         console.error("Role Type is required");
@@ -241,7 +264,7 @@ function RolesPage() {
               <DialogTitle>{editingRole ? 'Edit Role' : 'Add New Role'}</DialogTitle>
             </DialogHeader>
             <Form {...form}>
-              <form id="role-form" onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <div className="space-y-4">
                 <FormField
                   control={form.control}
                   name="name"
@@ -299,13 +322,16 @@ function RolesPage() {
                   )}
                 />
                 <Button
-                  type="submit"
+                  type="button"
                   className="w-full"
                   disabled={createMutation.isPending || updateMutation.isPending}
                   onClick={() => {
-                    console.log("Submit button clicked");
-                    // Explicitly trigger form submission
-                    document.getElementById('role-form')?.requestSubmit();
+                    console.log("Submit button clicked directly");
+                    const formData = form.getValues();
+                    console.log("Form data:", formData);
+                    
+                    // Directly handle submit without relying on form submission
+                    onSubmit(formData);
                   }}
                 >
                   {(createMutation.isPending || updateMutation.isPending) && (
@@ -313,7 +339,7 @@ function RolesPage() {
                   )}
                   {editingRole ? 'Update Role' : 'Create Role'}
                 </Button>
-              </form>
+              </div>
             </Form>
           </DialogContent>
         </Dialog>
