@@ -42,6 +42,9 @@ function generateInventoryBarcode(
   inventoryType: 'DC' | 'STORE',
   productSku: string,
   storeId?: number | null
+): string {
+  const prefix = inventoryType === 'DC' ? 'DC' : 'ST';
+  const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
 
 // Schema for user updates
 const updateUserSchema = z.object({
@@ -49,10 +52,6 @@ const updateUserSchema = z.object({
   password: z.string().min(6).optional(),
   roleId: z.number().positive().optional(),
 });
-
-): string {
-  const prefix = inventoryType === 'DC' ? 'DC' : 'ST';
-  const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
   const storePrefix = storeId ? storeId.toString().padStart(3, '0') : '000';
   return `${prefix}${storePrefix}${productSku}${randomNum}`;
 }
