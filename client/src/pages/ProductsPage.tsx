@@ -259,13 +259,10 @@ function ProductsPage() {
       form.reset();
       setEditingProduct(null);
 
-      // Find and close the dialog by clicking the close button
-      const dialogElement = document.querySelector('[data-state="open"]');
-      if (dialogElement) {
-        const closeButton = dialogElement.querySelector('button[type="button"]');
-        if (closeButton instanceof HTMLElement) {
-          closeButton.click();
-        }
+      // Properly close the dialog by clicking the X button (DialogPrimitive.Close)
+      const closeButton = document.querySelector('[data-state="open"] [aria-label="Close"]');
+      if (closeButton instanceof HTMLElement) {
+        closeButton.click();
       }
     } catch (error) {
       // Error is handled by the mutation
