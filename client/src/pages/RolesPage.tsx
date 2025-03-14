@@ -162,17 +162,17 @@ function RolesPage() {
       console.log("⭐ Form submission triggered with data:", data);
       console.log("Form state:", form.formState);
 
-      // Validate required fields
+      // Validation
       if (!data.name) {
         console.error("Name is required");
-        toast({ 
-          title: "Validation Error", 
-          description: "Role name is required",
+        toast({
+          title: "Validation Error",
+          description: "Name is required",
           variant: "destructive"
         });
         return;
       }
-      
+
       if (!data.roleTypeId) {
         console.error("Role type is required");
         toast({ 
@@ -182,47 +182,23 @@ function RolesPage() {
         });
         return;
       }
-      
+
       console.log("About to submit role creation with:", data);
-      
+
       if (editingRole) {
         await updateMutation.mutateAsync({ id: editingRole.id, data });
       } else {
         await createMutation.mutateAsync(data);
       }
-      
+
       // Close dialog and reset form on success
       setDialogOpen(false);
       form.reset();
-      }
-
-      if (!data.roleTypeId) {
-        console.error("Role Type is required");
-        toast({ 
-          title: "Validation Error", 
-          description: "Role Type is required",
-          variant: "destructive"
-        });
-        return;
-      }
-
-      if (editingRole) {
-        console.log("Updating role:", data);
-        await updateMutation.mutateAsync({ 
-          id: editingRole.id,
-          data 
-        });
-      } else {
-        console.log("Creating role:", data);
-        await createMutation.mutateAsync(data);
-      }
-      setDialogOpen(false);
-      form.reset();
     } catch (error) {
-      console.error("Error submitting form:", error);
-      toast({ 
-        title: "Error", 
-        description: error instanceof Error ? error.message : "An unknown error occurred",
+      console.error("Error submitting role:", error);
+      toast({
+        title: "Error",
+        description: "Failed to create/update role. Please try again.",
         variant: "destructive"
       });
     }
@@ -329,7 +305,7 @@ function RolesPage() {
                     console.log("Submit button clicked directly");
                     const formData = form.getValues();
                     console.log("Form data:", formData);
-                    
+
                     // Directly handle submit without relying on form submission
                     onSubmit(formData);
                   }}
