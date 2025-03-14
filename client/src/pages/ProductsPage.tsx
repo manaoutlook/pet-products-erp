@@ -308,7 +308,15 @@ function ProductsPage() {
             <DialogTrigger asChild>
               <Button onClick={() => {
                 setEditingProduct(null);
-                form.reset();
+                form.reset({
+                  name: "",
+                  description: "",
+                  sku: "",
+                  price: 0,
+                  categoryId: 0,
+                  brandId: undefined,
+                  minStock: 10,
+                });
                 setOpen(true);
               }}>
                 <Plus className="mr-2 h-4 w-4" />
@@ -725,7 +733,7 @@ function ProductsPage() {
                                       {updateMutation.isPending && (
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                       )}
-                                      Update Product
+                                      {editingProduct ? 'Update Product' : 'Create Product'}
                                     </Button>
                                   </form>
                                 </Form>
