@@ -252,6 +252,29 @@ function ProductsPage() {
     }
   };
 
+  const handleDelete = async (id: number) => {
+    // Find the product to get its name for the confirmation message
+    const productToDelete = products?.find(product => product.id === id);
+    const productName = productToDelete ? productToDelete.name : 'this product';
+
+    if (window.confirm(`Are you sure you want to delete "${productName}"?`)) {
+      try {
+        await deleteMutation.mutateAsync(id);
+        toast({
+          title: "Product deleted",
+          description: `"${productName}" has been deleted successfully`,
+        });
+      } catch (error) {
+        toast({
+          variant: "destructive",
+          title: "Failed to delete product",
+          description: error.message || "Please try again later",
+        });
+      }
+    }
+  };
+
+
   // If user doesn't have read permission, show access denied
   if (!hasPermission('products', 'read')) {
     return (
@@ -546,11 +569,7 @@ function ProductsPage() {
                               <Button
                                 variant="outline"
                                 size="icon"
-                                onClick={() => {
-                                  if (confirm('Are you sure you want to delete this product?')) {
-                                    deleteMutation.mutate(product.id);
-                                  }
-                                }}
+                                onClick={() => handleDelete(product.id)}
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
