@@ -157,7 +157,7 @@ function RolesPage() {
     role.description?.toLowerCase().includes(search.toLowerCase())
   );
 
-  const onSubmit = async (data: InsertRole) => {
+  const onSubmit = async (data: any) => {
     try {
       console.log("⭐ Form submission triggered with data:", data);
       console.log("Form state:", form.formState);
@@ -175,7 +175,7 @@ function RolesPage() {
 
       if (!data.roleTypeId) {
         console.error("Role type is required");
-        toast({ 
+        toast({
           title: "Validation Error", 
           description: "Role type is required",
           variant: "destructive"
@@ -183,12 +183,24 @@ function RolesPage() {
         return;
       }
 
-      console.log("About to submit role creation with:", data);
+      // Add default permissions for new roles
+      const formData = {
+        ...data,
+        permissions: {
+          products: { create: false, read: true, update: false, delete: false },
+          orders: { create: false, read: true, update: false, delete: false },
+          inventory: { create: false, read: true, update: false, delete: false },
+          users: { create: false, read: false, update: false, delete: false },
+          stores: { create: false, read: true, update: false, delete: false }
+        }
+      };
+
+      console.log("About to submit role creation with:", formData);
 
       if (editingRole) {
-        await updateMutation.mutateAsync({ id: editingRole.id, data });
+        await updateMutation.mutateAsync({ id: editingRole.id, data: formData });
       } else {
-        await createMutation.mutateAsync(data);
+        await createMutation.mutateAsync(formData);
       }
 
       // Close dialog and reset form on success
