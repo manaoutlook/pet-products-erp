@@ -159,7 +159,8 @@ function RolesPage() {
 
   const onSubmit = async (data: InsertRole) => {
     try {
-      console.log("Form submission triggered with data:", data);
+      console.log("⭐ Form submission triggered with data:", data);
+      console.log("Form state:", form.formState);
 
       // Validate required fields
       if (!data.name) {
@@ -240,7 +241,7 @@ function RolesPage() {
               <DialogTitle>{editingRole ? 'Edit Role' : 'Add New Role'}</DialogTitle>
             </DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <form id="role-form" onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                 <FormField
                   control={form.control}
                   name="name"
@@ -301,7 +302,11 @@ function RolesPage() {
                   type="submit"
                   className="w-full"
                   disabled={createMutation.isPending || updateMutation.isPending}
-                  
+                  onClick={() => {
+                    console.log("Submit button clicked");
+                    // Explicitly trigger form submission
+                    document.getElementById('role-form')?.requestSubmit();
+                  }}
                 >
                   {(createMutation.isPending || updateMutation.isPending) && (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
