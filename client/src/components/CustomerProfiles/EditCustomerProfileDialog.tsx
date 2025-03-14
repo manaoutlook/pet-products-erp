@@ -37,8 +37,8 @@ const customerProfileSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Invalid email address"),
   address: z.string().min(1, "Address is required"),
-  photo: z.string().optional(),
-  petBirthday: z.string().optional(),
+  photo: z.string().nullable().optional(),
+  petBirthday: z.string().nullable().optional(),
   petType: z.enum(["CAT", "DOG"], {
     required_error: "Please select a pet type",
   }),
@@ -88,6 +88,7 @@ export function EditCustomerProfileDialog({ profile, open, onOpenChange }: EditC
         credentials: 'include',
         body: JSON.stringify({
           ...data,
+          photo: data.photo || null,
           petBirthday: data.petBirthday ? new Date(data.petBirthday).toISOString() : null,
         }),
       });
