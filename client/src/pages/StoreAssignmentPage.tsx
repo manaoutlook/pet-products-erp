@@ -56,14 +56,41 @@ function StoreAssignmentPage() {
 
   const { data: petStoreUsers, isLoading: isLoadingUsers } = useQuery<SelectUser[]>({
     queryKey: ['/api/store-assignments/users'],
+    queryFn: async () => {
+      const response = await fetch('/api/store-assignments/users', {
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch users');
+      }
+      return response.json();
+    }
   });
 
   const { data: stores, isLoading: isLoadingStores } = useQuery<SelectStore[]>({
     queryKey: ['/api/stores'],
+    queryFn: async () => {
+      const response = await fetch('/api/stores', {
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch stores');
+      }
+      return response.json();
+    }
   });
 
   const { data: assignments, isLoading: isLoadingAssignments, refetch: refetchAssignments } = useQuery<StoreAssignment[]>({
     queryKey: ['/api/store-assignments'],
+    queryFn: async () => {
+      const response = await fetch('/api/store-assignments', {
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch assignments');
+      }
+      return response.json();
+    }
   });
 
   const createAssignmentMutation = useMutation({
