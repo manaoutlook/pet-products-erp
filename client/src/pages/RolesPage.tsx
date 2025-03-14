@@ -61,11 +61,23 @@ function RolesPage() {
 
   const createMutation = useMutation({
     mutationFn: async (data: InsertRole) => {
-      console.log("Sending create role request with data:", data);
+      // Add default permissions with Products Module view access for all users
+      const dataWithPermissions = {
+        ...data,
+        permissions: {
+          products: { create: false, read: true, update: false, delete: false },
+          orders: { create: false, read: false, update: false, delete: false },
+          inventory: { create: false, read: false, update: false, delete: false },
+          users: { create: false, read: false, update: false, delete: false },
+          stores: { create: false, read: false, update: false, delete: false }
+        }
+      };
+      
+      console.log("Sending create role request with data:", dataWithPermissions);
       const res = await fetch('/api/roles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify(dataWithPermissions),
         credentials: 'include',
       });
 
