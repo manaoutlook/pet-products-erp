@@ -1539,8 +1539,8 @@ export function registerRoutes(app: Express): Server {
 
   app.get("/api/store-assignments/users", requireRole(['admin']), async (req, res) => {
     try {
-      // Get unassigned users with Pet Store role type using proper joins
-      const unassignedPetStoreUsers = await db
+      // Get all users with Pet Store role type
+      const petStoreUsers = await db
         .select({
           id: users.id,
           username: users.username,
@@ -1556,20 +1556,12 @@ export function registerRoutes(app: Express): Server {
         .from(users)
         .innerJoin(roles, eq(users.roleId, roles.id))
         .innerJoin(roleTypes, eq(roles.roleTypeId, roleTypes.id))
-        .leftJoin(
-          userStoreAssignments,
-          eq(users.id, userStoreAssignments.userId)
-        )
-        .where(
-          and(
-            eq(roleTypes.description, 'Pet Store'),
-            sql`${userStoreAssignments.id} IS NULL`
-          )
-        );
+        .where(eq(roleTypes.description, 'Pet Store'));
 
-      res.json(unassignedPetStoreUsers);
+      console.log('Pet Store users found:', petStoreUsers.length);
+      res.json(petStoreUsers);
     } catch (error) {
-      console.error('Error fetching unassigned pet store users:', error);
+      console.error('Error fetching pet store users:', error);
       res.status(500).json({
         message: "Failed to fetch pet store users",
         suggestion: "Please try again later"
