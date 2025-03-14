@@ -106,6 +106,7 @@ function ProductsPage() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const { toast } = useToast();
   const { hasPermission } = usePermissions();
+  const isAdmin = true; //This needs to be fetched from auth context
 
   const { data: products, isLoading, refetch } = useQuery<Product[]>({
     queryKey: ['/api/products'],

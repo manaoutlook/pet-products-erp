@@ -1917,6 +1917,55 @@ const insertProductSchema = z.object({
     }
   });
 
+  // Products API - Delete product (admin only)
+  app.delete("/api/products/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      // Check if product exists
+      const product = await db.query.products.findFirst({
+        where: eq(products.id, parseInt(id)),
+      });
+      
+      if (!product) {
+        return res.status(404).json({
+          message: "Product not found",
+          suggestion: "Please verify the product ID"
+        });
+      }
+      
+      // Check if product is used in any orders
+      const orderItems = await db.query.orderItems.findFirst({
+        where: eq(orderItems.productId, parseInt(id)),
+      });
+      
+      if (orderItems) {
+        return res.status(400).json({
+          message: "Cannot delete product that is used in orders",
+          suggestion: "Archive the product instead"
+        });
+      }
+      
+      // Delete any inventory items for this product
+      await db
+        .delete(inventory)
+        .where(eq(inventory.productId, parseInt(id)));
+      
+      // Delete the product
+      await db
+        .delete(products)
+        .where(eq(products.id, parseInt(id)));
+      
+      res.json({ message: "Product deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting product:', error);
+      res.status(500).json({
+        message: "Failed to delete product",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
   // Orders API - admin only
   app.get("/api/orders", requireRole(['admin']), async (req, res) => {
     try {
