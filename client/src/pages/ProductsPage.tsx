@@ -582,7 +582,7 @@ function ProductsPage() {
                               </DialogTrigger>
                               <DialogContent>
                                 <DialogHeader>
-                                  <DialogTitle>Edit Product</DialogTitle>
+                                  <DialogTitle>{editingProduct ? 'Edit Product' : 'Add New Product'}</DialogTitle>
                                 </DialogHeader>
                                 <Form {...form}>
                                   <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
