@@ -29,6 +29,7 @@ async function setupDatabase() {
       "seed-users-roles.ts",
       "seed-stores-demo.ts",
       "seed-products.ts",
+      "seed-customer-profiles.ts",
       "seed-sample-data.ts"
     ];
 
