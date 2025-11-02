@@ -138,7 +138,8 @@ export async function setupAdmin() {
           products: { create: true, read: true, update: true, delete: true },
           orders: { create: true, read: true, update: true, delete: true },
           inventory: { create: true, read: true, update: true, delete: true },
-          users: { create: true, read: true, update: true, delete: true }
+          users: { create: true, read: true, update: true, delete: true },
+          stores: { create: true, read: true, update: true, delete: true }
         },
       })
       .onConflictDoNothing()
