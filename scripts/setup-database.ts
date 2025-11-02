@@ -30,7 +30,8 @@ async function setupDatabase() {
       "seed-stores-demo.ts",
       "seed-products.ts",
       "seed-customer-profiles.ts",
-      "seed-sample-data.ts"
+      "seed-sample-data.ts",
+      "seed-inventory.ts"
     ];
 
     for (const script of seedScripts) {
