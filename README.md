@@ -49,7 +49,7 @@ A comprehensive Enterprise Resource Planning (ERP) system designed specifically 
 
    This will:
    - Create all database tables
-   - Seed initial data (users, roles, stores, products, customer profiles)
+   - Seed initial data (users, roles, stores, products, customer profiles, inventory)
    - Set up the admin user
 
 5. **Start the development server**
