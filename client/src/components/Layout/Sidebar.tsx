@@ -166,15 +166,21 @@ function Sidebar() {
           module: 'users',
           action: 'read'
         },
-        { 
-          name: "Roles", 
-          href: "/roles", 
+        {
+          name: "Roles",
+          href: "/roles",
           icon: Settings,
           adminOnly: true
         },
-        { 
-          name: "Permissions", 
-          href: "/role-permissions", 
+        {
+          name: "Role Types",
+          href: "/role-types",
+          icon: ListIcon,
+          adminOnly: true
+        },
+        {
+          name: "Permissions",
+          href: "/role-permissions",
           icon: Lock,
           adminOnly: true
         },

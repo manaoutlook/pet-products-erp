@@ -717,6 +717,147 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  app.post("/api/role-types", requireRole(['admin']), async (req, res) => {
+    try {
+      const { description } = req.body;
+
+      if (!description) {
+        return res.status(400).json({
+          message: "Description is required",
+          suggestion: "Please provide a role type description"
+        });
+      }
+
+      // Check if role type already exists
+      const existingRoleType = await db.query.roleTypes.findFirst({
+        where: eq(roleTypes.description, description),
+      });
+
+      if (existingRoleType) {
+        return res.status(400).json({
+          message: "Role type with this description already exists",
+          suggestion: "Please use a different description"
+        });
+      }
+
+      const [newRoleType] = await db
+        .insert(roleTypes)
+        .values({
+          description,
+        })
+        .returning();
+
+      res.json({
+        message: "Role type created successfully",
+        roleType: newRoleType,
+      });
+    } catch (error) {
+      console.error('Error creating role type:', error);
+      res.status(500).json({
+        message: "Failed to create role type",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.put("/api/role-types/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { description } = req.body;
+
+      if (!description) {
+        return res.status(400).json({
+          message: "Description is required",
+          suggestion: "Please provide a role type description"
+        });
+      }
+
+      // Check if role type exists
+      const existingRoleType = await db.query.roleTypes.findFirst({
+        where: and(
+          eq(roleTypes.description, description),
+          sql`id != ${id}`
+        ),
+      });
+
+      if (existingRoleType) {
+        return res.status(400).json({
+          message: "Role type with this description already exists",
+          suggestion: "Please use a different description"
+        });
+      }
+
+      const [updatedRoleType] = await db
+        .update(roleTypes)
+        .set({
+          description,
+        })
+        .where(eq(roleTypes.id, parseInt(id)))
+        .returning();
+
+      if (!updatedRoleType) {
+        return res.status(404).json({
+          message: "Role type not found",
+          suggestion: "Please verify the role type ID"
+        });
+      }
+
+      res.json({
+        message: "Role type updated successfully",
+        roleType: updatedRoleType,
+      });
+    } catch (error) {
+      console.error('Error updating role type:', error);
+      res.status(500).json({
+        message: "Failed to update role type",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.delete("/api/role-types/:id", requireRole(['admin']), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if role type exists
+      const roleType = await db.query.roleTypes.findFirst({
+        where: eq(roleTypes.id, parseInt(id)),
+      });
+
+      if (!roleType) {
+        return res.status(404).json({
+          message: "Role type not found",
+          suggestion: "Please verify the role type ID"
+        });
+      }
+
+      // Check if role type is used by any roles
+      const rolesWithType = await db.query.roles.findMany({
+        where: eq(roles.roleTypeId, parseInt(id)),
+        limit: 1,
+      });
+
+      if (rolesWithType.length > 0) {
+        return res.status(400).json({
+          message: "Cannot delete role type that is assigned to roles",
+          suggestion: "Please reassign or delete the roles first"
+        });
+      }
+
+      await db
+        .delete(roleTypes)
+        .where(eq(roleTypes.id, parseInt(id)));
+
+      res.json({ message: "Role type deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting role type:', error);
+      res.status(500).json({
+        message: "Failed to delete role type",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
   // Roles endpoints - admin only
   app.get("/api/roles", requireRole(['admin']), async (req, res) => {
     try {
