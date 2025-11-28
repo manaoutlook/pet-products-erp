@@ -112,6 +112,14 @@ export function CreatePurchaseOrderDialog() {
     createPurchaseOrder.mutate(data);
   };
 
+  const handleProductChange = (index: number, productId: string) => {
+    form.setValue(`items.${index}.productId`, productId);
+    const selectedProduct = products.find((p: any) => p.id.toString() === productId);
+    if (selectedProduct) {
+      form.setValue(`items.${index}.unitPrice`, selectedProduct.price.toString());
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -213,7 +221,7 @@ export function CreatePurchaseOrderDialog() {
                     render={({ field }) => (
                       <FormItem className="flex-1">
                         <Select
-                          onValueChange={field.onChange}
+                          onValueChange={(value) => handleProductChange(index, value)}
                           value={field.value}
                         >
                           <FormControl>
