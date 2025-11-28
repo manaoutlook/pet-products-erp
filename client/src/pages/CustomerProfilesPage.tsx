@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Card } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle
+} from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -10,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,7 +30,7 @@ import { formatDate } from "@/lib/utils";
 import { CreateCustomerProfileDialog } from "@/components/CustomerProfiles/CreateCustomerProfileDialog";
 import { EditCustomerProfileDialog } from "@/components/CustomerProfiles/EditCustomerProfileDialog";
 import { useToast } from "@/hooks/use-toast";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, Search } from "lucide-react";
 
 interface CustomerProfile {
   id: number;
@@ -38,7 +44,7 @@ interface CustomerProfile {
 }
 
 function CustomerProfilesPage() {
-  const [searchTerm, setSearchTerm] = useState("");
+  const [search, setSearch] = useState("");
   const [selectedProfile, setSelectedProfile] = useState<CustomerProfile | null>(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -47,6 +53,14 @@ function CustomerProfilesPage() {
   const { data: customerProfiles = [], isLoading, refetch } = useQuery<CustomerProfile[]>({
     queryKey: ['/api/customer-profiles'],
   });
+
+  const filteredProfiles = customerProfiles.filter(profile =>
+    profile.phoneNumber.toLowerCase().includes(search.toLowerCase()) ||
+    profile.name.toLowerCase().includes(search.toLowerCase()) ||
+    profile.email.toLowerCase().includes(search.toLowerCase()) ||
+    profile.petType.toLowerCase().includes(search.toLowerCase()) ||
+    (profile.address?.toLowerCase() || "").includes(search.toLowerCase())
+  );
 
   const handleDelete = async (id: number) => {
     try {
@@ -86,7 +100,21 @@ function CustomerProfilesPage() {
       </div>
 
       <Card>
-        <div className="p-6">
+        <CardHeader>
+          <CardTitle>Customer Profile List</CardTitle>
+          <div className="flex items-center gap-4">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search customers..."
+                className="pl-8"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
           {isLoading ? (
             <div className="text-center py-4">Loading customer profiles...</div>
           ) : (
@@ -102,7 +130,7 @@ function CustomerProfilesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {customerProfiles.map((profile) => (
+                {filteredProfiles.map((profile) => (
                   <TableRow key={profile.id}>
                     <TableCell>{profile.phoneNumber}</TableCell>
                     <TableCell>{profile.name}</TableCell>
@@ -138,7 +166,7 @@ function CustomerProfilesPage() {
               </TableBody>
             </Table>
           )}
-        </div>
+        </CardContent>
       </Card>
 
       {selectedProfile && (
