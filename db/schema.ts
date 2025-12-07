@@ -165,6 +165,17 @@ export const purchaseOrderItems = pgTable("purchase_order_items", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Purchase Order Actions table for tracking order processes
+export const purchaseOrderActions = pgTable("purchase_order_actions", {
+  id: serial("id").primaryKey(),
+  purchaseOrderId: integer("purchase_order_id").references(() => purchaseOrders.id).notNull(),
+  actionType: varchar("action_type", { length: 50 }).notNull(), // 'cancel', 'print', 'invoice_received', 'payment_sent', 'goods_receipt'
+  actionData: jsonb("action_data").$type<{notes?: string, quantity?: number, reference?: string}>(),
+  performedByUserId: integer("performed_by_user_id").references(() => users.id).notNull(),
+  performedAt: timestamp("performed_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Customer Profiles table
 export const customerProfiles = pgTable("customer_profiles", {
   id: serial("id").primaryKey(),
@@ -288,6 +299,19 @@ export const purchaseOrdersRelations = relations(purchaseOrders, ({ many, one })
     fields: [purchaseOrders.supplierId],
     references: [suppliers.id],
   }),
+  actions: many(purchaseOrderActions),
+}));
+
+// Add relations for purchase order actions
+export const purchaseOrderActionsRelations = relations(purchaseOrderActions, ({ one }) => ({
+  purchaseOrder: one(purchaseOrders, {
+    fields: [purchaseOrderActions.purchaseOrderId],
+    references: [purchaseOrders.id],
+  }),
+  performedByUser: one(users, {
+    fields: [purchaseOrderActions.performedByUserId],
+    references: [users.id],
+  }),
 }));
 
 export const purchaseOrderItemsRelations = relations(purchaseOrderItems, ({ one }) => ({
@@ -358,6 +382,11 @@ export const insertPurchaseOrderItemSchema = createInsertSchema(purchaseOrderIte
 export const selectPurchaseOrderItemSchema = createSelectSchema(purchaseOrderItems);
 export type InsertPurchaseOrderItem = typeof purchaseOrderItems.$inferInsert;
 export type SelectPurchaseOrderItem = typeof purchaseOrderItems.$inferSelect;
+
+export const insertPurchaseOrderActionSchema = createInsertSchema(purchaseOrderActions);
+export const selectPurchaseOrderActionSchema = createSelectSchema(purchaseOrderActions);
+export type InsertPurchaseOrderAction = typeof purchaseOrderActions.$inferInsert;
+export type SelectPurchaseOrderAction = typeof purchaseOrderActions.$inferSelect;
 
 // Add customer profile schemas
 export const insertCustomerProfileSchema = createInsertSchema(customerProfiles, {

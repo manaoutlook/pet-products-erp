@@ -108,9 +108,14 @@ const ToastDescription = React.forwardRef<
 
   const handleCopy = async () => {
     if (typeof children === 'string') {
-      await navigator.clipboard.writeText(children);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      try {
+        await navigator.clipboard.writeText(children);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (error) {
+        // Fallback: log error instead of throwing
+        console.warn('Failed to copy to clipboard:', error);
+      }
     }
   };
 

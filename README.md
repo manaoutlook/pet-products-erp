@@ -107,6 +107,60 @@ The following database-related files are version controlled:
 - `npm run db:setup` - Full database setup (schema + seed data)
 - `npm run db:seed` - Run seed scripts only
 
+### Deploying Database Changes Across Machines
+
+**Important**: When you pull code changes from git on another machine, the database schema is NOT automatically updated. Database changes must be applied manually to each environment.
+
+#### When Database Changes Are Needed
+
+Database schema changes occur when:
+- New tables are added to `db/schema.ts`
+- Existing tables are modified (columns added/removed/changed)
+- Relationships between tables are updated
+- Indexes or constraints are added/modified
+
+#### Deployment Steps for New Machines
+
+1. **Pull the latest code**
+   ```bash
+   git pull origin main
+   ```
+
+2. **Install any new dependencies** (if package.json was updated)
+   ```bash
+   npm install
+   ```
+
+3. **Apply database schema changes**
+   ```bash
+   npm run db:push
+   ```
+
+4. **Run seed scripts** (if new seed data is required)
+   ```bash
+   npm run db:seed
+   ```
+
+#### Alternative: Full Database Reset
+
+For development environments or when you want to start fresh:
+```bash
+npm run db:setup  # This recreates everything from scratch
+```
+
+#### Production Deployment Considerations
+
+- **Backup first**: Always backup production data before applying schema changes
+- **Test migrations**: Apply changes to staging environment first
+- **Monitor impact**: Watch for any breaking changes that affect existing data
+- **Communication**: Notify team members before applying schema changes
+
+#### Troubleshooting
+
+- **Schema push fails**: Check database permissions and connection
+- **Data conflicts**: Review migration files in `migrations/` folder
+- **Missing data**: Run seed scripts if initial data is required
+
 ## Project Structure
 
 ```

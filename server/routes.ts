@@ -6,7 +6,8 @@ import {
   products, inventory, orders, orderItems, users,
   roles, roleTypes, stores, userStoreAssignments,
   categories, brands, suppliers, purchaseOrders,
-  purchaseOrderItems, customerProfiles, insertCustomerProfileSchema,
+  purchaseOrderItems, purchaseOrderActions, customerProfiles, insertCustomerProfileSchema,
+  insertPurchaseOrderActionSchema, selectPurchaseOrderActionSchema,
   insertStoreSchema, insertUserSchema
 } from "@db/schema";
 import { sql } from "drizzle-orm";
@@ -272,6 +273,11 @@ export function registerRoutes(app: Express): Server {
             with: {
               product: true
             }
+          },
+          actions: {
+            with: {
+              performedByUser: true
+            }
           }
         },
         orderBy: [desc(purchaseOrders.updatedAt)],
@@ -354,6 +360,225 @@ export function registerRoutes(app: Express): Server {
       console.error('Error creating purchase order:', error);
       res.status(500).json({
         message: "Failed to create purchase order",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Purchase Order Actions endpoints
+  app.get("/api/purchase-orders/:id/actions", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const actions = await db.query.purchaseOrderActions.findMany({
+        where: eq(purchaseOrderActions.purchaseOrderId, parseInt(id)),
+        with: {
+          performedByUser: true
+        },
+        orderBy: [desc(purchaseOrderActions.performedAt)],
+      });
+
+      res.json(actions);
+    } catch (error) {
+      console.error('Error fetching purchase order actions:', error);
+      res.status(500).json({
+        message: "Failed to fetch purchase order actions",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.post("/api/purchase-orders/:id/actions", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { actionType, actionData } = req.body;
+
+      if (!actionType) {
+        return res.status(400).json({
+          message: "Action type is required",
+        });
+      }
+
+      const validActionTypes = ['cancel', 'print', 'invoice_received', 'payment_sent', 'goods_receipt'];
+      if (!validActionTypes.includes(actionType)) {
+        return res.status(400).json({
+          message: "Invalid action type",
+          validTypes: validActionTypes
+        });
+      }
+
+      // Check if purchase order exists
+      const purchaseOrder = await db.query.purchaseOrders.findFirst({
+        where: eq(purchaseOrders.id, parseInt(id)),
+      });
+
+      if (!purchaseOrder) {
+        return res.status(404).json({
+          message: "Purchase order not found"
+        });
+      }
+
+      // Business logic based on action type
+      if (actionType === 'invoice_received') {
+        // Auto-confirm pending orders when invoice is received
+        if (purchaseOrder.status === 'pending') {
+          await db
+            .update(purchaseOrders)
+            .set({
+              status: 'confirmed',
+              updatedAt: new Date()
+            })
+            .where(eq(purchaseOrders.id, parseInt(id)));
+        }
+      }
+
+      if (actionType === 'cancel') {
+        if (purchaseOrder.status === 'delivered' || purchaseOrder.status === 'cancelled') {
+          return res.status(400).json({
+            message: "Cannot cancel a delivered or already cancelled order"
+          });
+        }
+        // Update order status to cancelled
+        await db
+          .update(purchaseOrders)
+          .set({
+            status: 'cancelled',
+            updatedAt: new Date()
+          })
+          .where(eq(purchaseOrders.id, parseInt(id)));
+      }
+
+      // For goods_receipt, update inventory
+      if (actionType === 'goods_receipt') {
+        console.log('Processing goods receipt for order:', id);
+
+        // Check if payment is sent first
+        const paymentAction = await db.query.purchaseOrderActions.findFirst({
+          where: and(
+            eq(purchaseOrderActions.purchaseOrderId, parseInt(id)),
+            eq(purchaseOrderActions.actionType, 'payment_sent')
+          )
+        });
+
+        console.log('Payment action found:', paymentAction ? 'yes' : 'no');
+
+        if (!paymentAction) {
+          return res.status(400).json({
+            message: "Payment must be sent before processing goods receipt"
+          });
+        }
+
+        // Auto-deliver the order and update inventory
+        console.log('Updating order status to delivered...');
+        await db
+          .update(purchaseOrders)
+          .set({
+            status: 'delivered',
+            updatedAt: new Date()
+          })
+          .where(eq(purchaseOrders.id, parseInt(id)));
+
+        // Update inventory (same logic as status update)
+        console.log('Updating inventory...');
+        const purchaseOrderItemList = await db.query.purchaseOrderItems.findMany({
+          where: eq(purchaseOrderItems.purchaseOrderId, parseInt(id))
+        });
+
+        console.log('Found', purchaseOrderItemList.length, 'purchase order items to process');
+
+        for (const item of purchaseOrderItemList) {
+          const [currentInventory] = await db
+            .select({
+              id: inventory.id,
+              quantity: inventory.quantity
+            })
+            .from(inventory)
+            .where(
+              and(
+                eq(inventory.productId, item.productId),
+                eq(inventory.inventoryType, 'DC')
+              )
+            )
+            .limit(1);
+
+          if (currentInventory) {
+            console.log('Updating existing inventory item:', currentInventory.id, 'quantity:', currentInventory.quantity, '->', currentInventory.quantity + item.quantity);
+            await db
+              .update(inventory)
+              .set({
+                quantity: currentInventory.quantity + item.quantity,
+                updatedAt: new Date()
+              })
+              .where(eq(inventory.id, currentInventory.id));
+          } else {
+            const barcode = generateInventoryBarcode('DC', item.productId.toString());
+            console.log('Creating new inventory item for product:', item.productId);
+
+            // Check if product exists first
+            const product = await db.query.products.findFirst({
+              where: eq(products.id, item.productId)
+            });
+
+            if (!product) {
+              console.error('Product not found for ID:', item.productId);
+              return res.status(400).json({
+                message: `Product with ID ${item.productId} not found`
+              });
+            }
+
+            await db
+              .insert(inventory)
+              .values({
+                productId: item.productId,
+                quantity: item.quantity,
+                inventoryType: 'DC',
+                barcode,
+                supplierId: purchaseOrder.supplierId,
+                purchaseDate: new Date().toISOString().split('T')[0] // YYYY-MM-DD format
+              });
+          }
+
+          console.log('Updating purchase order item delivered quantity:', item.id);
+          await db
+            .update(purchaseOrderItems)
+            .set({
+              deliveredQuantity: item.quantity,
+              updatedAt: new Date()
+            })
+            .where(eq(purchaseOrderItems.id, item.id));
+        }
+      }
+
+      // Create action record
+      const [newAction] = await db
+        .insert(purchaseOrderActions)
+        .values({
+          purchaseOrderId: parseInt(id),
+          actionType,
+          actionData: actionData || null,
+          performedByUserId: req.user!.id,
+        })
+        .returning({
+          ...purchaseOrderActions,
+          performedByUser: true
+        });
+
+      // Fetch complete action with user info
+      const actionWithUser = await db.query.purchaseOrderActions.findFirst({
+        where: eq(purchaseOrderActions.id, newAction.id),
+        with: {
+          performedByUser: true
+        }
+      });
+
+      res.json({
+        message: `Action '${actionType}' logged successfully`,
+        action: actionWithUser
+      });
+    } catch (error) {
+      console.error('Error creating purchase order action:', error);
+      res.status(500).json({
+        message: "Failed to log action",
         suggestion: "Please try again later"
       });
     }
