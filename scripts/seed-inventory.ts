@@ -21,7 +21,7 @@ async function seedInventory() {
     const inventoryData = [
       // Distribution Center Inventory (DC) - Central warehouse stock
       {
-        productId: 1, // Royal Canin Medium Adult
+        productId: 2, // Royal Canin Medium Adult
         storeId: null, // DC inventory
         supplierId: 1, // Pet Supplies Plus
         quantity: 150,
@@ -32,7 +32,7 @@ async function seedInventory() {
         expiryDate: "2026-10-15"
       },
       {
-        productId: 2, // Royal Canin Labrador Retriever
+        productId: 3, // Royal Canin Labrador Retriever
         storeId: null,
         supplierId: 1,
         quantity: 120,
@@ -43,7 +43,7 @@ async function seedInventory() {
         expiryDate: "2026-10-20"
       },
       {
-        productId: 3, // Royal Canin German Shepherd
+        productId: 4, // Royal Canin German Shepherd
         storeId: null,
         supplierId: 2, // Global Pet Distributors
         quantity: 100,
@@ -54,7 +54,7 @@ async function seedInventory() {
         expiryDate: "2026-10-25"
       },
       {
-        productId: 4, // Royal Canin Bulldog
+        productId: 5, // Royal Canin Bulldog
         storeId: null,
         supplierId: 2,
         quantity: 130,
@@ -65,7 +65,7 @@ async function seedInventory() {
         expiryDate: "2026-11-01"
       },
       {
-        productId: 5, // Purina Pro Plan Adult Chicken
+        productId: 6, // Purina Pro Plan Adult Chicken
         storeId: null,
         supplierId: 3, // Premium Pet Imports
         quantity: 200,
@@ -76,7 +76,7 @@ async function seedInventory() {
         expiryDate: "2026-11-05"
       },
       {
-        productId: 6, // Purina Pro Plan Puppy
+        productId: 7, // Purina Pro Plan Puppy
         storeId: null,
         supplierId: 3,
         quantity: 180,
@@ -87,7 +87,7 @@ async function seedInventory() {
         expiryDate: "2026-11-10"
       },
       {
-        productId: 7, // Purina One SmartBlend
+        productId: 8, // Purina One SmartBlend
         storeId: null,
         supplierId: 4, // Local Pet Warehouse
         quantity: 250,
@@ -98,7 +98,7 @@ async function seedInventory() {
         expiryDate: "2026-11-15"
       },
       {
-        productId: 8, // Whiskas Adult Tuna
+        productId: 9, // Whiskas Adult Tuna
         storeId: null,
         supplierId: 5, // Pet Nutrition Corp
         quantity: 300,
@@ -109,7 +109,7 @@ async function seedInventory() {
         expiryDate: "2026-11-20"
       },
       {
-        productId: 9, // Whiskas Kitten
+        productId: 10, // Whiskas Kitten
         storeId: null,
         supplierId: 5,
         quantity: 220,
@@ -120,7 +120,7 @@ async function seedInventory() {
         expiryDate: "2026-11-25"
       },
       {
-        productId: 10, // Whiskas Hairball Control
+        productId: 11, // Whiskas Hairball Control
         storeId: null,
         supplierId: 1,
         quantity: 190,
@@ -133,7 +133,7 @@ async function seedInventory() {
 
       // Store Inventory - Downtown Pet Store (Store ID: 1)
       {
-        productId: 1, // Royal Canin Medium Adult
+        productId: 2, // Royal Canin Medium Adult
         storeId: 1, // Downtown Pet Store
         supplierId: 1,
         quantity: 25,
@@ -144,7 +144,7 @@ async function seedInventory() {
         expiryDate: "2026-11-15"
       },
       {
-        productId: 5, // Purina Pro Plan Adult Chicken
+        productId: 6, // Purina Pro Plan Adult Chicken
         storeId: 1,
         supplierId: 3,
         quantity: 30,
@@ -155,7 +155,7 @@ async function seedInventory() {
         expiryDate: "2026-11-20"
       },
       {
-        productId: 8, // Whiskas Adult Tuna
+        productId: 9, // Whiskas Adult Tuna
         storeId: 1,
         supplierId: 5,
         quantity: 40,
@@ -166,7 +166,7 @@ async function seedInventory() {
         expiryDate: "2026-11-25"
       },
       {
-        productId: 13, // Rubber Chew Toy
+        productId: 14, // Rubber Chew Toy
         storeId: 1,
         supplierId: 2,
         quantity: 50,
@@ -176,7 +176,7 @@ async function seedInventory() {
         purchaseDate: "2024-12-01"
       },
       {
-        productId: 15, // Cat Wand Toy
+        productId: 16, // Cat Wand Toy
         storeId: 1,
         supplierId: 4,
         quantity: 35,
@@ -186,7 +186,7 @@ async function seedInventory() {
         purchaseDate: "2024-12-05"
       },
       {
-        productId: 17, // Adjustable Dog Collar
+        productId: 18, // Adjustable Dog Collar
         storeId: 1,
         supplierId: 1,
         quantity: 20,
@@ -198,7 +198,7 @@ async function seedInventory() {
 
       // Store Inventory - Suburban Pet Center (Store ID: 2)
       {
-        productId: 2, // Royal Canin Labrador Retriever
+        productId: 3, // Royal Canin Labrador Retriever
         storeId: 2, // Suburban Pet Center
         supplierId: 2,
         quantity: 20,
@@ -209,7 +209,7 @@ async function seedInventory() {
         expiryDate: "2026-11-18"
       },
       {
-        productId: 6, // Purina Pro Plan Puppy
+        productId: 7, // Purina Pro Plan Puppy
         storeId: 2,
         supplierId: 3,
         quantity: 28,
@@ -220,7 +220,7 @@ async function seedInventory() {
         expiryDate: "2026-11-22"
       },
       {
-        productId: 9, // Whiskas Kitten
+        productId: 10, // Whiskas Kitten
         storeId: 2,
         supplierId: 5,
         quantity: 32,
@@ -231,7 +231,7 @@ async function seedInventory() {
         expiryDate: "2026-11-28"
       },
       {
-        productId: 14, // Interactive Puzzle Toy
+        productId: 15, // Interactive Puzzle Toy
         storeId: 2,
         supplierId: 3,
         quantity: 15,
@@ -241,7 +241,7 @@ async function seedInventory() {
         purchaseDate: "2024-12-02"
       },
       {
-        productId: 16, // Squeaky Ball Set
+        productId: 17, // Squeaky Ball Set
         storeId: 2,
         supplierId: 4,
         quantity: 45,
@@ -251,7 +251,7 @@ async function seedInventory() {
         purchaseDate: "2024-12-06"
       },
       {
-        productId: 18, // Leather Dog Leash
+        productId: 19, // Leather Dog Leash
         storeId: 2,
         supplierId: 2,
         quantity: 18,
@@ -263,7 +263,7 @@ async function seedInventory() {
 
       // Store Inventory - Mall Pet Boutique (Store ID: 3)
       {
-        productId: 3, // Royal Canin German Shepherd
+        productId: 4, // Royal Canin German Shepherd
         storeId: 3, // Mall Pet Boutique
         supplierId: 2,
         quantity: 15,
@@ -274,7 +274,7 @@ async function seedInventory() {
         expiryDate: "2026-11-21"
       },
       {
-        productId: 7, // Purina One SmartBlend
+        productId: 8, // Purina One SmartBlend
         storeId: 3,
         supplierId: 4,
         quantity: 35,
@@ -285,7 +285,7 @@ async function seedInventory() {
         expiryDate: "2026-11-26"
       },
       {
-        productId: 10, // Whiskas Hairball Control
+        productId: 11, // Whiskas Hairball Control
         storeId: 3,
         supplierId: 1,
         quantity: 28,
@@ -296,7 +296,7 @@ async function seedInventory() {
         expiryDate: "2026-12-01"
       },
       {
-        productId: 11, // Hill's Science Diet Adult
+        productId: 12, // Hill's Science Diet Adult
         storeId: 3,
         supplierId: 3,
         quantity: 12,
@@ -307,7 +307,7 @@ async function seedInventory() {
         expiryDate: "2026-12-03"
       },
       {
-        productId: 12, // Hill's Science Diet Kitten
+        productId: 13, // Hill's Science Diet Kitten
         storeId: 3,
         supplierId: 3,
         quantity: 10,
@@ -318,7 +318,7 @@ async function seedInventory() {
         expiryDate: "2026-12-04"
       },
       {
-        productId: 19, // Cat Scratching Post
+        productId: 20, // Cat Scratching Post
         storeId: 3,
         supplierId: 5,
         quantity: 8,
@@ -328,7 +328,7 @@ async function seedInventory() {
         purchaseDate: "2024-12-08"
       },
       {
-        productId: 20, // Pedigree Dental Chews
+        productId: 21, // Pedigree Dental Chews
         storeId: 3,
         supplierId: 4,
         quantity: 22,
