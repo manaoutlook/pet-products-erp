@@ -8,13 +8,15 @@ import {
   categories, brands, suppliers, purchaseOrders,
   purchaseOrderItems, purchaseOrderActions, customerProfiles, insertCustomerProfileSchema,
   insertPurchaseOrderActionSchema, selectPurchaseOrderActionSchema,
-  insertStoreSchema, insertUserSchema
+  insertStoreSchema, insertUserSchema, salesTransactions, salesTransactionItems,
+  salesTransactionActions, invoiceCounters
 } from "@db/schema";
 import { sql } from "drizzle-orm";
 import { eq, and, desc, gte, lt } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
 import { z } from "zod";
 import { crypto } from "./auth";
+import { initializeStoreCounter, generateInvoiceNumber } from "./invoice-counter";
 
 // Schema validations
 const createPurchaseOrderSchema = z.object({
@@ -119,6 +121,14 @@ export function registerRoutes(app: Express): Server {
           contactInfo,
         })
         .returning();
+
+      // Initialize invoice counter for the new store
+      try {
+        await initializeStoreCounter(newStore.id);
+      } catch (counterError) {
+        console.error('Failed to initialize invoice counter for store:', newStore.id, counterError);
+        // Don't fail the store creation if counter initialization fails
+      }
 
       res.json({
         message: "Store created successfully",
@@ -2839,6 +2849,815 @@ const insertProductSchema = z.object({
     } catch (error) {
       console.error('Error deleting supplier:', error);
       res.status(500).send("Failed to delete supplier");
+    }
+  });
+
+  // POS Sales Transaction API endpoints
+  // Create new sales transaction
+  app.post("/api/sales-transactions", requireAuth, async (req, res) => {
+    try {
+      const { items, paymentMethod, customerProfileId, transactionType } = req.body;
+
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({
+          message: "At least one item is required",
+          suggestion: "Add products to the transaction"
+        });
+      }
+
+      if (!paymentMethod) {
+        return res.status(400).json({
+          message: "Payment method is required"
+        });
+      }
+
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      // Determine transaction type and store
+      let storeId: number | null = null;
+      let finalTransactionType = transactionType || 'STORE_SALE';
+
+      // Get user's store assignment for store sales
+      if (finalTransactionType === 'STORE_SALE') {
+        const userAssignment = await db.query.userStoreAssignments.findFirst({
+          where: eq(userStoreAssignments.userId, user.id),
+        });
+
+        if (!userAssignment) {
+          return res.status(403).json({
+            message: "User is not assigned to any store",
+            suggestion: "Contact administrator to assign you to a store"
+          });
+        }
+
+        storeId = userAssignment.storeId;
+      }
+
+      // Validate and check stock for each item
+      const validatedItems = [];
+      for (const item of items) {
+        if (!item.productId || !item.quantity || item.quantity <= 0) {
+          return res.status(400).json({
+            message: "Invalid item data",
+            suggestion: "Each item must have productId and positive quantity"
+          });
+        }
+
+        // Find available inventory for this product
+        const availableInventory = await db.query.inventory.findFirst({
+          where: and(
+            eq(inventory.productId, item.productId),
+            storeId ? eq(inventory.storeId, storeId) : eq(inventory.inventoryType, 'DC')
+          ),
+          with: {
+            product: true,
+          },
+        });
+
+        if (!availableInventory) {
+          const product = await db.query.products.findFirst({
+            where: eq(products.id, item.productId),
+          });
+          return res.status(400).json({
+            message: `Product ${product?.name || 'Unknown'} is not available in ${storeId ? 'your store' : 'DC'}`,
+            suggestion: "Choose a different product or check inventory"
+          });
+        }
+
+        if (availableInventory.quantity < item.quantity) {
+          const product = availableInventory.product || await db.query.products.findFirst({
+            where: eq(products.id, item.productId),
+          });
+          return res.status(400).json({
+            message: `Insufficient stock for ${product?.name || 'Unknown'}. Available: ${availableInventory.quantity}, Requested: ${item.quantity}`,
+            suggestion: "Reduce quantity or choose a different product"
+          });
+        }
+
+        // Always fetch product data directly to ensure we have the price
+        const productData = await db.query.products.findFirst({
+          where: eq(products.id, item.productId),
+        });
+
+        if (!productData) {
+          return res.status(400).json({
+            message: `Product with ID ${item.productId} not found`,
+            suggestion: "Please verify the product exists"
+          });
+        }
+
+        // Convert price to number for calculations
+        const numericPrice = typeof productData.price === 'string' ? parseFloat(productData.price) : productData.price;
+
+        if (!numericPrice || isNaN(numericPrice)) {
+          return res.status(400).json({
+            message: "Unable to determine product price",
+            suggestion: "Please contact support - product may not be properly configured"
+          });
+        }
+
+        validatedItems.push({
+          ...item,
+          inventoryId: availableInventory.id,
+          unitPrice: numericPrice,
+          totalPrice: numericPrice * item.quantity,
+        });
+      }
+
+      // Calculate total amount
+      const totalAmount = validatedItems.reduce((sum, item) => sum + item.totalPrice, 0);
+
+      // Generate invoice number
+      const invoiceNumber = await generateInvoiceNumber(storeId, finalTransactionType as 'STORE_SALE' | 'DC_SALE');
+
+      // Create sales transaction
+      const [salesTransaction] = await db
+        .insert(salesTransactions)
+        .values({
+          invoiceNumber,
+          storeId,
+          transactionType: finalTransactionType,
+          cashierUserId: user.id,
+          customerProfileId: customerProfileId || null,
+          totalAmount: totalAmount.toString(),
+          paymentMethod,
+          status: 'completed',
+        })
+        .returning();
+
+      // Create sales transaction items and update inventory
+      await Promise.all(validatedItems.map(async (item) => {
+        // Create transaction item
+        await db.insert(salesTransactionItems).values({
+          salesTransactionId: salesTransaction.id,
+          productId: item.productId,
+          inventoryId: item.inventoryId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice.toString(),
+          totalPrice: item.totalPrice.toString(),
+        });
+
+        // Update inventory quantity
+        await db
+          .update(inventory)
+          .set({
+            quantity: sql`${inventory.quantity} - ${item.quantity}`,
+            updatedAt: new Date(),
+          })
+          .where(eq(inventory.id, item.inventoryId));
+      }));
+
+      // Log transaction action
+      await db.insert(salesTransactionActions).values({
+        salesTransactionId: salesTransaction.id,
+        actionType: 'sale_completed',
+        actionData: { itemsCount: validatedItems.length, totalAmount },
+        performedByUserId: user.id,
+      });
+
+      // Fetch complete transaction with details
+      const completeTransaction = await db.query.salesTransactions.findFirst({
+        where: eq(salesTransactions.id, salesTransaction.id),
+        with: {
+          items: {
+            with: {
+              product: true,
+              inventory: true,
+            },
+          },
+          store: true,
+          cashierUser: true,
+          customerProfile: true,
+        },
+      });
+
+      res.json({
+        message: "Sales transaction completed successfully",
+        transaction: completeTransaction,
+      });
+    } catch (error) {
+      console.error('Error creating sales transaction:', error);
+      res.status(500).json({
+        message: "Failed to complete sales transaction",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Get sales transactions with filtering
+  app.get("/api/sales-transactions", requireAuth, async (req, res) => {
+    try {
+      const {
+        search,
+        store_id,
+        transaction_type,
+        cashier_user_id,
+        status,
+        start_date,
+        end_date,
+        limit = '50',
+        offset = '0'
+      } = req.query;
+
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      // Build where conditions
+      const whereConditions = [];
+
+      // Store filtering based on user permissions
+      if (store_id) {
+        const storeIdNum = parseInt(store_id);
+        if (!isNaN(storeIdNum)) {
+          whereConditions.push(eq(salesTransactions.storeId, storeIdNum));
+        }
+      } else {
+        // Get user's assigned stores for filtering
+        const userAssignments = await db.query.userStoreAssignments.findMany({
+          where: eq(userStoreAssignments.userId, user.id),
+        });
+
+        if (userAssignments.length > 0) {
+          const storeIds = userAssignments.map(assignment => assignment.storeId);
+          whereConditions.push(sql`${salesTransactions.storeId} IN ${storeIds}`);
+        }
+      }
+
+      if (transaction_type) {
+        whereConditions.push(eq(salesTransactions.transactionType, transaction_type));
+      }
+
+      if (cashier_user_id) {
+        whereConditions.push(eq(salesTransactions.cashierUserId, parseInt(cashier_user_id)));
+      }
+
+      if (status) {
+        whereConditions.push(eq(salesTransactions.status, status));
+      }
+
+      if (start_date) {
+        whereConditions.push(sql`${salesTransactions.transactionDate} >= ${start_date}`);
+      }
+
+      if (end_date) {
+        whereConditions.push(sql`${salesTransactions.transactionDate} <= ${end_date}`);
+      }
+
+      // Handle search by modifying where conditions
+      if (search && typeof search === 'string') {
+        const searchTerm = search.trim();
+        if (searchTerm) {
+          // Add search conditions to existing where conditions
+          whereConditions.push(sql`
+            (${salesTransactions.invoiceNumber} ILIKE ${`%${searchTerm}%`} OR
+             CAST(${salesTransactions.id} AS TEXT) = ${searchTerm} OR
+             EXISTS (
+               SELECT 1 FROM customer_profiles cp
+               WHERE cp.id = ${salesTransactions.customerProfileId}
+               AND (cp.name ILIKE ${`%${searchTerm}%`} OR cp.phone_number ILIKE ${`%${searchTerm}%`})
+             ))
+          `);
+        }
+      }
+
+      const whereClause = whereConditions.length > 0 ? and(...whereConditions) : undefined;
+
+      const transactions = await db.query.salesTransactions.findMany({
+        where: whereClause,
+        with: {
+          items: {
+            with: {
+              product: true,
+            },
+          },
+          store: true,
+          cashierUser: true,
+          customerProfile: true,
+        },
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        orderBy: [desc(salesTransactions.transactionDate)],
+      });
+
+      res.json(transactions);
+    } catch (error) {
+      console.error('Error fetching sales transactions:', error);
+      res.status(500).json({
+        message: "Failed to fetch sales transactions",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Get specific sales transaction
+  app.get("/api/sales-transactions/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if ID is numeric (transaction ID) or string (invoice number)
+      const isNumericId = /^\d+$/.test(id);
+
+      let whereCondition;
+      if (isNumericId) {
+        // Search by transaction ID
+        whereCondition = eq(salesTransactions.id, parseInt(id));
+      } else {
+        // Search by invoice number
+        whereCondition = eq(salesTransactions.invoiceNumber, id);
+      }
+
+      const transaction = await db.query.salesTransactions.findFirst({
+        where: whereCondition,
+        with: {
+          items: {
+            with: {
+              product: true,
+              inventory: true,
+            },
+          },
+          actions: {
+            with: {
+              performedByUser: true,
+            },
+            orderBy: [desc(salesTransactionActions.performedAt)],
+          },
+          store: true,
+          cashierUser: true,
+          customerProfile: true,
+        },
+      });
+
+      if (!transaction) {
+        return res.status(404).json({
+          message: "Sales transaction not found",
+          suggestion: "Verify the transaction ID or invoice number"
+        });
+      }
+
+      // Format transaction data for receipt generation
+      const receiptData = {
+        invoiceNumber: transaction.invoiceNumber,
+        transactionDate: transaction.transactionDate,
+        cashierName: transaction.cashierUser?.username || 'Unknown',
+        storeName: transaction.store?.name,
+        items: transaction.items.map(item => ({
+          productId: item.productId,
+          product: {
+            id: item.product.id,
+            name: item.product.name,
+            sku: item.product.sku,
+            price: item.unitPrice,
+          },
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+        })),
+        subtotal: parseFloat(transaction.totalAmount) / 1.1, // Remove 10% tax
+        tax: parseFloat(transaction.totalAmount) - (parseFloat(transaction.totalAmount) / 1.1),
+        total: parseFloat(transaction.totalAmount),
+        paymentMethod: transaction.paymentMethod,
+      };
+
+      res.json({
+        transaction,
+        receiptData,
+      });
+    } catch (error) {
+      console.error('Error fetching sales transaction:', error);
+      res.status(500).json({
+        message: "Failed to fetch sales transaction",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Process refund for sales transaction
+  app.post("/api/sales-transactions/:id/refund", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { refundAmount, reason, items } = req.body;
+
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      // Get the original transaction
+      const transaction = await db.query.salesTransactions.findFirst({
+        where: eq(salesTransactions.id, parseInt(id)),
+        with: {
+          items: {
+            with: {
+              product: true,
+              inventory: true,
+            },
+          },
+        },
+      });
+
+      if (!transaction) {
+        return res.status(404).json({
+          message: "Sales transaction not found",
+          suggestion: "Verify the transaction ID"
+        });
+      }
+
+      if (transaction.status === 'refunded') {
+        return res.status(400).json({
+          message: "Transaction has already been refunded",
+          suggestion: "Cannot refund an already refunded transaction"
+        });
+      }
+
+      if (transaction.status === 'voided') {
+        return res.status(400).json({
+          message: "Cannot refund a voided transaction",
+          suggestion: "Voided transactions cannot be refunded"
+        });
+      }
+
+      // Validate refund amount
+      const transactionTotal = parseFloat(transaction.totalAmount);
+      const requestedRefund = refundAmount ? parseFloat(refundAmount) : transactionTotal;
+
+      if (requestedRefund > transactionTotal) {
+        return res.status(400).json({
+          message: "Refund amount cannot exceed transaction total",
+          suggestion: `Maximum refund amount is ${transactionTotal}`
+        });
+      }
+
+      // Process refund - restore inventory
+      if (items && Array.isArray(items)) {
+        // Partial refund by items
+        for (const refundItem of items) {
+          const transactionItem = transaction.items.find(item => item.id === refundItem.id);
+          if (!transactionItem) {
+            return res.status(400).json({
+              message: `Transaction item ${refundItem.id} not found`,
+              suggestion: "Verify the item IDs to refund"
+            });
+          }
+
+          if (refundItem.quantity > transactionItem.quantity) {
+            return res.status(400).json({
+              message: `Refund quantity for ${transactionItem.product.name} cannot exceed sold quantity`,
+              suggestion: `Maximum refund quantity is ${transactionItem.quantity}`
+            });
+          }
+
+          // Restore inventory
+          await db
+            .update(inventory)
+            .set({
+              quantity: sql`${inventory.quantity} + ${refundItem.quantity}`,
+              updatedAt: new Date(),
+            })
+            .where(eq(inventory.id, transactionItem.inventoryId));
+        }
+      } else {
+        // Full refund - restore all inventory
+        for (const item of transaction.items) {
+          await db
+            .update(inventory)
+            .set({
+              quantity: sql`${inventory.quantity} + ${item.quantity}`,
+              updatedAt: new Date(),
+            })
+            .where(eq(inventory.id, item.inventoryId));
+        }
+      }
+
+      // Update transaction status
+      await db
+        .update(salesTransactions)
+        .set({
+          status: 'refunded',
+          updatedAt: new Date(),
+        })
+        .where(eq(salesTransactions.id, parseInt(id)));
+
+      // Log refund action
+      await db.insert(salesTransactionActions).values({
+        salesTransactionId: parseInt(id),
+        actionType: 'refund_processed',
+        actionData: {
+          refundAmount: requestedRefund,
+          reason: reason || 'No reason provided',
+          items: items || 'full refund'
+        },
+        performedByUserId: user.id,
+      });
+
+      res.json({
+        message: "Refund processed successfully",
+        refundAmount: requestedRefund,
+      });
+    } catch (error) {
+      console.error('Error processing refund:', error);
+      res.status(500).json({
+        message: "Failed to process refund",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Cancel sales transaction
+  app.post("/api/sales-transactions/:id/cancel", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      // Get the transaction
+      const transaction = await db.query.salesTransactions.findFirst({
+        where: eq(salesTransactions.id, parseInt(id)),
+      });
+
+      if (!transaction) {
+        return res.status(404).json({
+          message: "Sales transaction not found",
+          suggestion: "Verify the transaction ID"
+        });
+      }
+
+      if (transaction.status !== 'completed') {
+        return res.status(400).json({
+          message: "Only completed transactions can be cancelled",
+          suggestion: "Transaction must be in completed status to cancel"
+        });
+      }
+
+      // Update transaction status to cancelled
+      await db
+        .update(salesTransactions)
+        .set({
+          status: 'cancelled',
+          updatedAt: new Date(),
+        })
+        .where(eq(salesTransactions.id, parseInt(id)));
+
+      // Log cancellation action
+      await db.insert(salesTransactionActions).values({
+        salesTransactionId: parseInt(id),
+        actionType: 'transaction_cancelled',
+        actionData: {
+          reason: reason || 'Cancelled by user',
+          cancelledBy: user.username
+        },
+        performedByUserId: user.id,
+      });
+
+      res.json({
+        message: "Transaction cancelled successfully",
+      });
+    } catch (error) {
+      console.error('Error cancelling transaction:', error);
+      res.status(500).json({
+        message: "Failed to cancel transaction",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Get invoice counters (admin only)
+  app.get("/api/invoice-counters", requireRole(['admin']), async (req, res) => {
+    try {
+      const counters = await db.query.invoiceCounters.findMany({
+        with: {
+          store: true,
+        },
+        orderBy: [invoiceCounters.counterType, invoiceCounters.storeId],
+      });
+
+      res.json(counters);
+    } catch (error) {
+      console.error('Error fetching invoice counters:', error);
+      res.status(500).json({
+        message: "Failed to fetch invoice counters",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Check stock availability for POS
+  app.post("/api/inventory/check-stock", requireAuth, async (req, res) => {
+    try {
+      const { items, storeId } = req.body;
+
+      if (!items || !Array.isArray(items)) {
+        return res.status(400).json({
+          message: "Items array is required",
+          suggestion: "Provide items to check stock for"
+        });
+      }
+
+      const stockCheckResults = [];
+
+      for (const item of items) {
+        if (!item.productId || !item.quantity) {
+          return res.status(400).json({
+            message: "Each item must have productId and quantity",
+            suggestion: "Provide valid item data"
+          });
+        }
+
+        // Find available inventory - prioritize store inventory over DC
+        let inventoryItem = null;
+
+        if (storeId) {
+          // First check store-specific inventory
+          inventoryItem = await db.query.inventory.findFirst({
+            where: and(
+              eq(inventory.productId, item.productId),
+              eq(inventory.storeId, storeId)
+            ),
+            with: {
+              product: true,
+            },
+          });
+        }
+
+        // If no store inventory, check DC inventory
+        if (!inventoryItem) {
+          inventoryItem = await db.query.inventory.findFirst({
+            where: and(
+              eq(inventory.productId, item.productId),
+              eq(inventory.inventoryType, 'DC')
+            ),
+            with: {
+              product: true,
+            },
+          });
+        }
+
+        if (!inventoryItem) {
+          stockCheckResults.push({
+            productId: item.productId,
+            productName: 'Unknown Product',
+            requestedQuantity: item.quantity,
+            availableQuantity: 0,
+            sufficientStock: false,
+            message: 'Product not available in inventory',
+            inventoryType: null,
+            storeId: null,
+          });
+        } else {
+          const sufficientStock = inventoryItem.quantity >= item.quantity;
+          stockCheckResults.push({
+            productId: item.productId,
+            productName: inventoryItem.product.name,
+            requestedQuantity: item.quantity,
+            availableQuantity: inventoryItem.quantity,
+            sufficientStock,
+            message: sufficientStock
+              ? 'Stock available'
+              : `Insufficient stock. Available: ${inventoryItem.quantity}, Requested: ${item.quantity}`,
+            inventoryType: inventoryItem.inventoryType,
+            storeId: inventoryItem.storeId,
+            inventoryId: inventoryItem.id,
+          });
+        }
+      }
+
+      const allItemsAvailable = stockCheckResults.every(result => result.sufficientStock);
+
+      res.json({
+        allItemsAvailable,
+        stockCheckResults,
+      });
+    } catch (error) {
+      console.error('Error checking stock:', error);
+      res.status(500).json({
+        message: "Failed to check stock availability",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Get real-time inventory levels for POS
+  app.get("/api/inventory/real-time", requireAuth, async (req, res) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      // Get user's store assignment for store-specific inventory
+      const userAssignment = await db.query.userStoreAssignments.findFirst({
+        where: eq(userStoreAssignments.userId, user.id),
+      });
+
+      const storeId = userAssignment?.storeId;
+
+      // Get inventory levels for POS display
+      let inventoryQuery = db.query.inventory.findMany({
+        with: {
+          product: {
+            select: {
+              id: true,
+              name: true,
+              sku: true,
+              price: true,
+              category: true,
+              brand: true,
+            },
+          },
+        },
+        where: storeId ? eq(inventory.storeId, storeId) : eq(inventory.inventoryType, 'DC'),
+      });
+
+      const inventoryItems = await inventoryQuery;
+
+      // Format for POS consumption
+      const formattedInventory = inventoryItems.map(item => ({
+        id: item.id,
+        productId: item.productId,
+        productName: item.product.name,
+        sku: item.product.sku,
+        price: item.product.price,
+        category: item.product.category?.name,
+        brand: item.product.brand?.name,
+        quantity: item.quantity,
+        inventoryType: item.inventoryType,
+        storeId: item.storeId,
+        location: item.location,
+        lastUpdated: item.updatedAt,
+        isLowStock: item.quantity <= (item.product.minStock || 10),
+      }));
+
+      res.json({
+        inventory: formattedInventory,
+        storeId,
+        lastUpdated: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error('Error fetching real-time inventory:', error);
+      res.status(500).json({
+        message: "Failed to fetch real-time inventory",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Get inventory transaction history
+  app.get("/api/inventory/transactions", requireRole(['admin']), async (req, res) => {
+    try {
+      const { productId, storeId, limit = '100', offset = '0' } = req.query;
+
+      const whereConditions = [];
+
+      if (productId) {
+        whereConditions.push(eq(salesTransactionItems.productId, parseInt(productId)));
+      }
+
+      if (storeId) {
+        whereConditions.push(eq(salesTransactions.storeId, parseInt(storeId)));
+      }
+
+      const transactions = await db
+        .select({
+          id: salesTransactionItems.id,
+          transactionId: salesTransactions.id,
+          invoiceNumber: salesTransactions.invoiceNumber,
+          productId: salesTransactionItems.productId,
+          productName: products.name,
+          quantity: salesTransactionItems.quantity,
+          transactionType: salesTransactions.transactionType,
+          transactionDate: salesTransactions.transactionDate,
+          cashierUser: users.username,
+          storeId: salesTransactions.storeId,
+          storeName: stores.name,
+        })
+        .from(salesTransactionItems)
+        .innerJoin(salesTransactions, eq(salesTransactionItems.salesTransactionId, salesTransactions.id))
+        .innerJoin(products, eq(salesTransactionItems.productId, products.id))
+        .leftJoin(users, eq(salesTransactions.cashierUserId, users.id))
+        .leftJoin(stores, eq(salesTransactions.storeId, stores.id))
+        .where(whereConditions.length > 0 ? and(...whereConditions) : undefined)
+        .orderBy(desc(salesTransactions.transactionDate))
+        .limit(parseInt(limit))
+        .offset(parseInt(offset));
+
+      res.json({
+        transactions,
+        total: transactions.length,
+      });
+    } catch (error) {
+      console.error('Error fetching inventory transactions:', error);
+      res.status(500).json({
+        message: "Failed to fetch inventory transactions",
+        suggestion: "Please try again later"
+      });
     }
   });
 

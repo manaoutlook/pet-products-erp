@@ -117,11 +117,25 @@ function Sidebar() {
         }
       ]
     },
-    { 
-      name: "Inventory", 
-      href: "/inventory", 
+    {
+      name: "Inventory",
+      href: "/inventory",
       icon: PackageSearch,
       module: 'inventory',
+      action: 'read'
+    },
+    {
+      name: "Point of Sale",
+      href: "/pos",
+      icon: StoreIcon,
+      module: 'inventory', // POS needs inventory access
+      action: 'read'
+    },
+    {
+      name: "Receipts",
+      href: "/receipts",
+      icon: ListIcon,
+      module: 'inventory', // Receipts need inventory access
       action: 'read'
     },
     {

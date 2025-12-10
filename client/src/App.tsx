@@ -19,6 +19,8 @@ import StorePerformancePage from "./pages/StorePerformancePage";
 import SuppliersPage from "./pages/SuppliersPage";
 import PurchaseOrdersPage from "./pages/PurchaseOrdersPage";
 import CustomerProfilesPage from "./pages/CustomerProfilesPage";
+import POSPage from "./pages/POSPage";
+import ReceiptsPage from "./pages/ReceiptsPage";
 import MainLayout from "./components/Layout/MainLayout";
 
 function App() {
@@ -41,6 +43,8 @@ function App() {
       <Switch>
         <Route path="/" component={DashboardPage} />
         <Route path="/inventory" component={InventoryPage} />
+        <Route path="/pos" component={POSPage} />
+        <Route path="/receipts" component={ReceiptsPage} />
         <Route path="/purchase-orders" component={PurchaseOrdersPage} />
         <Route path="/products" component={ProductsPage} />
         <Route path="/categories" component={CategoryPage} />

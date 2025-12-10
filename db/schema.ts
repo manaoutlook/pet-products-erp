@@ -190,6 +190,55 @@ export const customerProfiles = pgTable("customer_profiles", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Invoice Counters table - Store-specific invoice numbering
+export const invoiceCounters = pgTable("invoice_counters", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id),
+  counterType: varchar("counter_type", { length: 10 }).notNull(), // 'STORE' or 'DC'
+  currentNumber: integer("current_number").notNull().default(0),
+  prefix: varchar("prefix", { length: 20 }).notNull(),
+  lastUpdated: timestamp("last_updated").defaultNow(),
+});
+
+// Sales Transactions table - POS sales records
+export const salesTransactions = pgTable("sales_transactions", {
+  id: serial("id").primaryKey(),
+  invoiceNumber: varchar("invoice_number", { length: 50 }).notNull().unique(),
+  storeId: integer("store_id").references(() => stores.id),
+  transactionType: varchar("transaction_type", { length: 20 }).notNull(), // 'STORE_SALE' or 'DC_SALE'
+  cashierUserId: integer("cashier_user_id").notNull().references(() => users.id),
+  customerProfileId: integer("customer_profile_id").references(() => customerProfiles.id),
+  totalAmount: decimal("total_amount", { precision: 15, scale: 2 }).notNull(), // VND amount
+  paymentMethod: varchar("payment_method", { length: 20 }).notNull(),
+  transactionDate: timestamp("transaction_date").defaultNow(),
+  status: varchar("status", { length: 20 }).notNull().default('completed'), // 'completed', 'refunded', 'voided'
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Sales Transaction Items table - Sale line items with inventory tracking
+export const salesTransactionItems = pgTable("sales_transaction_items", {
+  id: serial("id").primaryKey(),
+  salesTransactionId: integer("sales_transaction_id").notNull().references(() => salesTransactions.id),
+  productId: integer("product_id").notNull().references(() => products.id),
+  inventoryId: integer("inventory_id").notNull().references(() => inventory.id), // Specific inventory deducted
+  quantity: integer("quantity").notNull(),
+  unitPrice: decimal("unit_price", { precision: 15, scale: 2 }).notNull(), // VND amount
+  totalPrice: decimal("total_price", { precision: 15, scale: 2 }).notNull(), // VND amount
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Sales Transaction Actions table - Audit trail for sales operations
+export const salesTransactionActions = pgTable("sales_transaction_actions", {
+  id: serial("id").primaryKey(),
+  salesTransactionId: integer("sales_transaction_id").notNull().references(() => salesTransactions.id),
+  actionType: varchar("action_type", { length: 50 }).notNull(),
+  actionData: jsonb("action_data").$type<{notes?: string, refundAmount?: number, reference?: string}>(),
+  performedByUserId: integer("performed_by_user_id").notNull().references(() => users.id),
+  performedAt: timestamp("performed_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Define relationships
 export const brandsRelations = relations(brands, ({ many }) => ({
   products: many(products),
@@ -328,6 +377,61 @@ export const purchaseOrderItemsRelations = relations(purchaseOrderItems, ({ one 
 // Add relations for customer profiles
 export const customerProfilesRelations = relations(customerProfiles, ({ many }) => ({
   orders: many(orders),
+  salesTransactions: many(salesTransactions),
+}));
+
+// Add relations for invoice counters
+export const invoiceCountersRelations = relations(invoiceCounters, ({ one }) => ({
+  store: one(stores, {
+    fields: [invoiceCounters.storeId],
+    references: [stores.id],
+  }),
+}));
+
+// Add relations for sales transactions
+export const salesTransactionsRelations = relations(salesTransactions, ({ many, one }) => ({
+  items: many(salesTransactionItems),
+  actions: many(salesTransactionActions),
+  store: one(stores, {
+    fields: [salesTransactions.storeId],
+    references: [stores.id],
+  }),
+  cashierUser: one(users, {
+    fields: [salesTransactions.cashierUserId],
+    references: [users.id],
+  }),
+  customerProfile: one(customerProfiles, {
+    fields: [salesTransactions.customerProfileId],
+    references: [customerProfiles.id],
+  }),
+}));
+
+// Add relations for sales transaction items
+export const salesTransactionItemsRelations = relations(salesTransactionItems, ({ one }) => ({
+  salesTransaction: one(salesTransactions, {
+    fields: [salesTransactionItems.salesTransactionId],
+    references: [salesTransactions.id],
+  }),
+  product: one(products, {
+    fields: [salesTransactionItems.productId],
+    references: [products.id],
+  }),
+  inventory: one(inventory, {
+    fields: [salesTransactionItems.inventoryId],
+    references: [inventory.id],
+  }),
+}));
+
+// Add relations for sales transaction actions
+export const salesTransactionActionsRelations = relations(salesTransactionActions, ({ one }) => ({
+  salesTransaction: one(salesTransactions, {
+    fields: [salesTransactionActions.salesTransactionId],
+    references: [salesTransactions.id],
+  }),
+  performedByUser: one(users, {
+    fields: [salesTransactionActions.performedByUserId],
+    references: [users.id],
+  }),
 }));
 
 // Export schemas
@@ -396,3 +500,27 @@ export const insertCustomerProfileSchema = createInsertSchema(customerProfiles, 
 export const selectCustomerProfileSchema = createSelectSchema(customerProfiles);
 export type InsertCustomerProfile = typeof customerProfiles.$inferInsert;
 export type SelectCustomerProfile = typeof customerProfiles.$inferSelect;
+
+// Add invoice counter schemas
+export const insertInvoiceCounterSchema = createInsertSchema(invoiceCounters);
+export const selectInvoiceCounterSchema = createSelectSchema(invoiceCounters);
+export type InsertInvoiceCounter = typeof invoiceCounters.$inferInsert;
+export type SelectInvoiceCounter = typeof invoiceCounters.$inferSelect;
+
+// Add sales transaction schemas
+export const insertSalesTransactionSchema = createInsertSchema(salesTransactions);
+export const selectSalesTransactionSchema = createSelectSchema(salesTransactions);
+export type InsertSalesTransaction = typeof salesTransactions.$inferInsert;
+export type SelectSalesTransaction = typeof salesTransactions.$inferSelect;
+
+// Add sales transaction item schemas
+export const insertSalesTransactionItemSchema = createInsertSchema(salesTransactionItems);
+export const selectSalesTransactionItemSchema = createSelectSchema(salesTransactionItems);
+export type InsertSalesTransactionItem = typeof salesTransactionItems.$inferInsert;
+export type SelectSalesTransactionItem = typeof salesTransactionItems.$inferSelect;
+
+// Add sales transaction action schemas
+export const insertSalesTransactionActionSchema = createInsertSchema(salesTransactionActions);
+export const selectSalesTransactionActionSchema = createSelectSchema(salesTransactionActions);
+export type InsertSalesTransactionAction = typeof salesTransactionActions.$inferInsert;
+export type SelectSalesTransactionAction = typeof salesTransactionActions.$inferSelect;

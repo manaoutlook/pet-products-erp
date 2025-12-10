@@ -8,6 +8,13 @@
       "when": 1764334082821,
       "tag": "0000_thankful_wendell_vaughn",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1764334082822,
+      "tag": "0001_pos_system_tables",
+      "breakpoints": true
     }
   ]
 }
