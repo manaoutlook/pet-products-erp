@@ -239,6 +239,58 @@ export const salesTransactionActions = pgTable("sales_transaction_actions", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Transfer Requests table - Inter-store inventory transfer requests
+export const transferRequests = pgTable("transfer_requests", {
+  id: serial("id").primaryKey(),
+  transferNumber: varchar("transfer_number", { length: 50 }).notNull().unique(),
+  fromStoreId: integer("from_store_id").references(() => stores.id),
+  toStoreId: integer("to_store_id").references(() => stores.id),
+  requestedByUserId: integer("requested_by_user_id").notNull().references(() => users.id),
+  status: varchar("status", { length: 20 }).notNull().default('pending'),
+  priority: varchar("priority", { length: 10 }).notNull().default('normal'),
+  notes: text("notes"),
+  requestedAt: timestamp("requested_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Transfer Request Items table - Items in transfer requests
+export const transferRequestItems = pgTable("transfer_request_items", {
+  id: serial("id").primaryKey(),
+  transferRequestId: integer("transfer_request_id").notNull().references(() => transferRequests.id, { onDelete: 'cascade' }),
+  productId: integer("product_id").notNull().references(() => products.id),
+  requestedQuantity: integer("requested_quantity").notNull(),
+  approvedQuantity: integer("approved_quantity"),
+  transferredQuantity: integer("transferred_quantity").default(0),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Transfer Actions table - Approval/rejection history
+export const transferActions = pgTable("transfer_actions", {
+  id: serial("id").primaryKey(),
+  transferRequestId: integer("transfer_request_id").notNull().references(() => transferRequests.id, { onDelete: 'cascade' }),
+  actionType: varchar("action_type", { length: 50 }).notNull(),
+  actionData: jsonb("action_data").$type<{notes?: string, approvedQuantity?: number, rejectionReason?: string}>(),
+  performedByUserId: integer("performed_by_user_id").notNull().references(() => users.id),
+  performedAt: timestamp("performed_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Transfer History table - Completed transfers audit trail
+export const transferHistory = pgTable("transfer_history", {
+  id: serial("id").primaryKey(),
+  transferRequestId: integer("transfer_request_id").notNull().references(() => transferRequests.id, { onDelete: 'cascade' }),
+  fromInventoryId: integer("from_inventory_id").notNull().references(() => inventory.id),
+  toInventoryId: integer("to_inventory_id").notNull().references(() => inventory.id),
+  productId: integer("product_id").notNull().references(() => products.id),
+  quantity: integer("quantity").notNull(),
+  transferredAt: timestamp("transferred_at").defaultNow(),
+  transferredByUserId: integer("transferred_by_user_id").notNull().references(() => users.id),
+  notes: text("notes"),
+});
+
 // Define relationships
 export const brandsRelations = relations(brands, ({ many }) => ({
   products: many(products),
@@ -434,6 +486,73 @@ export const salesTransactionActionsRelations = relations(salesTransactionAction
   }),
 }));
 
+// Add transfer request relations
+export const transferRequestsRelations = relations(transferRequests, ({ many, one }) => ({
+  items: many(transferRequestItems),
+  actions: many(transferActions),
+  history: many(transferHistory),
+  fromStore: one(stores, {
+    fields: [transferRequests.fromStoreId],
+    references: [stores.id],
+  }),
+  toStore: one(stores, {
+    fields: [transferRequests.toStoreId],
+    references: [stores.id],
+  }),
+  requestedByUser: one(users, {
+    fields: [transferRequests.requestedByUserId],
+    references: [users.id],
+  }),
+}));
+
+// Add transfer request item relations
+export const transferRequestItemsRelations = relations(transferRequestItems, ({ one }) => ({
+  transferRequest: one(transferRequests, {
+    fields: [transferRequestItems.transferRequestId],
+    references: [transferRequests.id],
+  }),
+  product: one(products, {
+    fields: [transferRequestItems.productId],
+    references: [products.id],
+  }),
+}));
+
+// Add transfer action relations
+export const transferActionsRelations = relations(transferActions, ({ one }) => ({
+  transferRequest: one(transferRequests, {
+    fields: [transferActions.transferRequestId],
+    references: [transferRequests.id],
+  }),
+  performedByUser: one(users, {
+    fields: [transferActions.performedByUserId],
+    references: [users.id],
+  }),
+}));
+
+// Add transfer history relations
+export const transferHistoryRelations = relations(transferHistory, ({ one }) => ({
+  transferRequest: one(transferRequests, {
+    fields: [transferHistory.transferRequestId],
+    references: [transferRequests.id],
+  }),
+  fromInventory: one(inventory, {
+    fields: [transferHistory.fromInventoryId],
+    references: [inventory.id],
+  }),
+  toInventory: one(inventory, {
+    fields: [transferHistory.toInventoryId],
+    references: [inventory.id],
+  }),
+  product: one(products, {
+    fields: [transferHistory.productId],
+    references: [products.id],
+  }),
+  transferredByUser: one(users, {
+    fields: [transferHistory.transferredByUserId],
+    references: [users.id],
+  }),
+}));
+
 // Export schemas
 export const insertBrandSchema = createInsertSchema(brands);
 export const selectBrandSchema = createSelectSchema(brands);
@@ -524,3 +643,27 @@ export const insertSalesTransactionActionSchema = createInsertSchema(salesTransa
 export const selectSalesTransactionActionSchema = createSelectSchema(salesTransactionActions);
 export type InsertSalesTransactionAction = typeof salesTransactionActions.$inferInsert;
 export type SelectSalesTransactionAction = typeof salesTransactionActions.$inferSelect;
+
+// Add transfer request schemas
+export const insertTransferRequestSchema = createInsertSchema(transferRequests);
+export const selectTransferRequestSchema = createSelectSchema(transferRequests);
+export type InsertTransferRequest = typeof transferRequests.$inferInsert;
+export type SelectTransferRequest = typeof transferRequests.$inferSelect;
+
+// Add transfer request item schemas
+export const insertTransferRequestItemSchema = createInsertSchema(transferRequestItems);
+export const selectTransferRequestItemSchema = createSelectSchema(transferRequestItems);
+export type InsertTransferRequestItem = typeof transferRequestItems.$inferInsert;
+export type SelectTransferRequestItem = typeof transferRequestItems.$inferSelect;
+
+// Add transfer action schemas
+export const insertTransferActionSchema = createInsertSchema(transferActions);
+export const selectTransferActionSchema = createSelectSchema(transferActions);
+export type InsertTransferAction = typeof transferActions.$inferInsert;
+export type SelectTransferAction = typeof transferActions.$inferSelect;
+
+// Add transfer history schemas
+export const insertTransferHistorySchema = createInsertSchema(transferHistory);
+export const selectTransferHistorySchema = createSelectSchema(transferHistory);
+export type InsertTransferHistory = typeof transferHistory.$inferInsert;
+export type SelectTransferHistory = typeof transferHistory.$inferSelect;

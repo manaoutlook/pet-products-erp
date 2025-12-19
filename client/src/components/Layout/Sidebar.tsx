@@ -23,7 +23,8 @@ import {
   ClipboardList,
   UserCircle,
   StoreIcon,
-  ListIcon
+  ListIcon,
+  ArrowRight
 } from "lucide-react";
 import { useState } from "react";
 
@@ -119,10 +120,25 @@ function Sidebar() {
     },
     {
       name: "Inventory",
-      href: "/inventory",
       icon: PackageSearch,
       module: 'inventory',
-      action: 'read'
+      action: 'read',
+      children: [
+        {
+          name: "Inventory List",
+          href: "/inventory",
+          icon: PackageSearch,
+          module: 'inventory',
+          action: 'read'
+        },
+        {
+          name: "Transfers",
+          href: "/transfers",
+          icon: ArrowRight,
+          module: 'inventory',
+          action: 'read'
+        }
+      ]
     },
     {
       name: "Point of Sale",

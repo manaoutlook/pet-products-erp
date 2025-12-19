@@ -30,7 +30,8 @@ import {
   History,
   Clock,
   User,
-  Search
+  Search,
+  Eye
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/utils";
@@ -51,6 +52,19 @@ interface PurchaseOrderAction {
   performedAt: string;
 }
 
+interface PurchaseOrderItem {
+  id: number;
+  product: {
+    id: number;
+    name: string;
+    sku: string;
+  };
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  deliveredQuantity: number;
+}
+
 interface PurchaseOrder {
   id: number;
   orderNumber: string;
@@ -60,15 +74,33 @@ interface PurchaseOrder {
   totalAmount: number;
   status: 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled';
   actions?: PurchaseOrderAction[];
+  items?: PurchaseOrderItem[];
+  notes?: string;
 }
 
 function PurchaseOrdersPage() {
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const { data: purchaseOrders = [], isLoading } = useQuery<PurchaseOrder[]>({
     queryKey: ['/api/purchase-orders'],
+  });
+
+  const { data: selectedOrderDetails, isLoading: isLoadingDetails } = useQuery<PurchaseOrder>({
+    queryKey: ['/api/purchase-orders', selectedOrderId],
+    queryFn: async () => {
+      if (!selectedOrderId) return null;
+      const response = await fetch(`/api/purchase-orders/${selectedOrderId}`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch purchase order details');
+      }
+      return response.json();
+    },
+    enabled: !!selectedOrderId,
   });
 
   const logAction = useMutation({
@@ -287,6 +319,127 @@ function PurchaseOrdersPage() {
                         >
                           <X className="h-4 w-4" />
                         </Button>
+
+                        {/* View Details */}
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setSelectedOrderId(order.id)}
+                              title="View Order Details"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                            <DialogHeader>
+                              <DialogTitle>Purchase Order Details - {order.orderNumber}</DialogTitle>
+                              <DialogDescription>
+                                Complete details of the purchase order including items and supplier information
+                              </DialogDescription>
+                            </DialogHeader>
+                            {isLoadingDetails ? (
+                              <div className="text-center py-8">Loading order details...</div>
+                            ) : selectedOrderDetails ? (
+                              <div className="space-y-6">
+                                {/* Order Header Information */}
+                                <div className="grid grid-cols-2 gap-4 p-4 border rounded-lg bg-muted/50">
+                                  <div>
+                                    <h4 className="font-semibold mb-2">Order Information</h4>
+                                    <div className="space-y-1 text-sm">
+                                      <div><strong>Order Number:</strong> {selectedOrderDetails.orderNumber}</div>
+                                      <div><strong>Status:</strong> <span className="capitalize">{selectedOrderDetails.status}</span></div>
+                                      <div><strong>Order Date:</strong> {formatDate(selectedOrderDetails.createdAt)}</div>
+                                      <div><strong>Delivery Date:</strong> {formatDate(selectedOrderDetails.deliveryDate)}</div>
+                                      {selectedOrderDetails.notes && (
+                                        <div><strong>Notes:</strong> {selectedOrderDetails.notes}</div>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <h4 className="font-semibold mb-2">Supplier Information</h4>
+                                    <div className="space-y-1 text-sm">
+                                      <div><strong>Name:</strong> {selectedOrderDetails.supplier?.name}</div>
+                                      <div><strong>Total Amount:</strong> {Number(selectedOrderDetails.totalAmount).toLocaleString()} VND</div>
+                                      {selectedOrderDetails.status === 'delivered' && (
+                                        <div><strong>Delivery Location:</strong> DC (Distribution Center)</div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Order Items */}
+                                <div>
+                                  <h4 className="font-semibold mb-4">Order Items</h4>
+                                  <Table>
+                                    <TableHeader>
+                                      <TableRow>
+                                        <TableHead>Product</TableHead>
+                                        <TableHead>SKU</TableHead>
+                                        <TableHead className="text-right">Quantity</TableHead>
+                                        <TableHead className="text-right">Unit Price (VND)</TableHead>
+                                        <TableHead className="text-right">Total (VND)</TableHead>
+                                        <TableHead className="text-right">Delivered</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {selectedOrderDetails.items?.map((item: PurchaseOrderItem) => (
+                                        <TableRow key={item.id}>
+                                          <TableCell>{item.product.name}</TableCell>
+                                          <TableCell className="font-mono text-sm">{item.product.sku}</TableCell>
+                                          <TableCell className="text-right">{item.quantity}</TableCell>
+                                          <TableCell className="text-right">{Number(item.unitPrice).toLocaleString()}</TableCell>
+                                          <TableCell className="text-right">{Number(item.totalPrice).toLocaleString()}</TableCell>
+                                          <TableCell className="text-right">
+                                            <span className={item.deliveredQuantity === item.quantity ? "text-green-600" : "text-orange-600"}>
+                                              {item.deliveredQuantity}/{item.quantity}
+                                            </span>
+                                          </TableCell>
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                </div>
+
+                                {/* Action History Summary */}
+                                {selectedOrderDetails.actions && selectedOrderDetails.actions.length > 0 && (
+                                  <div>
+                                    <h4 className="font-semibold mb-4">Recent Actions</h4>
+                                    <div className="space-y-2">
+                                      {selectedOrderDetails.actions
+                                        .sort((a: PurchaseOrderAction, b: PurchaseOrderAction) => new Date(b.performedAt).getTime() - new Date(a.performedAt).getTime())
+                                        .slice(0, 3)
+                                        .map((action: PurchaseOrderAction) => (
+                                          <div key={action.id} className="flex items-center justify-between p-3 border rounded">
+                                            <div className="flex items-center gap-3">
+                                              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                                                {action.actionType === 'print' && <Printer className="h-4 w-4 text-primary" />}
+                                                {action.actionType === 'invoice_received' && <FileText className="h-4 w-4 text-primary" />}
+                                                {action.actionType === 'payment_sent' && <CreditCard className="h-4 w-4 text-primary" />}
+                                                {action.actionType === 'goods_receipt' && <Package className="h-4 w-4 text-primary" />}
+                                                {action.actionType === 'cancel' && <X className="h-4 w-4 text-destructive" />}
+                                              </div>
+                                              <div>
+                                                <div className="font-medium">{getActionLabel(action.actionType)}</div>
+                                                <div className="text-sm text-muted-foreground">
+                                                  by {action.performedByUser.username} on {formatDate(action.performedAt)}
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="text-center text-muted-foreground py-8">
+                                Failed to load order details
+                              </div>
+                            )}
+                          </DialogContent>
+                        </Dialog>
 
                         {/* Action History */}
                         <Dialog>

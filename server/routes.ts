@@ -9,10 +9,13 @@ import {
   purchaseOrderItems, purchaseOrderActions, customerProfiles, insertCustomerProfileSchema,
   insertPurchaseOrderActionSchema, selectPurchaseOrderActionSchema,
   insertStoreSchema, insertUserSchema, salesTransactions, salesTransactionItems,
-  salesTransactionActions, invoiceCounters
+  salesTransactionActions, invoiceCounters,
+  transferRequests, transferRequestItems, transferActions, transferHistory,
+  insertTransferRequestSchema, insertTransferRequestItemSchema, insertTransferActionSchema,
+  selectTransferRequestSchema, selectTransferRequestItemSchema
 } from "@db/schema";
 import { sql } from "drizzle-orm";
-import { eq, and, desc, gte, lt } from "drizzle-orm";
+import { eq, and, or, desc, gte, lt } from "drizzle-orm";
 import { requireRole, requireAuth } from "./middleware";
 import { z } from "zod";
 import { crypto } from "./auth";
@@ -49,12 +52,12 @@ function generateInventoryBarcode(
   const prefix = inventoryType === 'DC' ? 'DC' : 'ST';
   const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
 
-// Schema for user updates
-const updateUserSchema = z.object({
-  username: z.string().min(3).optional(),
-  password: z.string().min(6).optional(),
-  roleId: z.number().positive().optional(),
-});
+  // Schema for user updates
+  const updateUserSchema = z.object({
+    username: z.string().min(3).optional(),
+    password: z.string().min(6).optional(),
+    roleId: z.number().positive().optional(),
+  });
   const storePrefix = storeId ? storeId.toString().padStart(3, '0') : '000';
   return `${prefix}${storePrefix}${productSku}${randomNum}`;
 }
@@ -2117,17 +2120,17 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Products schema
-const insertProductSchema = z.object({
-  name: z.string().min(1, "Product name is required"),
-  description: z.string().optional(),
-  sku: z.string().min(1, "SKU is required"),
-  price: z.number().min(0, "Price must be positive"),
-  categoryId: z.number().positive("Category ID is required"),
-  minStock: z.number().int().min(0, "Minimum stock must be positive").optional(),
-  brandId: z.number().positive("Brand ID is required").optional(),
-});
+  const insertProductSchema = z.object({
+    name: z.string().min(1, "Product name is required"),
+    description: z.string().optional(),
+    sku: z.string().min(1, "SKU is required"),
+    price: z.number().min(0, "Price must be positive"),
+    categoryId: z.number().positive("Category ID is required"),
+    minStock: z.number().int().min(0, "Minimum stock must be positive").optional(),
+    brandId: z.number().positive("Brand ID is required").optional(),
+  });
 
-// Products API - Create product (admin only)
+  // Products API - Create product (admin only)
   app.post("/api/products", requireRole(['admin']), async (req, res) => {
     try {
       const result = insertProductSchema.safeParse(req.body);
@@ -3656,6 +3659,929 @@ const insertProductSchema = z.object({
       console.error('Error fetching inventory transactions:', error);
       res.status(500).json({
         message: "Failed to fetch inventory transactions",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // ===============================
+  // INTER-STORE TRANSFER ENDPOINTS
+  // ===============================
+
+  // Create transfer request
+  app.post("/api/transfer-requests", requireAuth, async (req, res) => {
+    try {
+      const { fromStoreId, toStoreId, priority, notes, items } = req.body;
+      const user = req.user;
+
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      if (!fromStoreId || !toStoreId || !items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({
+          message: "From store, to store, and items are required",
+          suggestion: "Provide valid transfer request data"
+        });
+      }
+
+      if (fromStoreId === toStoreId) {
+        return res.status(400).json({
+          message: "Cannot transfer to the same store",
+          suggestion: "Select different source and destination stores"
+        });
+      }
+
+      // Check if user has access to the source store
+      const userAssignment = await db.query.userStoreAssignments.findFirst({
+        where: eq(userStoreAssignments.userId, user.id),
+      });
+
+      if (userAssignment && userAssignment.storeId !== fromStoreId) {
+        return res.status(403).json({
+          message: "You can only create transfers from your assigned store",
+          suggestion: "Contact administrator for store assignment"
+        });
+      }
+
+      // Validate items and check stock availability
+      const validatedItems = [];
+      for (const item of items) {
+        if (!item.productId || !item.quantity || item.quantity <= 0) {
+          return res.status(400).json({
+            message: "Each item must have productId and positive quantity",
+            suggestion: "Provide valid item data"
+          });
+        }
+
+        // Check if product exists
+        const product = await db.query.products.findFirst({
+          where: eq(products.id, item.productId),
+        });
+
+        if (!product) {
+          return res.status(400).json({
+            message: `Product with ID ${item.productId} not found`,
+            suggestion: "Verify product exists"
+          });
+        }
+
+        // Check available stock in source store
+        const sourceInventory = await db.query.inventory.findFirst({
+          where: and(
+            eq(inventory.productId, item.productId),
+            eq(inventory.storeId, fromStoreId)
+          ),
+        });
+
+        if (!sourceInventory || sourceInventory.quantity < item.quantity) {
+          return res.status(400).json({
+            message: `Insufficient stock for ${product.name}. Available: ${sourceInventory?.quantity || 0}, Requested: ${item.quantity}`,
+            suggestion: "Reduce quantity or check inventory"
+          });
+        }
+
+        validatedItems.push({
+          productId: item.productId,
+          requestedQuantity: item.quantity,
+          notes: item.notes || null,
+        });
+      }
+
+      // Generate transfer number
+      const transferNumber = `TRF-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      // Create transfer request
+      const [transferRequest] = await db
+        .insert(transferRequests)
+        .values({
+          transferNumber,
+          fromStoreId,
+          toStoreId,
+          requestedByUserId: user.id,
+          status: 'pending',
+          priority: priority || 'normal',
+          notes: notes || null,
+        })
+        .returning();
+
+      // Create transfer request items
+      await Promise.all(validatedItems.map(item =>
+        db.insert(transferRequestItems).values({
+          transferRequestId: transferRequest.id,
+          productId: item.productId,
+          requestedQuantity: item.requestedQuantity,
+          notes: item.notes,
+        })
+      ));
+
+      // Log creation action
+      await db.insert(transferActions).values({
+        transferRequestId: transferRequest.id,
+        actionType: 'created',
+        actionData: { itemCount: validatedItems.length },
+        performedByUserId: user.id,
+      });
+
+      // Fetch complete transfer request with items
+      const completeTransfer = await db.query.transferRequests.findFirst({
+        where: eq(transferRequests.id, transferRequest.id),
+        with: {
+          items: {
+            with: {
+              product: true,
+            },
+          },
+          fromStore: true,
+          toStore: true,
+          requestedByUser: true,
+        },
+      });
+
+      res.json({
+        message: "Transfer request created successfully",
+        transferRequest: completeTransfer,
+      });
+    } catch (error) {
+      console.error('Error creating transfer request:', error);
+      res.status(500).json({
+        message: "Failed to create transfer request",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Get transfer requests (with filtering)
+  app.get("/api/transfer-requests", requireAuth, async (req, res) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const {
+        status,
+        from_store_id,
+        to_store_id,
+        priority,
+        limit = '50',
+        offset = '0'
+      } = req.query;
+
+      let whereConditions = [];
+
+      // Status filter
+      if (status) {
+        whereConditions.push(eq(transferRequests.status, status));
+      }
+
+      // Store filters - users can only see transfers involving their stores
+      const userAssignment = await db.query.userStoreAssignments.findFirst({
+        where: eq(userStoreAssignments.userId, user.id),
+      });
+
+      if (userAssignment) {
+        // Regular users see transfers from/to their store
+        whereConditions.push(
+          or(
+            eq(transferRequests.fromStoreId, userAssignment.storeId),
+            eq(transferRequests.toStoreId, userAssignment.storeId)
+          )
+        );
+      }
+      // Admins can see all transfers (no additional filter)
+
+      // Additional filters
+      if (from_store_id) {
+        whereConditions.push(eq(transferRequests.fromStoreId, parseInt(from_store_id)));
+      }
+
+      if (to_store_id) {
+        whereConditions.push(eq(transferRequests.toStoreId, parseInt(to_store_id)));
+      }
+
+      if (priority) {
+        whereConditions.push(eq(transferRequests.priority, priority));
+      }
+
+      const transferRequestsList = await db.query.transferRequests.findMany({
+        where: whereConditions.length > 0 ? and(...whereConditions) : undefined,
+        with: {
+          items: {
+            with: {
+              product: true,
+            },
+          },
+          fromStore: true,
+          toStore: true,
+          requestedByUser: true,
+          actions: {
+            with: {
+              performedByUser: true,
+            },
+            orderBy: [desc(transferActions.performedAt)],
+          },
+        },
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        orderBy: [desc(transferRequests.createdAt)],
+      });
+
+      res.json(transferRequestsList);
+    } catch (error) {
+      console.error('Error fetching transfer requests:', error);
+      res.status(500).json({
+        message: "Failed to fetch transfer requests",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Get specific transfer request
+  app.get("/api/transfer-requests/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const user = req.user;
+
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const transferRequest = await db.query.transferRequests.findFirst({
+        where: eq(transferRequests.id, parseInt(id)),
+        with: {
+          items: {
+            with: {
+              product: true,
+            },
+          },
+          fromStore: true,
+          toStore: true,
+          requestedByUser: true,
+          actions: {
+            with: {
+              performedByUser: true,
+            },
+            orderBy: [desc(transferActions.performedAt)],
+          },
+          history: {
+            with: {
+              fromInventory: true,
+              toInventory: true,
+              product: true,
+              transferredByUser: true,
+            },
+            orderBy: [desc(transferHistory.transferredAt)],
+          },
+        },
+      });
+
+      if (!transferRequest) {
+        return res.status(404).json({
+          message: "Transfer request not found",
+          suggestion: "Verify the transfer request ID"
+        });
+      }
+
+      // Check if user has access to this transfer
+      const userAssignment = await db.query.userStoreAssignments.findFirst({
+        where: eq(userStoreAssignments.userId, user.id),
+      });
+
+      if (userAssignment &&
+        transferRequest.fromStoreId !== userAssignment.storeId &&
+        transferRequest.toStoreId !== userAssignment.storeId) {
+        return res.status(403).json({
+          message: "You don't have access to this transfer request",
+          suggestion: "Contact administrator for access"
+        });
+      }
+
+      res.json(transferRequest);
+    } catch (error) {
+      console.error('Error fetching transfer request:', error);
+      res.status(500).json({
+        message: "Failed to fetch transfer request",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Approve or reject transfer request
+  app.post("/api/transfer-requests/:id/actions", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { actionType, approvedQuantities, rejectionReason, notes } = req.body;
+      const user = req.user;
+
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      if (!['approve', 'reject'].includes(actionType)) {
+        return res.status(400).json({
+          message: "Invalid action type",
+          validTypes: ['approve', 'reject']
+        });
+      }
+
+      // Get transfer request
+      const transferRequest = await db.query.transferRequests.findFirst({
+        where: eq(transferRequests.id, parseInt(id)),
+        with: {
+          items: true,
+          toStore: true,
+        },
+      });
+
+      if (!transferRequest) {
+        return res.status(404).json({
+          message: "Transfer request not found"
+        });
+      }
+
+      if (transferRequest.status !== 'pending') {
+        return res.status(400).json({
+          message: "Transfer request is not in pending status",
+          suggestion: "Only pending requests can be approved or rejected"
+        });
+      }
+
+      // Check if user has access to the destination store (for approval)
+      const userAssignment = await db.query.userStoreAssignments.findFirst({
+        where: eq(userStoreAssignments.userId, user.id),
+      });
+
+      if (!userAssignment || userAssignment.storeId !== transferRequest.toStoreId) {
+        return res.status(403).json({
+          message: "You can only approve transfers for your assigned store",
+          suggestion: "Contact administrator for store assignment"
+        });
+      }
+
+      if (actionType === 'reject') {
+        // Reject the transfer
+        await db
+          .update(transferRequests)
+          .set({
+            status: 'rejected',
+            updatedAt: new Date(),
+          })
+          .where(eq(transferRequests.id, parseInt(id)));
+
+        // Log rejection action
+        await db.insert(transferActions).values({
+          transferRequestId: parseInt(id),
+          actionType: 'rejected',
+          actionData: {
+            reason: rejectionReason || 'No reason provided',
+            notes: notes
+          },
+          performedByUserId: user.id,
+        });
+
+        res.json({
+          message: "Transfer request rejected successfully",
+        });
+
+      } else if (actionType === 'approve') {
+        // Validate approved quantities
+        if (!approvedQuantities || !Array.isArray(approvedQuantities)) {
+          return res.status(400).json({
+            message: "Approved quantities are required for approval",
+            suggestion: "Provide approved quantities for each item"
+          });
+        }
+
+        // Update approved quantities and validate
+        for (const approval of approvedQuantities) {
+          const item = transferRequest.items.find(i => i.id === approval.itemId);
+          if (!item) {
+            return res.status(400).json({
+              message: `Item ${approval.itemId} not found in transfer request`
+            });
+          }
+
+          if (approval.quantity > item.requestedQuantity) {
+            return res.status(400).json({
+              message: `Approved quantity cannot exceed requested quantity for ${item.productId}`,
+              suggestion: "Reduce approved quantity"
+            });
+          }
+
+          if (approval.quantity <= 0) {
+            return res.status(400).json({
+              message: "Approved quantity must be positive",
+              suggestion: "Provide positive approved quantity"
+            });
+          }
+
+          // Update approved quantity
+          await db
+            .update(transferRequestItems)
+            .set({
+              approvedQuantity: approval.quantity,
+              updatedAt: new Date(),
+            })
+            .where(eq(transferRequestItems.id, approval.itemId));
+        }
+
+        // Approve the transfer
+        await db
+          .update(transferRequests)
+          .set({
+            status: 'approved',
+            updatedAt: new Date(),
+          })
+          .where(eq(transferRequests.id, parseInt(id)));
+
+        // Log approval action
+        await db.insert(transferActions).values({
+          transferRequestId: parseInt(id),
+          actionType: 'approved',
+          actionData: {
+            approvedItems: approvedQuantities.length,
+            notes: notes
+          },
+          performedByUserId: user.id,
+        });
+
+        res.json({
+          message: "Transfer request approved successfully",
+        });
+      }
+    } catch (error) {
+      console.error('Error processing transfer action:', error);
+      res.status(500).json({
+        message: "Failed to process transfer action",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Execute approved transfer
+  app.post("/api/transfer-requests/:id/execute", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { notes } = req.body;
+      const user = req.user;
+
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      // Get transfer request with items
+      const transferRequest = await db.query.transferRequests.findFirst({
+        where: eq(transferRequests.id, parseInt(id)),
+        with: {
+          items: true,
+          fromStore: true,
+          toStore: true,
+        },
+      });
+
+      if (!transferRequest) {
+        return res.status(404).json({
+          message: "Transfer request not found"
+        });
+      }
+
+      if (transferRequest.status !== 'approved') {
+        return res.status(400).json({
+          message: "Only approved transfers can be executed",
+          suggestion: "Transfer must be approved first"
+        });
+      }
+
+      // Check if user has access to execute (can be from either store)
+      const userAssignment = await db.query.userStoreAssignments.findFirst({
+        where: eq(userStoreAssignments.userId, user.id),
+      });
+
+      if (!userAssignment ||
+        (userAssignment.storeId !== transferRequest.fromStoreId &&
+          userAssignment.storeId !== transferRequest.toStoreId)) {
+        return res.status(403).json({
+          message: "You don't have access to execute this transfer",
+          suggestion: "Contact administrator for access"
+        });
+      }
+
+      // Execute the transfer
+      for (const item of transferRequest.items) {
+        if (!item.approvedQuantity || item.approvedQuantity <= 0) {
+          continue; // Skip items with no approved quantity
+        }
+
+        // Check source inventory again (double-check)
+        const sourceInventory = await db.query.inventory.findFirst({
+          where: and(
+            eq(inventory.productId, item.productId),
+            eq(inventory.storeId, transferRequest.fromStoreId)
+          ),
+        });
+
+        if (!sourceInventory || sourceInventory.quantity < item.approvedQuantity) {
+          return res.status(400).json({
+            message: `Insufficient stock in source store for product ${item.productId}`,
+            suggestion: "Check inventory levels"
+          });
+        }
+
+        // Deduct from source
+        await db
+          .update(inventory)
+          .set({
+            quantity: sql`${inventory.quantity} - ${item.approvedQuantity}`,
+            updatedAt: new Date(),
+          })
+          .where(eq(inventory.id, sourceInventory.id));
+
+        // Add to destination (create or update)
+        const destInventory = await db.query.inventory.findFirst({
+          where: and(
+            eq(inventory.productId, item.productId),
+            eq(inventory.storeId, transferRequest.toStoreId)
+          ),
+        });
+
+        if (destInventory) {
+          // Update existing
+          await db
+            .update(inventory)
+            .set({
+              quantity: sql`${inventory.quantity} + ${item.approvedQuantity}`,
+              updatedAt: new Date(),
+            })
+            .where(eq(inventory.id, destInventory.id));
+
+          // Record transfer history
+          await db.insert(transferHistory).values({
+            transferRequestId: transferRequest.id,
+            fromInventoryId: sourceInventory.id,
+            toInventoryId: destInventory.id,
+            productId: item.productId,
+            quantity: item.approvedQuantity,
+            transferredByUserId: user.id,
+            notes: notes || null,
+          });
+        } else {
+          // Create new inventory in destination store
+          const barcode = generateInventoryBarcode('STORE', item.productId.toString(), transferRequest.toStoreId);
+
+          const [newDestInventory] = await db
+            .insert(inventory)
+            .values({
+              productId: item.productId,
+              storeId: transferRequest.toStoreId,
+              quantity: item.approvedQuantity,
+              inventoryType: 'STORE',
+              barcode: barcode,
+              location: `Transferred from ${transferRequest.fromStore?.name || 'Store'}`,
+            })
+            .returning();
+
+          // Record transfer history
+          await db.insert(transferHistory).values({
+            transferRequestId: transferRequest.id,
+            fromInventoryId: sourceInventory.id,
+            toInventoryId: newDestInventory.id,
+            productId: item.productId,
+            quantity: item.approvedQuantity,
+            transferredByUserId: user.id,
+            notes: notes || null,
+          });
+        }
+
+        // Update transferred quantity in transfer request item
+        await db
+          .update(transferRequestItems)
+          .set({
+            transferredQuantity: item.approvedQuantity,
+            updatedAt: new Date(),
+          })
+          .where(eq(transferRequestItems.id, item.id));
+      }
+
+      // Mark transfer as completed
+      await db
+        .update(transferRequests)
+        .set({
+          status: 'completed',
+          updatedAt: new Date(),
+        })
+        .where(eq(transferRequests.id, parseInt(id)));
+
+      // Log completion action
+      await db.insert(transferActions).values({
+        transferRequestId: parseInt(id),
+        actionType: 'completed',
+        actionData: {
+          executedBy: user.username,
+          notes: notes
+        },
+        performedByUserId: user.id,
+      });
+
+      res.json({
+        message: "Transfer executed successfully",
+      });
+    } catch (error) {
+      console.error('Error executing transfer:', error);
+      res.status(500).json({
+        message: "Failed to execute transfer",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Cancel transfer request
+  app.post("/api/transfer-requests/:id/cancel", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+      const user = req.user;
+
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const transferRequest = await db.query.transferRequests.findFirst({
+        where: eq(transferRequests.id, parseInt(id)),
+      });
+
+      if (!transferRequest) {
+        return res.status(404).json({
+          message: "Transfer request not found"
+        });
+      }
+
+      if (!['pending', 'approved'].includes(transferRequest.status)) {
+        return res.status(400).json({
+          message: "Only pending or approved transfers can be cancelled",
+          suggestion: "Transfer status prevents cancellation"
+        });
+      }
+
+      // Check if user has permission to cancel (requester or admin)
+      const userAssignment = await db.query.userStoreAssignments.findFirst({
+        where: eq(userStoreAssignments.userId, user.id),
+      });
+
+      if (transferRequest.requestedByUserId !== user.id &&
+        (!userAssignment || (userAssignment.storeId !== transferRequest.fromStoreId &&
+          userAssignment.storeId !== transferRequest.toStoreId))) {
+        return res.status(403).json({
+          message: "You don't have permission to cancel this transfer",
+          suggestion: "Only the requester or store users can cancel"
+        });
+      }
+
+      // Cancel the transfer
+      await db
+        .update(transferRequests)
+        .set({
+          status: 'cancelled',
+          updatedAt: new Date(),
+        })
+        .where(eq(transferRequests.id, parseInt(id)));
+
+      // Log cancellation action
+      await db.insert(transferActions).values({
+        transferRequestId: parseInt(id),
+        actionType: 'cancelled',
+        actionData: {
+          reason: reason || 'Cancelled by user',
+          cancelledBy: user.username
+        },
+        performedByUserId: user.id,
+      });
+
+      res.json({
+        message: "Transfer request cancelled successfully",
+      });
+    } catch (error) {
+      console.error('Error cancelling transfer:', error);
+      res.status(500).json({
+        message: "Failed to cancel transfer",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Get transfer history/analytics
+  app.get("/api/transfer-history", requireAuth, async (req, res) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const {
+        product_id,
+        from_store_id,
+        to_store_id,
+        transferred_by,
+        start_date,
+        end_date,
+        limit = '100',
+        offset = '0'
+      } = req.query;
+
+      let whereConditions = [];
+
+      // Filter by user's accessible stores
+      const userAssignment = await db.query.userStoreAssignments.findFirst({
+        where: eq(userStoreAssignments.userId, user.id),
+      });
+
+      if (userAssignment) {
+        // Users can see transfers involving their stores
+        const storeTransfers = await db
+          .select({ id: transferRequests.id })
+          .from(transferRequests)
+          .where(
+            or(
+              eq(transferRequests.fromStoreId, userAssignment.storeId),
+              eq(transferRequests.toStoreId, userAssignment.storeId)
+            )
+          );
+
+        const transferIds = storeTransfers.map(t => t.id);
+        if (transferIds.length > 0) {
+          whereConditions.push(sql`${transferHistory.transferRequestId} IN ${transferIds}`);
+        }
+      }
+
+      // Additional filters
+      if (product_id) {
+        whereConditions.push(eq(transferHistory.productId, parseInt(product_id)));
+      }
+
+      if (transferred_by) {
+        whereConditions.push(eq(transferHistory.transferredByUserId, parseInt(transferred_by)));
+      }
+
+      if (start_date) {
+        whereConditions.push(sql`${transferHistory.transferredAt} >= ${start_date}`);
+      }
+
+      if (end_date) {
+        whereConditions.push(sql`${transferHistory.transferredAt} <= ${end_date}`);
+      }
+
+      const transferHistoryRecords = await db.query.transferHistory.findMany({
+        where: whereConditions.length > 0 ? and(...whereConditions) : undefined,
+        with: {
+          transferRequest: {
+            with: {
+              fromStore: true,
+              toStore: true,
+            },
+          },
+          product: true,
+          transferredByUser: true,
+        },
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        orderBy: [desc(transferHistory.transferredAt)],
+      });
+
+      res.json({
+        transfers: transferHistoryRecords,
+        total: transferHistoryRecords.length,
+      });
+    } catch (error) {
+      console.error('Error fetching transfer history:', error);
+      res.status(500).json({
+        message: "Failed to fetch transfer history",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  // Quick transfer between stores (for admins/DC staff)
+  app.post("/api/transfers/quick-transfer", requireRole(['admin']), async (req, res) => {
+    try {
+      const { fromStoreId, toStoreId, productId, quantity, notes } = req.body;
+      const user = req.user;
+
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      if (!fromStoreId || !toStoreId || !productId || !quantity || quantity <= 0) {
+        return res.status(400).json({
+          message: "All fields are required and quantity must be positive",
+          suggestion: "Provide complete transfer information"
+        });
+      }
+
+      if (fromStoreId === toStoreId) {
+        return res.status(400).json({
+          message: "Cannot transfer to the same store",
+          suggestion: "Select different source and destination stores"
+        });
+      }
+
+      // Check source inventory
+      const sourceInventory = await db.query.inventory.findFirst({
+        where: and(
+          eq(inventory.productId, productId),
+          eq(inventory.storeId, fromStoreId)
+        ),
+      });
+
+      if (!sourceInventory || sourceInventory.quantity < quantity) {
+        return res.status(400).json({
+          message: `Insufficient stock in source store. Available: ${sourceInventory?.quantity || 0}`,
+          suggestion: "Check inventory or reduce quantity"
+        });
+      }
+
+      // Execute quick transfer
+      // Deduct from source
+      await db
+        .update(inventory)
+        .set({
+          quantity: sql`${inventory.quantity} - ${quantity}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(inventory.id, sourceInventory.id));
+
+      // Add to destination
+      const destInventory = await db.query.inventory.findFirst({
+        where: and(
+          eq(inventory.productId, productId),
+          eq(inventory.storeId, toStoreId)
+        ),
+      });
+
+      let destInventoryId;
+      if (destInventory) {
+        await db
+          .update(inventory)
+          .set({
+            quantity: sql`${inventory.quantity} + ${quantity}`,
+            updatedAt: new Date(),
+          })
+          .where(eq(inventory.id, destInventory.id));
+        destInventoryId = destInventory.id;
+      } else {
+        const barcode = generateInventoryBarcode('STORE', productId.toString(), toStoreId);
+        const [newDest] = await db
+          .insert(inventory)
+          .values({
+            productId: productId,
+            storeId: toStoreId,
+            quantity: quantity,
+            inventoryType: 'STORE',
+            barcode: barcode,
+            location: `Quick transfer from Store ${fromStoreId}`,
+          })
+          .returning();
+        destInventoryId = newDest.id;
+      }
+
+      // Create a quick transfer record (without full request workflow)
+      const transferNumber = `QTRF-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      const [quickTransfer] = await db
+        .insert(transferRequests)
+        .values({
+          transferNumber,
+          fromStoreId,
+          toStoreId,
+          requestedByUserId: user.id,
+          status: 'completed',
+          priority: 'high',
+          notes: `Quick transfer: ${notes || 'No notes'}`,
+        })
+        .returning();
+
+      // Record the transfer
+      await db.insert(transferHistory).values({
+        transferRequestId: quickTransfer.id,
+        fromInventoryId: sourceInventory.id,
+        toInventoryId: destInventoryId,
+        productId: productId,
+        quantity: quantity,
+        transferredByUserId: user.id,
+        notes: notes || 'Quick transfer',
+      });
+
+      res.json({
+        message: "Quick transfer completed successfully",
+        transfer: {
+          id: quickTransfer.id,
+          transferNumber: quickTransfer.transferNumber,
+          quantity: quantity,
+        },
+      });
+    } catch (error) {
+      console.error('Error executing quick transfer:', error);
+      res.status(500).json({
+        message: "Failed to execute quick transfer",
         suggestion: "Please try again later"
       });
     }

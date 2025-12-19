@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import AuthPage from "./pages/AuthPage";
 import DashboardPage from "./pages/DashboardPage";
 import InventoryPage from "./pages/InventoryPage";
+import TransferPage from "./pages/TransferPage";
 import OrdersPage from "./pages/OrdersPage";
 import ProductsPage from "./pages/ProductsPage";
 import CategoryPage from "./pages/CategoryPage";
@@ -43,6 +44,7 @@ function App() {
       <Switch>
         <Route path="/" component={DashboardPage} />
         <Route path="/inventory" component={InventoryPage} />
+        <Route path="/transfers" component={TransferPage} />
         <Route path="/pos" component={POSPage} />
         <Route path="/receipts" component={ReceiptsPage} />
         <Route path="/purchase-orders" component={PurchaseOrdersPage} />

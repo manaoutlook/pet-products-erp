@@ -15,6 +15,13 @@
       "when": 1764334082822,
       "tag": "0001_pos_system_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1765380010781,
+      "tag": "0002_aberrant_ulik",
+      "breakpoints": true
     }
   ]
 }
