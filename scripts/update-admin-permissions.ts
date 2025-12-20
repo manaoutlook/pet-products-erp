@@ -15,7 +15,10 @@ async function updateAdminPermissions() {
           orders: { create: true, read: true, update: true, delete: true },
           inventory: { create: true, read: true, update: true, delete: true },
           users: { create: true, read: true, update: true, delete: true },
-          stores: { create: true, read: true, update: true, delete: true }
+          stores: { create: true, read: true, update: true, delete: true },
+          masterData: { create: true, read: true, update: true, delete: true },
+          pos: { create: true, read: true, update: true, delete: true },
+          receipts: { create: true, read: true, update: true, delete: true }
         },
         updatedAt: new Date()
       })

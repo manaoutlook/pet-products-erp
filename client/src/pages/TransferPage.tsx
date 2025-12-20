@@ -75,11 +75,11 @@ interface TransferRequest {
   fromStore: {
     id: number;
     name: string;
-  };
+  } | null;
   toStore: {
     id: number;
     name: string;
-  };
+  } | null;
   requestedByUser: {
     id: number;
     username: string;
@@ -149,8 +149,8 @@ function TransferPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...data,
-          fromStoreId: parseInt(data.fromStoreId),
-          toStoreId: parseInt(data.toStoreId),
+          fromStoreId: data.fromStoreId === 'DC' ? null : parseInt(data.fromStoreId),
+          toStoreId: data.toStoreId === 'DC' ? null : parseInt(data.toStoreId),
           items: data.items.map(item => ({
             ...item,
             productId: parseInt(item.productId),
@@ -234,8 +234,8 @@ function TransferPage() {
   const filteredTransfers = transfers?.filter(transfer =>
     search.trim() === '' ||
     transfer.transferNumber.toLowerCase().includes(search.toLowerCase()) ||
-    transfer.fromStore.name.toLowerCase().includes(search.toLowerCase()) ||
-    transfer.toStore.name.toLowerCase().includes(search.toLowerCase()) ||
+    (transfer.fromStore?.name || 'DC (Distribution Center)').toLowerCase().includes(search.toLowerCase()) ||
+    (transfer.toStore?.name || 'DC (Distribution Center)').toLowerCase().includes(search.toLowerCase()) ||
     transfer.requestedByUser.username.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -287,6 +287,7 @@ function TransferPage() {
                                 </SelectTrigger>
                               </FormControl>
                               <SelectContent>
+                                <SelectItem value="DC">DC (Distribution Center)</SelectItem>
                                 {stores?.map((store) => (
                                   <SelectItem key={store.id} value={store.id.toString()}>
                                     {store.name}
@@ -524,9 +525,9 @@ function TransferPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <span>{transfer.fromStore.name}</span>
+                        <span>{transfer.fromStore?.name || 'DC (Distribution Center)'}</span>
                         <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                        <span>{transfer.toStore.name}</span>
+                        <span>{transfer.toStore?.name || 'DC (Distribution Center)'}</span>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -582,11 +583,11 @@ function TransferPage() {
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">From:</span>
-                      <span>{selectedTransfer.fromStore.name}</span>
+                      <span>{selectedTransfer.fromStore?.name || 'DC (Distribution Center)'}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">To:</span>
-                      <span>{selectedTransfer.toStore.name}</span>
+                      <span>{selectedTransfer.toStore?.name || 'DC (Distribution Center)'}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Priority:</span>

@@ -62,12 +62,12 @@ function CategoryPage() {
 
   const { data: categories, isLoading, refetch } = useQuery<Category[]>({
     queryKey: ['/api/categories'],
-    enabled: hasPermission('products', 'read'),
+    enabled: hasPermission('masterData', 'read'),
   });
 
   const createMutation = useMutation({
     mutationFn: async (data: CategoryFormData) => {
-      if (!hasPermission('products', 'create')) {
+      if (!hasPermission('masterData', 'create')) {
         throw new Error("You don't have permission to create categories");
       }
       const res = await fetch('/api/categories', {
@@ -84,8 +84,8 @@ function CategoryPage() {
       toast({ title: "Success", description: "Category created successfully" });
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
+      toast({
+        title: "Error",
         description: error.message,
         variant: "destructive"
       });
@@ -94,7 +94,7 @@ function CategoryPage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number; data: CategoryFormData }) => {
-      if (!hasPermission('products', 'update')) {
+      if (!hasPermission('masterData', 'update')) {
         throw new Error("You don't have permission to update categories");
       }
       const res = await fetch(`/api/categories/${id}`, {
@@ -111,8 +111,8 @@ function CategoryPage() {
       toast({ title: "Success", description: "Category updated successfully" });
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
+      toast({
+        title: "Error",
         description: error.message,
         variant: "destructive"
       });
@@ -121,7 +121,7 @@ function CategoryPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      if (!hasPermission('products', 'delete')) {
+      if (!hasPermission('masterData', 'delete')) {
         throw new Error("You don't have permission to delete categories");
       }
       const res = await fetch(`/api/categories/${id}`, {
@@ -136,8 +136,8 @@ function CategoryPage() {
       toast({ title: "Success", description: "Category deleted successfully" });
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
+      toast({
+        title: "Error",
         description: error.message,
         variant: "destructive"
       });
@@ -152,7 +152,7 @@ function CategoryPage() {
     },
   });
 
-  const filteredCategories = categories?.filter(category => 
+  const filteredCategories = categories?.filter(category =>
     category.name.toLowerCase().includes(search.toLowerCase()) ||
     (category.description?.toLowerCase() || "").includes(search.toLowerCase())
   );
@@ -160,8 +160,8 @@ function CategoryPage() {
   const onSubmit = async (data: CategoryFormData) => {
     try {
       if (editingCategory) {
-        await updateMutation.mutateAsync({ 
-          id: editingCategory.id, 
+        await updateMutation.mutateAsync({
+          id: editingCategory.id,
           data: data
         });
       } else {
@@ -180,7 +180,7 @@ function CategoryPage() {
   };
 
   // If user doesn't have read permission, show access denied
-  if (!hasPermission('products', 'read')) {
+  if (!hasPermission('masterData', 'read')) {
     return (
       <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
         <Card className="w-full max-w-md mx-4">
@@ -202,7 +202,7 @@ function CategoryPage() {
     <div className="space-y-6 p-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Categories</h1>
-        {hasPermission('products', 'create') && (
+        {hasPermission('masterData', 'create') && (
           <Dialog>
             <DialogTrigger asChild>
               <Button onClick={() => {
@@ -290,87 +290,90 @@ function CategoryPage() {
                   <TableHead>Description</TableHead>
                   <TableHead>Created At</TableHead>
                   <TableHead>Updated At</TableHead>
-                  {hasPermission('products', 'update') && (
+                  {(hasPermission('masterData', 'update') || hasPermission('masterData', 'delete')) && (
                     <TableHead>Actions</TableHead>
                   )}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredCategories?.map((category) => (
+                {filteredCategories?.map((category: any) => (
                   <TableRow key={category.id}>
                     <TableCell>{category.name}</TableCell>
                     <TableCell>{category.description}</TableCell>
                     <TableCell>{new Date(category.createdAt).toLocaleString()}</TableCell>
                     <TableCell>{new Date(category.updatedAt).toLocaleString()}</TableCell>
-                    {hasPermission('products', 'update') && (
+                    {(hasPermission('masterData', 'update') || hasPermission('masterData', 'delete')) && (
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <Dialog>
-                            <DialogTrigger asChild>
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                onClick={() => {
-                                  setEditingCategory(category);
-                                  form.reset({
-                                    name: category.name,
-                                    description: category.description || "",
-                                  });
-                                }}
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                              <DialogHeader>
-                                <DialogTitle>Edit Category</DialogTitle>
-                              </DialogHeader>
-                              <Form {...form}>
-                                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                                  <FormField
-                                    control={form.control}
-                                    name="name"
-                                    render={({ field }) => (
-                                      <FormItem>
-                                        <FormLabel>Name</FormLabel>
-                                        <FormControl>
-                                          <Input {...field} />
-                                        </FormControl>
-                                        <FormMessage />
-                                      </FormItem>
-                                    )}
-                                  />
-                                  <FormField
-                                    control={form.control}
-                                    name="description"
-                                    render={({ field }) => (
-                                      <FormItem>
-                                        <FormLabel>Description</FormLabel>
-                                        <FormControl>
-                                          <Input {...field} />
-                                        </FormControl>
-                                        <FormMessage />
-                                      </FormItem>
-                                    )}
-                                  />
-                                  <Button
-                                    type="submit"
-                                    className="w-full"
-                                    disabled={form.formState.isSubmitting}
-                                  >
-                                    {form.formState.isSubmitting && (
-                                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    )}
-                                    Update Category
-                                  </Button>
-                                </form>
-                              </Form>
-                            </DialogContent>
-                          </Dialog>
-                          {hasPermission('products', 'delete') && (
+                          {hasPermission('masterData', 'update') && (
+                            <Dialog>
+                              <DialogTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  onClick={() => {
+                                    setEditingCategory(category);
+                                    form.reset({
+                                      name: category.name,
+                                      description: category.description || "",
+                                    });
+                                  }}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent>
+                                <DialogHeader>
+                                  <DialogTitle>Edit Category</DialogTitle>
+                                </DialogHeader>
+                                <Form {...form}>
+                                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                                    <FormField
+                                      control={form.control}
+                                      name="name"
+                                      render={({ field }) => (
+                                        <FormItem>
+                                          <FormLabel>Name</FormLabel>
+                                          <FormControl>
+                                            <Input {...field} />
+                                          </FormControl>
+                                          <FormMessage />
+                                        </FormItem>
+                                      )}
+                                    />
+                                    <FormField
+                                      control={form.control}
+                                      name="description"
+                                      render={({ field }) => (
+                                        <FormItem>
+                                          <FormLabel>Description</FormLabel>
+                                          <FormControl>
+                                            <Input {...field} />
+                                          </FormControl>
+                                          <FormMessage />
+                                        </FormItem>
+                                      )}
+                                    />
+                                    <Button
+                                      type="submit"
+                                      className="w-full"
+                                      disabled={form.formState.isSubmitting}
+                                    >
+                                      {form.formState.isSubmitting && (
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                      )}
+                                      Update Category
+                                    </Button>
+                                  </form>
+                                </Form>
+                              </DialogContent>
+                            </Dialog>
+                          )}
+                          {hasPermission('masterData', 'delete') && (
                             <Button
                               variant="outline"
                               size="icon"
+                              className="text-destructive"
                               onClick={() => {
                                 if (confirm('Are you sure you want to delete this category?')) {
                                   deleteMutation.mutate(category.id);

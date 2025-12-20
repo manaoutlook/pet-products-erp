@@ -16,6 +16,9 @@ type Permissions = {
   inventory: { create: boolean; read: boolean; update: boolean; delete: boolean };
   users: { create: boolean; read: boolean; update: boolean; delete: boolean };
   stores: { create: boolean; read: boolean; update: boolean; delete: boolean };
+  masterData: { create: boolean; read: boolean; update: boolean; delete: boolean };
+  pos: { create: boolean; read: boolean; update: boolean; delete: boolean };
+  receipts: { create: boolean; read: boolean; update: boolean; delete: boolean };
 };
 
 // Roles table with proper JSONB handling
@@ -170,7 +173,7 @@ export const purchaseOrderActions = pgTable("purchase_order_actions", {
   id: serial("id").primaryKey(),
   purchaseOrderId: integer("purchase_order_id").references(() => purchaseOrders.id).notNull(),
   actionType: varchar("action_type", { length: 50 }).notNull(), // 'cancel', 'print', 'invoice_received', 'payment_sent', 'goods_receipt'
-  actionData: jsonb("action_data").$type<{notes?: string, quantity?: number, reference?: string}>(),
+  actionData: jsonb("action_data").$type<{ notes?: string, quantity?: number, reference?: string }>(),
   performedByUserId: integer("performed_by_user_id").references(() => users.id).notNull(),
   performedAt: timestamp("performed_at").notNull().defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -233,7 +236,7 @@ export const salesTransactionActions = pgTable("sales_transaction_actions", {
   id: serial("id").primaryKey(),
   salesTransactionId: integer("sales_transaction_id").notNull().references(() => salesTransactions.id),
   actionType: varchar("action_type", { length: 50 }).notNull(),
-  actionData: jsonb("action_data").$type<{notes?: string, refundAmount?: number, reference?: string}>(),
+  actionData: jsonb("action_data").$type<{ notes?: string, refundAmount?: number, reference?: string }>(),
   performedByUserId: integer("performed_by_user_id").notNull().references(() => users.id),
   performedAt: timestamp("performed_at").notNull().defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -272,7 +275,7 @@ export const transferActions = pgTable("transfer_actions", {
   id: serial("id").primaryKey(),
   transferRequestId: integer("transfer_request_id").notNull().references(() => transferRequests.id, { onDelete: 'cascade' }),
   actionType: varchar("action_type", { length: 50 }).notNull(),
-  actionData: jsonb("action_data").$type<{notes?: string, approvedQuantity?: number, rejectionReason?: string}>(),
+  actionData: jsonb("action_data").$type<{ notes?: string, approvedQuantity?: number, rejectionReason?: string }>(),
   performedByUserId: integer("performed_by_user_id").notNull().references(() => users.id),
   performedAt: timestamp("performed_at").notNull().defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -577,6 +580,7 @@ export type SelectRole = typeof roles.$inferSelect & {
 };
 
 export const insertUserSchema = createInsertSchema(users);
+export const updateUserSchema = insertUserSchema.partial();
 export const selectUserSchema = createSelectSchema(users);
 export type InsertUser = typeof users.$inferInsert;
 export type SelectUser = typeof users.$inferSelect & {

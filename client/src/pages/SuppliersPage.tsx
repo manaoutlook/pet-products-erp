@@ -36,7 +36,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import type { InsertSupplier, SelectSupplier } from "@db/schema";
 import { insertSupplierSchema } from "@db/schema";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
+import { Loader2, Search, Plus, Pencil, Trash2, AlertCircle } from "lucide-react";
 import { usePermissions } from "@/hooks/use-permissions";
 
 function SuppliersPage() {
@@ -48,7 +48,7 @@ function SuppliersPage() {
 
   const { data: suppliers, isLoading, refetch } = useQuery<SelectSupplier[]>({
     queryKey: ['/api/suppliers'],
-    enabled: hasPermission('products', 'read'),
+    enabled: hasPermission('masterData', 'read'),
   });
 
   const form = useForm<InsertSupplier>({
@@ -168,91 +168,112 @@ function SuppliersPage() {
     setDialogOpen(true);
   };
 
-  const filteredSuppliers = suppliers?.filter(supplier =>
+  const filteredSuppliers = suppliers?.filter((supplier: SelectSupplier) =>
     supplier.name.toLowerCase().includes(search.toLowerCase()) ||
     supplier.contactInfo.toLowerCase().includes(search.toLowerCase()) ||
     supplier.address.toLowerCase().includes(search.toLowerCase())
   );
 
+  // If user doesn't have read permission, show access denied
+  if (!hasPermission('masterData', 'read')) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
+        <Card className="w-full max-w-md mx-4">
+          <CardContent className="pt-6">
+            <div className="flex mb-4 gap-2">
+              <AlertCircle className="h-8 w-8 text-red-500" />
+              <h1 className="text-2xl font-bold text-gray-900">Access Denied</h1>
+            </div>
+            <p className="mt-4 text-sm text-gray-600">
+              You don't have permission to view suppliers.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 p-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Suppliers</h1>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={handleAddSupplier}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Supplier
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{editingSupplier ? 'Edit Supplier' : 'Add New Supplier'}</DialogTitle>
-            </DialogHeader>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Supplier Name</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="Enter supplier name"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="contactInfo"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Contact Information</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="Enter contact information"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="address"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Address</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="Enter supplier address"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={form.formState.isSubmitting}
-                >
-                  {form.formState.isSubmitting && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
-                  {editingSupplier ? 'Update Supplier' : 'Create Supplier'}
-                </Button>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
+        {hasPermission('masterData', 'create') && (
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button onClick={handleAddSupplier}>
+                <Plus className="mr-2 h-4 w-4" />
+                Add Supplier
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{editingSupplier ? 'Edit Supplier' : 'Add New Supplier'}</DialogTitle>
+              </DialogHeader>
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="name"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Supplier Name</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="Enter supplier name"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="contactInfo"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Contact Information</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="Enter contact information"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="address"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Address</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="Enter supplier address"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={form.formState.isSubmitting}
+                  >
+                    {form.formState.isSubmitting && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
+                    {editingSupplier ? 'Update Supplier' : 'Create Supplier'}
+                  </Button>
+                </form>
+              </Form>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       <Card>
@@ -282,38 +303,46 @@ function SuppliersPage() {
                   <TableHead>Supplier Name</TableHead>
                   <TableHead>Contact Information</TableHead>
                   <TableHead>Address</TableHead>
-                  <TableHead>Actions</TableHead>
+                  {(hasPermission('masterData', 'update') || hasPermission('masterData', 'delete')) && (
+                    <TableHead>Actions</TableHead>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredSuppliers?.map((supplier) => (
+                {filteredSuppliers?.map((supplier: SelectSupplier) => (
                   <TableRow key={supplier.id}>
                     <TableCell className="font-medium">{supplier.name}</TableCell>
                     <TableCell>{supplier.contactInfo}</TableCell>
                     <TableCell>{supplier.address}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => handleEditSupplier(supplier)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="text-destructive"
-                          onClick={() => {
-                            if (confirm('Are you sure you want to delete this supplier?')) {
-                              deleteMutation.mutate(supplier.id);
-                            }
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                    {(hasPermission('masterData', 'update') || hasPermission('masterData', 'delete')) && (
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {hasPermission('masterData', 'update') && (
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => handleEditSupplier(supplier)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {hasPermission('masterData', 'delete') && (
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="text-destructive"
+                              onClick={() => {
+                                if (confirm('Are you sure you want to delete this supplier?')) {
+                                  deleteMutation.mutate(supplier.id);
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>

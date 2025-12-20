@@ -12,7 +12,10 @@ interface Permissions {
   orders: Permission;
   inventory: Permission;
   users: Permission;
-  stores: Permission; // Added stores permission
+  stores: Permission;
+  masterData: Permission;
+  pos: Permission;
+  receipts: Permission;
 }
 
 interface Role {
@@ -44,8 +47,8 @@ export function usePermissions() {
 
   const getAllowedModules = (): (keyof Permissions)[] => {
     if (!user?.role?.permissions) return [];
-    return Object.entries(user.role.permissions)
-      .filter(([_, permissions]) => Object.values(permissions).some(allowed => allowed))
+    return Object.entries(user.role.permissions as Record<string, any>)
+      .filter(([_, permissions]) => Object.values(permissions as Record<string, boolean>).some(allowed => allowed))
       .map(([module]) => module as keyof Permissions);
   };
 

@@ -36,16 +36,19 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import type { InsertBrand, SelectBrand } from "@db/schema";
 import { insertBrandSchema } from "@db/schema";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
+import { usePermissions } from "@/hooks/use-permissions";
+import { Loader2, Search, Plus, Pencil, Trash2, AlertCircle } from "lucide-react";
 
 function BrandsPage() {
   const [search, setSearch] = useState("");
   const [editingBrand, setEditingBrand] = useState<SelectBrand | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const { toast } = useToast();
+  const { hasPermission } = usePermissions();
 
   const { data: brands, isLoading, refetch } = useQuery<SelectBrand[]>({
     queryKey: ['/api/brands'],
+    enabled: hasPermission('masterData', 'read'),
   });
 
   const form = useForm<InsertBrand>({
@@ -74,8 +77,8 @@ function BrandsPage() {
       toast({ title: "Success", description: "Brand created successfully" });
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
+      toast({
+        title: "Error",
         description: error.message,
         variant: "destructive"
       });
@@ -100,8 +103,8 @@ function BrandsPage() {
       toast({ title: "Success", description: "Brand updated successfully" });
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
+      toast({
+        title: "Error",
         description: error.message,
         variant: "destructive"
       });
@@ -122,8 +125,8 @@ function BrandsPage() {
       toast({ title: "Success", description: "Brand deleted successfully" });
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
+      toast({
+        title: "Error",
         description: error.message,
         variant: "destructive"
       });
@@ -133,8 +136,8 @@ function BrandsPage() {
   const onSubmit = async (data: InsertBrand) => {
     try {
       if (editingBrand) {
-        await updateMutation.mutateAsync({ 
-          id: editingBrand.id, 
+        await updateMutation.mutateAsync({
+          id: editingBrand.id,
           data: data
         });
       } else {
@@ -170,74 +173,95 @@ function BrandsPage() {
     }
   };
 
-  const filteredBrands = brands?.filter(brand => 
+  const filteredBrands = brands?.filter(brand =>
     brand.name.toLowerCase().includes(search.toLowerCase()) ||
     (brand.description?.toLowerCase() || "").includes(search.toLowerCase())
   );
+
+  // If user doesn't have read permission, show access denied
+  if (!hasPermission('masterData', 'read')) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
+        <Card className="w-full max-w-md mx-4">
+          <CardContent className="pt-6">
+            <div className="flex mb-4 gap-2">
+              <AlertCircle className="h-8 w-8 text-red-500" />
+              <h1 className="text-2xl font-bold text-gray-900">Access Denied</h1>
+            </div>
+            <p className="mt-4 text-sm text-gray-600">
+              You don't have permission to view brands.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 p-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Brands</h1>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={handleAddBrand}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Brand
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{editingBrand ? 'Edit Brand' : 'Add New Brand'}</DialogTitle>
-            </DialogHeader>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Brand Name</FormLabel>
-                      <FormControl>
-                        <Input 
-                          {...field}
-                          placeholder="Enter brand name"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="description"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Description</FormLabel>
-                      <FormControl>
-                        <Input 
-                          {...field}
-                          placeholder="Enter brand description"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={form.formState.isSubmitting}
-                >
-                  {form.formState.isSubmitting && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
-                  {editingBrand ? 'Update Brand' : 'Create Brand'}
-                </Button>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
+        {hasPermission('masterData', 'create') && (
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button onClick={handleAddBrand}>
+                <Plus className="mr-2 h-4 w-4" />
+                Add Brand
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{editingBrand ? 'Edit Brand' : 'Add New Brand'}</DialogTitle>
+              </DialogHeader>
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="name"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Brand Name</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="Enter brand name"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="description"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Description</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="Enter brand description"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={form.formState.isSubmitting}
+                  >
+                    {form.formState.isSubmitting && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
+                    {editingBrand ? 'Update Brand' : 'Create Brand'}
+                  </Button>
+                </form>
+              </Form>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       <Card>
@@ -266,33 +290,41 @@ function BrandsPage() {
                 <TableRow>
                   <TableHead>Brand Name</TableHead>
                   <TableHead>Description</TableHead>
-                  <TableHead>Actions</TableHead>
+                  {(hasPermission('masterData', 'update') || hasPermission('masterData', 'delete')) && (
+                    <TableHead>Actions</TableHead>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredBrands?.map((brand) => (
+                {filteredBrands?.map((brand: SelectBrand) => (
                   <TableRow key={brand.id}>
                     <TableCell className="font-medium">{brand.name}</TableCell>
                     <TableCell>{brand.description}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => handleEditBrand(brand)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="text-destructive"
-                          onClick={() => handleDeleteBrand(brand.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                    {(hasPermission('masterData', 'update') || hasPermission('masterData', 'delete')) && (
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {hasPermission('masterData', 'update') && (
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => handleEditBrand(brand)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {hasPermission('masterData', 'delete') && (
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="text-destructive"
+                              onClick={() => handleDeleteBrand(brand.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>

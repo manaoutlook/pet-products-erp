@@ -32,7 +32,7 @@ interface NavItem {
   name: string;
   href?: string;
   icon: any;
-  module?: 'products' | 'orders' | 'inventory' | 'users' | 'stores';
+  module?: 'products' | 'orders' | 'inventory' | 'users' | 'stores' | 'masterData' | 'pos' | 'receipts';
   action?: 'create' | 'read' | 'update' | 'delete';
   adminOnly?: boolean;
   children?: NavItem[];
@@ -46,50 +46,50 @@ function Sidebar() {
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
 
   const toggleExpanded = (name: string) => {
-    setExpandedItems(prev => 
-      prev.includes(name) 
+    setExpandedItems(prev =>
+      prev.includes(name)
         ? prev.filter(item => item !== name)
         : [...prev, name]
     );
   };
 
   const navigationItems: NavItem[] = [
-    { 
-      name: "Dashboard", 
-      href: "/", 
-      icon: LayoutDashboard 
+    {
+      name: "Dashboard",
+      href: "/",
+      icon: LayoutDashboard
     },
     {
       name: "Master Data",
       icon: Settings,
-      module: 'products',
+      module: 'masterData',
       action: 'read',
       children: [
         {
           name: "Categories",
           href: "/categories",
           icon: Folders,
-          module: 'products',
+          module: 'masterData',
           action: 'read'
         },
         {
           name: "Brands",
           href: "/brands",
           icon: Tags,
-          module: 'products',
+          module: 'masterData',
           action: 'read'
         },
         {
           name: "Suppliers",
           href: "/suppliers",
           icon: Building2,
-          module: 'products',
+          module: 'masterData',
           action: 'read'
         }
       ]
     },
-    { 
-      name: "Products", 
+    {
+      name: "Products",
       icon: Package,
       module: 'products',
       action: 'read',
@@ -103,8 +103,8 @@ function Sidebar() {
         }
       ]
     },
-    { 
-      name: "Orders", 
+    {
+      name: "Orders",
       icon: ShoppingCart,
       module: 'orders',
       action: 'read',
@@ -144,14 +144,14 @@ function Sidebar() {
       name: "Point of Sale",
       href: "/pos",
       icon: StoreIcon,
-      module: 'inventory', // POS needs inventory access
+      module: 'pos', // POS now has its own permission
       action: 'read'
     },
     {
       name: "Receipts",
       href: "/receipts",
       icon: ListIcon,
-      module: 'inventory', // Receipts need inventory access
+      module: 'receipts', // Receipts now has its own permission
       action: 'read'
     },
     {
@@ -176,9 +176,9 @@ function Sidebar() {
         }
       ]
     },
-    { 
-      name: "Customer Profiles", 
-      href: "/customers", 
+    {
+      name: "Customer Profiles",
+      href: "/customers",
       icon: UserCircle,
       module: 'users',
       action: 'read'
@@ -189,9 +189,9 @@ function Sidebar() {
       module: 'users',
       action: 'read',
       children: [
-        { 
-          name: "Users", 
-          href: "/users", 
+        {
+          name: "Users",
+          href: "/users",
           icon: Users,
           module: 'users',
           action: 'read'
@@ -214,15 +214,15 @@ function Sidebar() {
           icon: Lock,
           adminOnly: true
         },
-        { 
-          name: "Store Assignments", 
-          href: "/store-assignments", 
+        {
+          name: "Store Assignments",
+          href: "/store-assignments",
           icon: Store,
           adminOnly: true
         },
-        { 
-          name: "Role Mapping", 
-          href: "/role-mapping", 
+        {
+          name: "Role Mapping",
+          href: "/role-mapping",
           icon: Network,
           adminOnly: true
         },

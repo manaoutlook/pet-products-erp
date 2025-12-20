@@ -38,6 +38,9 @@ interface Permissions {
   inventory: Permission;
   users: Permission;
   stores: Permission;
+  masterData: Permission;
+  pos: Permission;
+  receipts: Permission;
 }
 
 interface Role {
@@ -72,10 +75,10 @@ function RolePermissionsPage() {
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
-    onSuccess: (data, variables) => {
-      queryClient.setQueryData<Role[]>(['/api/roles'], (oldRoles) => {
+    onSuccess: (data: any, variables: { roleId: number; permissions: Permissions }) => {
+      queryClient.setQueryData<Role[]>(['/api/roles'], (oldRoles: Role[] | undefined) => {
         if (!oldRoles) return oldRoles;
-        return oldRoles.map(role =>
+        return oldRoles.map((role: Role) =>
           role.id === variables.roleId
             ? { ...role, permissions: variables.permissions }
             : role
@@ -99,7 +102,7 @@ function RolePermissionsPage() {
     permission: keyof Permission,
     value: boolean
   ) => {
-    const role = roles?.find(r => r.id === roleId);
+    const role = roles?.find((r: Role) => r.id === roleId);
     if (!role) return;
 
     // Prevent modifying admin role permissions
@@ -138,6 +141,9 @@ function RolePermissionsPage() {
     { key: 'inventory' as const, label: 'Inventory Module' },
     { key: 'users' as const, label: 'User Management Module' },
     { key: 'stores' as const, label: 'Store Management Module' },
+    { key: 'masterData' as const, label: 'Master Data Module' },
+    { key: 'pos' as const, label: 'Point of Sales Module' },
+    { key: 'receipts' as const, label: 'Receipts Module' },
   ];
 
   const permissions = [
@@ -158,7 +164,7 @@ function RolePermissionsPage() {
   // Filter roles and modules based on selection
   const filteredRoles = selectedRole === "all"
     ? roles
-    : roles?.filter(role => role.id.toString() === selectedRole);
+    : roles?.filter((role: Role) => role.id.toString() === selectedRole);
 
   const filteredModules = selectedModule === "all"
     ? modules
@@ -183,7 +189,7 @@ function RolePermissionsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Roles</SelectItem>
-                {roles?.map((role) => (
+                {roles?.map((role: Role) => (
                   <SelectItem key={role.id} value={role.id.toString()}>
                     {role.name}
                   </SelectItem>
@@ -229,7 +235,7 @@ function RolePermissionsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredRoles?.map((role) => (
+              {filteredRoles?.map((role: Role) => (
                 <TableRow key={role.id}>
                   <TableCell className="font-medium">
                     <div>

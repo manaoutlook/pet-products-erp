@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { Store, User, RefreshCw, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useUser } from "@/hooks/use-user";
+import { usePermissions } from "@/hooks/use-permissions";
 
 interface Product {
   id: number;
@@ -68,6 +69,7 @@ function POSPage() {
   const { user } = useUser();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { hasPermission } = usePermissions();
 
   // Get user's assigned store
   useEffect(() => {
@@ -250,6 +252,24 @@ function POSPage() {
           <AlertTriangle className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
           <p className="text-lg font-medium">Please log in to access POS</p>
         </div>
+      </div>
+    );
+  }
+
+  if (!hasPermission('pos', 'read')) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
+        <Card className="w-full max-w-md mx-4">
+          <CardContent className="pt-6">
+            <div className="flex mb-4 gap-2">
+              <AlertTriangle className="h-8 w-8 text-red-500" />
+              <h1 className="text-2xl font-bold text-gray-900">Access Denied</h1>
+            </div>
+            <p className="mt-4 text-sm text-gray-600">
+              You don't have permission to access the Point of Sale system.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     );
   }

@@ -8,15 +8,15 @@ import {
   categories, brands, suppliers, purchaseOrders,
   purchaseOrderItems, purchaseOrderActions, customerProfiles, insertCustomerProfileSchema,
   insertPurchaseOrderActionSchema, selectPurchaseOrderActionSchema,
-  insertStoreSchema, insertUserSchema, salesTransactions, salesTransactionItems,
+  insertStoreSchema, insertUserSchema, updateUserSchema, salesTransactions, salesTransactionItems,
   salesTransactionActions, invoiceCounters,
   transferRequests, transferRequestItems, transferActions, transferHistory,
   insertTransferRequestSchema, insertTransferRequestItemSchema, insertTransferActionSchema,
   selectTransferRequestSchema, selectTransferRequestItemSchema
 } from "@db/schema";
 import { sql } from "drizzle-orm";
-import { eq, and, or, desc, gte, lt } from "drizzle-orm";
-import { requireRole, requireAuth } from "./middleware";
+import { eq, and, or, desc, gte, lt, isNull } from "drizzle-orm";
+import { requireRole, requireAuth, requirePermission } from "./middleware";
 import { z } from "zod";
 import { crypto } from "./auth";
 import { initializeStoreCounter, generateInvoiceNumber } from "./invoice-counter";
@@ -39,6 +39,7 @@ const updatePurchaseOrderSchema = z.object({
   notes: z.string().optional(),
 });
 
+
 // Helper functions
 function generateOrderNumber(): string {
   return `PO-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -52,12 +53,6 @@ function generateInventoryBarcode(
   const prefix = inventoryType === 'DC' ? 'DC' : 'ST';
   const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
 
-  // Schema for user updates
-  const updateUserSchema = z.object({
-    username: z.string().min(3).optional(),
-    password: z.string().min(6).optional(),
-    roleId: z.number().positive().optional(),
-  });
   const storePrefix = storeId ? storeId.toString().padStart(3, '0') : '000';
   return `${prefix}${storePrefix}${productSku}${randomNum}`;
 }
@@ -1156,7 +1151,10 @@ export function registerRoutes(app: Express): Server {
         orders: { create: false, read: false, update: false, delete: false },
         inventory: { create: false, read: false, update: false, delete: false },
         users: { create: false, read: false, update: false, delete: false },
-        stores: { create: false, read: false, update: false, delete: false }
+        stores: { create: false, read: false, update: false, delete: false },
+        masterData: { create: false, read: false, update: false, delete: false },
+        pos: { create: false, read: false, update: false, delete: false },
+        receipts: { create: false, read: false, update: false, delete: false }
       };
 
       const [newRole] = await db
@@ -1344,7 +1342,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Category Management endpoints
-  app.get("/api/categories", requireAuth, async (req, res) => {
+  app.get("/api/categories", requirePermission('masterData', 'read'), async (req, res) => {
     try {
       const allCategories = await db.query.categories.findMany({
         orderBy: [desc(categories.updatedAt)],
@@ -1356,7 +1354,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/categories", requireRole(['admin']), async (req, res) => {
+  app.post("/api/categories", requirePermission('masterData', 'create'), async (req, res) => {
     try {
       const { name, description } = req.body;
 
@@ -1391,7 +1389,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.put("/api/categories/:id", requireRole(['admin']), async (req, res) => {
+  app.put("/api/categories/:id", requirePermission('masterData', 'update'), async (req, res) => {
     try {
       const { id } = req.params;
       const { name, description } = req.body;
@@ -1436,7 +1434,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/categories/:id", requireRole(['admin']), async (req, res) => {
+  app.delete("/api/categories/:id", requirePermission('masterData', 'delete'), async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -1715,19 +1713,6 @@ export function registerRoutes(app: Express): Server {
     } catch (error) {
       console.error('Error deleting user:', error);
       res.status(500).send("Failed to delete user");
-    }
-  });
-
-  // Stores endpoints - admin only
-  app.get("/api/stores", requireRole(['admin']), async (req, res) => {
-    try {
-      const allStores = await db.query.stores.findMany({
-        orderBy: [desc(stores.updatedAt)],
-      });
-      res.json(allStores);
-    } catch (error) {
-      console.error('Error fetching stores:', error);
-      res.status(500).send("Failed to fetch stores");
     }
   });
 
@@ -2628,7 +2613,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Brand Management endpoints
-  app.get("/api/brands", requireAuth, async (req, res) => {
+  app.get("/api/brands", requirePermission('masterData', 'read'), async (req, res) => {
     try {
       const allBrands = await db.query.brands.findMany({
         orderBy: [desc(brands.updatedAt)],
@@ -2640,7 +2625,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/brands", requireRole(['admin']), async (req, res) => {
+  app.post("/api/brands", requirePermission('masterData', 'create'), async (req, res) => {
     try {
       const { name, description } = req.body;
 
@@ -2675,7 +2660,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.put("/api/brands/:id", requireRole(['admin']), async (req, res) => {
+  app.put("/api/brands/:id", requirePermission('masterData', 'update'), async (req, res) => {
     try {
       const { id } = req.params;
       const { name, description } = req.body;
@@ -2720,7 +2705,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/brands/:id", requireRole(['admin']), async (req, res) => {
+  app.delete("/api/brands/:id", requirePermission('masterData', 'delete'), async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -2746,7 +2731,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Supplier Management endpoints - admin only
-  app.get("/api/suppliers", requireRole(['admin']), async (req, res) => {
+  app.get("/api/suppliers", requirePermission('masterData', 'read'), async (req, res) => {
     try {
       const allSuppliers = await db.query.suppliers.findMany({
         orderBy: [desc(suppliers.updatedAt)],
@@ -2758,7 +2743,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/suppliers", requireRole(['admin']), async (req, res) => {
+  app.post("/api/suppliers", requirePermission('masterData', 'create'), async (req, res) => {
     try {
       const { name, contactInfo, address } = req.body;
 
@@ -2785,7 +2770,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.put("/api/suppliers/:id", requireRole(['admin']), async (req, res) => {
+  app.put("/api/suppliers/:id", requirePermission('masterData', 'update'), async (req, res) => {
     try {
       const { id } = req.params;
       const { name, contactInfo, address } = req.body;
@@ -2819,7 +2804,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/suppliers/:id", requireRole(['admin']), async (req, res) => {
+  app.delete("/api/suppliers/:id", requirePermission('masterData', 'delete'), async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -2857,7 +2842,7 @@ export function registerRoutes(app: Express): Server {
 
   // POS Sales Transaction API endpoints
   // Create new sales transaction
-  app.post("/api/sales-transactions", requireAuth, async (req, res) => {
+  app.post("/api/sales-transactions", requirePermission('pos', 'create'), async (req, res) => {
     try {
       const { items, paymentMethod, customerProfileId, transactionType } = req.body;
 
@@ -3051,7 +3036,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Get sales transactions with filtering
-  app.get("/api/sales-transactions", requireAuth, async (req, res) => {
+  app.get("/api/sales-transactions", requirePermission('receipts', 'read'), async (req, res) => {
     try {
       const {
         search,
@@ -3240,7 +3225,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Process refund for sales transaction
-  app.post("/api/sales-transactions/:id/refund", requireAuth, async (req, res) => {
+  app.post("/api/sales-transactions/:id/refund", requirePermission('receipts', 'update'), async (req, res) => {
     try {
       const { id } = req.params;
       const { refundAmount, reason, items } = req.body;
@@ -3371,7 +3356,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Cancel sales transaction
-  app.post("/api/sales-transactions/:id/cancel", requireAuth, async (req, res) => {
+  app.post("/api/sales-transactions/:id/cancel", requirePermission('receipts', 'update'), async (req, res) => {
     try {
       const { id } = req.params;
       const { reason } = req.body;
@@ -3678,7 +3663,7 @@ export function registerRoutes(app: Express): Server {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
-      if (!fromStoreId || !toStoreId || !items || !Array.isArray(items) || items.length === 0) {
+      if (fromStoreId === undefined || toStoreId === undefined || !items || !Array.isArray(items) || items.length === 0) {
         return res.status(400).json({
           message: "From store, to store, and items are required",
           suggestion: "Provide valid transfer request data"
@@ -3697,7 +3682,9 @@ export function registerRoutes(app: Express): Server {
         where: eq(userStoreAssignments.userId, user.id),
       });
 
-      if (userAssignment && userAssignment.storeId !== fromStoreId) {
+      // Special handling: Allow anyone with inventory:create to transfer FROM DC if they don't have a restricted assignment 
+      // or if they are explicitly allowed. For now, let's just make it allow null fromStoreId if it's DC.
+      if (userAssignment && fromStoreId !== null && userAssignment.storeId !== fromStoreId) {
         return res.status(403).json({
           message: "You can only create transfers from your assigned store",
           suggestion: "Contact administrator for store assignment"
@@ -3727,10 +3714,13 @@ export function registerRoutes(app: Express): Server {
         }
 
         // Check available stock in source store
+        // If fromStoreId is null, check for inventory where storeId is null (DC)
         const sourceInventory = await db.query.inventory.findFirst({
           where: and(
             eq(inventory.productId, item.productId),
-            eq(inventory.storeId, fromStoreId)
+            fromStoreId === null
+              ? isNull(inventory.storeId)
+              : eq(inventory.storeId, fromStoreId)
           ),
         });
 
@@ -4012,7 +4002,7 @@ export function registerRoutes(app: Express): Server {
         where: eq(userStoreAssignments.userId, user.id),
       });
 
-      if (!userAssignment || userAssignment.storeId !== transferRequest.toStoreId) {
+      if (userAssignment && transferRequest.toStoreId !== null && userAssignment.storeId !== transferRequest.toStoreId) {
         return res.status(403).json({
           message: "You can only approve transfers for your assigned store",
           suggestion: "Contact administrator for store assignment"
@@ -4158,9 +4148,9 @@ export function registerRoutes(app: Express): Server {
         where: eq(userStoreAssignments.userId, user.id),
       });
 
-      if (!userAssignment ||
-        (userAssignment.storeId !== transferRequest.fromStoreId &&
-          userAssignment.storeId !== transferRequest.toStoreId)) {
+      if (userAssignment &&
+        (transferRequest.fromStoreId !== null && userAssignment.storeId !== transferRequest.fromStoreId) &&
+        (transferRequest.toStoreId !== null && userAssignment.storeId !== transferRequest.toStoreId)) {
         return res.status(403).json({
           message: "You don't have access to execute this transfer",
           suggestion: "Contact administrator for access"
@@ -4177,7 +4167,9 @@ export function registerRoutes(app: Express): Server {
         const sourceInventory = await db.query.inventory.findFirst({
           where: and(
             eq(inventory.productId, item.productId),
-            eq(inventory.storeId, transferRequest.fromStoreId)
+            transferRequest.fromStoreId === null
+              ? isNull(inventory.storeId)
+              : eq(inventory.storeId, transferRequest.fromStoreId)
           ),
         });
 
@@ -4201,7 +4193,9 @@ export function registerRoutes(app: Express): Server {
         const destInventory = await db.query.inventory.findFirst({
           where: and(
             eq(inventory.productId, item.productId),
-            eq(inventory.storeId, transferRequest.toStoreId)
+            transferRequest.toStoreId === null
+              ? isNull(inventory.storeId)
+              : eq(inventory.storeId, transferRequest.toStoreId)
           ),
         });
 
@@ -4227,7 +4221,8 @@ export function registerRoutes(app: Express): Server {
           });
         } else {
           // Create new inventory in destination store
-          const barcode = generateInventoryBarcode('STORE', item.productId.toString(), transferRequest.toStoreId);
+          const inventoryType = transferRequest.toStoreId === null ? 'DC' : 'STORE';
+          const barcode = generateInventoryBarcode(inventoryType, item.productId.toString(), transferRequest.toStoreId);
 
           const [newDestInventory] = await db
             .insert(inventory)
@@ -4235,9 +4230,9 @@ export function registerRoutes(app: Express): Server {
               productId: item.productId,
               storeId: transferRequest.toStoreId,
               quantity: item.approvedQuantity,
-              inventoryType: 'STORE',
+              inventoryType: inventoryType,
               barcode: barcode,
-              location: `Transferred from ${transferRequest.fromStore?.name || 'Store'}`,
+              location: `Transferred from ${transferRequest.fromStore?.name || 'DC (Distribution Center)'}`,
             })
             .returning();
 
@@ -4329,8 +4324,9 @@ export function registerRoutes(app: Express): Server {
       });
 
       if (transferRequest.requestedByUserId !== user.id &&
-        (!userAssignment || (userAssignment.storeId !== transferRequest.fromStoreId &&
-          userAssignment.storeId !== transferRequest.toStoreId))) {
+        (userAssignment &&
+          (transferRequest.fromStoreId !== null && userAssignment.storeId !== transferRequest.fromStoreId) &&
+          (transferRequest.toStoreId !== null && userAssignment.storeId !== transferRequest.toStoreId))) {
         return res.status(403).json({
           message: "You don't have permission to cancel this transfer",
           suggestion: "Only the requester or store users can cancel"
@@ -4513,7 +4509,9 @@ export function registerRoutes(app: Express): Server {
       const destInventory = await db.query.inventory.findFirst({
         where: and(
           eq(inventory.productId, productId),
-          eq(inventory.storeId, toStoreId)
+          toStoreId === null
+            ? isNull(inventory.storeId)
+            : eq(inventory.storeId, toStoreId)
         ),
       });
 
@@ -4528,16 +4526,17 @@ export function registerRoutes(app: Express): Server {
           .where(eq(inventory.id, destInventory.id));
         destInventoryId = destInventory.id;
       } else {
-        const barcode = generateInventoryBarcode('STORE', productId.toString(), toStoreId);
+        const inventoryType = toStoreId === null ? 'DC' : 'STORE';
+        const barcode = generateInventoryBarcode(inventoryType, productId.toString(), toStoreId);
         const [newDest] = await db
           .insert(inventory)
           .values({
             productId: productId,
             storeId: toStoreId,
             quantity: quantity,
-            inventoryType: 'STORE',
+            inventoryType: inventoryType,
             barcode: barcode,
-            location: `Quick transfer from Store ${fromStoreId}`,
+            location: `Quick transfer from ${fromStoreId === null ? 'DC (Distribution Center)' : 'Store ' + fromStoreId}`,
           })
           .returning();
         destInventoryId = newDest.id;

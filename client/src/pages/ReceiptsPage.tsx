@@ -49,6 +49,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useUser } from "@/hooks/use-user";
+import { usePermissions } from "@/hooks/use-permissions";
 import { ReceiptPrinter } from "@/components/POS/ReceiptPrinter";
 
 interface SalesTransaction {
@@ -115,6 +116,7 @@ function ReceiptsPage() {
   const { user } = useUser();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { hasPermission } = usePermissions();
 
   // Fetch receipts/transactions
   const receiptsQuery = useQuery({
@@ -134,6 +136,7 @@ function ReceiptsPage() {
 
       return response.json();
     },
+    enabled: hasPermission('receipts', 'read'),
   });
 
   // Cancel transaction mutation
@@ -289,6 +292,24 @@ function ReceiptsPage() {
     );
   }
 
+  if (!hasPermission('receipts', 'read')) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
+        <Card className="w-full max-w-md mx-4">
+          <CardContent className="pt-6">
+            <div className="flex mb-4 gap-2">
+              <AlertTriangle className="h-8 w-8 text-red-500" />
+              <h1 className="text-2xl font-bold text-gray-900">Access Denied</h1>
+            </div>
+            <p className="mt-4 text-sm text-gray-600">
+              You don't have permission to view receipts and transactions.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
@@ -409,7 +430,7 @@ function ReceiptsPage() {
                           Print
                         </Button>
 
-                        {canCancel(transaction) && (
+                        {hasPermission('receipts', 'update') && canCancel(transaction) && (
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
                               <Button variant="outline" size="sm" className="text-orange-600">
@@ -438,7 +459,7 @@ function ReceiptsPage() {
                           </AlertDialog>
                         )}
 
-                        {canRefund(transaction) && (
+                        {hasPermission('receipts', 'update') && canRefund(transaction) && (
                           <Dialog>
                             <DialogTrigger asChild>
                               <Button variant="outline" size="sm" className="text-green-600">

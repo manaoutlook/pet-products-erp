@@ -1,6 +1,5 @@
 import { db } from "../db/index.js";
 import { roles, users, userStoreAssignments } from "../db/schema.js";
-import { hash } from "bcrypt";
 
 async function seedUsersAndRoles() {
   console.log("👥 Creating Users and Roles...");
@@ -98,7 +97,14 @@ async function seedUsersAndRoles() {
     const createdUsers = [];
     for (const user of usersData) {
       // Hash password (using 'password123' for all demo users)
-      const hashedPassword = await hash('password123', 10);
+      // Note: Using the same scrypt logic as server/auth.ts
+      const { scrypt, randomBytes } = await import("crypto");
+      const { promisify } = await import("util");
+      const scryptAsync = promisify(scrypt);
+
+      const salt = randomBytes(16).toString("hex");
+      const derivedKey = (await scryptAsync('password123', salt, 64)) as Buffer;
+      const hashedPassword = `${derivedKey.toString("hex")}.${salt}`;
 
       const result = await db.insert(users).values({
         ...user,
