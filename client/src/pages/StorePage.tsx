@@ -35,8 +35,15 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { InsertStore, SelectStore } from "@db/schema";
 import { insertStoreSchema } from "@db/schema";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
+import { Loader2, Search, Plus, Pencil, Trash2, Warehouse, Store } from "lucide-react";
 
 function StorePage() {
   const [search, setSearch] = useState("");
@@ -59,6 +66,7 @@ function StorePage() {
     resolver: zodResolver(insertStoreSchema),
     defaultValues: {
       name: "",
+      type: "RETAIL", // AI Agent Note: Default type is RETAIL for standard stores.
       location: "",
       contactInfo: "",
     },
@@ -82,8 +90,8 @@ function StorePage() {
       toast({ title: "Success", description: "Store created successfully" });
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
+      toast({
+        title: "Error",
         description: error.message,
         variant: "destructive"
       });
@@ -108,8 +116,8 @@ function StorePage() {
       toast({ title: "Success", description: "Store updated successfully" });
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
+      toast({
+        title: "Error",
         description: error.message,
         variant: "destructive"
       });
@@ -130,8 +138,8 @@ function StorePage() {
       toast({ title: "Success", description: "Store deleted successfully" });
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
+      toast({
+        title: "Error",
         description: error.message,
         variant: "destructive"
       });
@@ -141,8 +149,8 @@ function StorePage() {
   const onSubmit = async (data: InsertStore) => {
     try {
       if (editingStore) {
-        await updateMutation.mutateAsync({ 
-          id: editingStore.id, 
+        await updateMutation.mutateAsync({
+          id: editingStore.id,
           data
         });
       } else {
@@ -157,6 +165,7 @@ function StorePage() {
     setEditingStore(null);
     form.reset({
       name: "",
+      type: "RETAIL",
       location: "",
       contactInfo: "",
     });
@@ -167,6 +176,7 @@ function StorePage() {
     setEditingStore(store);
     form.reset({
       name: store.name,
+      type: store.type as "RETAIL" | "WAREHOUSE",
       location: store.location,
       contactInfo: store.contactInfo,
     });
@@ -183,7 +193,7 @@ function StorePage() {
     }
   };
 
-  const filteredStores = stores?.filter((store: SelectStore) => 
+  const filteredStores = stores?.filter((store: SelectStore) =>
     store.name.toLowerCase().includes(search.toLowerCase()) ||
     store.location.toLowerCase().includes(search.toLowerCase()) ||
     store.contactInfo.toLowerCase().includes(search.toLowerCase())
@@ -213,11 +223,35 @@ function StorePage() {
                     <FormItem>
                       <FormLabel>Store Name</FormLabel>
                       <FormControl>
-                        <Input 
+                        <Input
                           {...field}
                           placeholder="Enter store name"
                         />
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="type"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Type</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        defaultValue={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select store type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="RETAIL">Retail Store</SelectItem>
+                          <SelectItem value="WAREHOUSE">Warehouse (Distribution Center)</SelectItem>
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -229,7 +263,7 @@ function StorePage() {
                     <FormItem>
                       <FormLabel>Location</FormLabel>
                       <FormControl>
-                        <Input 
+                        <Input
                           {...field}
                           placeholder="Enter store location"
                         />
@@ -245,7 +279,7 @@ function StorePage() {
                     <FormItem>
                       <FormLabel>Contact Information</FormLabel>
                       <FormControl>
-                        <Input 
+                        <Input
                           {...field}
                           placeholder="Enter contact information"
                         />
@@ -295,6 +329,7 @@ function StorePage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Store Name</TableHead>
+                  <TableHead>Type</TableHead>
                   <TableHead>Location</TableHead>
                   <TableHead>Contact Information</TableHead>
                   <TableHead>Actions</TableHead>
@@ -303,7 +338,15 @@ function StorePage() {
               <TableBody>
                 {filteredStores?.map((store: SelectStore) => (
                   <TableRow key={store.id}>
-                    <TableCell className="font-medium">{store.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        {store.type === 'WAREHOUSE' ? <Warehouse className="h-4 w-4 text-blue-500" /> : <Store className="h-4 w-4 text-green-500" />}
+                        {store.name}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {store.type === 'WAREHOUSE' ? 'Warehouse / DC' : 'Retail Store'}
+                    </TableCell>
                     <TableCell>{store.location}</TableCell>
                     <TableCell>{store.contactInfo}</TableCell>
                     <TableCell>

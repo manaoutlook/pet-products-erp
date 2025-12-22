@@ -47,10 +47,8 @@ interface Role {
   id: number;
   name: string;
   description: string | null;
+  isSystemAdmin: boolean;
   permissions: Permissions;
-  roleType: {
-    description: string;
-  };
 }
 
 function RolePermissionsPage() {
@@ -240,7 +238,7 @@ function RolePermissionsPage() {
                   <TableCell className="font-medium">
                     <div>
                       <p>{role.name}</p>
-                      <p className="text-sm text-muted-foreground">{role.roleType.description}</p>
+                      {role.description && <p className="text-sm text-muted-foreground">{role.description}</p>}
                     </div>
                   </TableCell>
                   {filteredModules.map(module => (

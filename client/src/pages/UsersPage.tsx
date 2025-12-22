@@ -47,12 +47,7 @@ import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
 import { FC } from 'react';
 
 interface UserWithRole extends Omit<SelectUser, 'roleId'> {
-  role: SelectRole & {
-    roleType: {
-      id: number;
-      description: string;
-    };
-  };
+  role: SelectRole;
 }
 
 function UsersPage() {
@@ -86,8 +81,8 @@ function UsersPage() {
       toast({ title: "Success", description: "User created successfully" });
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
+      toast({
+        title: "Error",
         description: error.message,
         variant: "destructive"
       });
@@ -117,8 +112,8 @@ function UsersPage() {
       toast({ title: "Success", description: "User updated successfully" });
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
+      toast({
+        title: "Error",
         description: error.message,
         variant: "destructive"
       });
@@ -139,8 +134,8 @@ function UsersPage() {
       toast({ title: "Success", description: "User deleted successfully" });
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
+      toast({
+        title: "Error",
         description: error.message,
         variant: "destructive"
       });
@@ -156,15 +151,15 @@ function UsersPage() {
     },
   });
 
-  const filteredUsers = users?.filter(user => 
+  const filteredUsers = users?.filter(user =>
     user.username.toLowerCase().includes(search.toLowerCase())
   );
 
   const onSubmit = async (data: InsertUser) => {
     try {
       if (editingUser) {
-        await updateMutation.mutateAsync({ 
-          id: editingUser.id, 
+        await updateMutation.mutateAsync({
+          id: editingUser.id,
           data: {
             username: data.username,
             password: data.password, // Include password in update
@@ -257,7 +252,7 @@ function UsersPage() {
                         <SelectContent>
                           {roles?.map(role => (
                             <SelectItem key={role.id} value={role.id.toString()}>
-                              {role.name} ({role.roleType?.description})
+                              {role.name} {role.isSystemAdmin ? '(Admin)' : ''}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -316,7 +311,7 @@ function UsersPage() {
                   <TableRow key={user.id}>
                     <TableCell>{user.username}</TableCell>
                     <TableCell>
-                      {user.role.name} ({user.role.roleType?.description})
+                      {user.role.name} {user.role.isSystemAdmin ? '(Admin)' : ''}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">

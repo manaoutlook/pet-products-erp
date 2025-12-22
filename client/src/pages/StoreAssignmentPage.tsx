@@ -40,9 +40,7 @@ type StoreAssignment = {
   user: SelectUser & {
     role: {
       name: string;
-      roleType: {
-        description: string;
-      };
+      isSystemAdmin: boolean;
     };
   };
   store: SelectStore;
@@ -110,8 +108,8 @@ function StoreAssignmentPage() {
       toast({ title: "Success", description: "Store assignment created successfully" });
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
+      toast({
+        title: "Error",
         description: error.message,
         variant: "destructive"
       });
@@ -132,8 +130,8 @@ function StoreAssignmentPage() {
       toast({ title: "Success", description: "Store assignment deleted successfully" });
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
+      toast({
+        title: "Error",
         description: error.message,
         variant: "destructive"
       });
@@ -142,8 +140,8 @@ function StoreAssignmentPage() {
 
   const handleAssignment = async () => {
     if (!selectedUser || !selectedStore) {
-      toast({ 
-        title: "Error", 
+      toast({
+        title: "Error",
         description: "Please select both user and store",
         variant: "destructive"
       });
@@ -187,7 +185,7 @@ function StoreAssignmentPage() {
                     <SelectValue placeholder="Select a user" />
                   </SelectTrigger>
                   <SelectContent>
-                    {petStoreUsers?.map((user) => (
+                    {petStoreUsers?.map((user: SelectUser) => (
                       <SelectItem key={user.id} value={user.id.toString()}>
                         {user.username}
                       </SelectItem>
@@ -203,7 +201,7 @@ function StoreAssignmentPage() {
                     <SelectValue placeholder="Select a store" />
                   </SelectTrigger>
                   <SelectContent>
-                    {stores?.map((store) => (
+                    {stores?.map((store: SelectStore) => (
                       <SelectItem key={store.id} value={store.id.toString()}>
                         {store.name}
                       </SelectItem>
@@ -246,7 +244,7 @@ function StoreAssignmentPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {assignments?.map((assignment) => (
+                {assignments?.map((assignment: StoreAssignment) => (
                   <TableRow key={assignment.id}>
                     <TableCell>{assignment.user.username}</TableCell>
                     <TableCell>{assignment.store.name}</TableCell>

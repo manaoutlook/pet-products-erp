@@ -14,6 +14,8 @@ import { Loader2, Plus, Trash2 } from "lucide-react";
 // Schema for the purchase order form
 const purchaseOrderSchema = z.object({
   supplierId: z.string().min(1, "Supplier is required"),
+  // AI Agent Note: destinationStoreId is mandatory for multiple DC support.
+  destinationStoreId: z.string().min(1, "Destination Warehouse is required"),
   deliveryDate: z.string().refine((date) => {
     const deliveryDate = new Date(date);
     const now = new Date();
@@ -46,6 +48,7 @@ export function CreatePurchaseOrderDialog() {
     defaultValues: {
       items: [{ productId: "", quantity: "", unitPrice: "" }],
       deliveryDate: defaultDeliveryDate,
+      destinationStoreId: "", // Default empty
     },
   });
 
@@ -57,6 +60,13 @@ export function CreatePurchaseOrderDialog() {
     queryKey: ['/api/products'],
   });
 
+  const { data: stores = [] } = useQuery({
+    queryKey: ['/api/stores'],
+  });
+
+  // AI Agent Note: Filter stores for those with type 'WAREHOUSE' (Distribution Center)
+  const warehouses = stores.filter((s: any) => s.type === 'WAREHOUSE');
+
   const createPurchaseOrder = useMutation({
     mutationFn: async (data: FormData) => {
       const response = await fetch('/api/purchase-orders', {
@@ -65,6 +75,7 @@ export function CreatePurchaseOrderDialog() {
         credentials: 'include',
         body: JSON.stringify({
           supplierId: parseInt(data.supplierId),
+          destinationStoreId: parseInt(data.destinationStoreId), // New field for multi-DC support
           deliveryDate: new Date(data.deliveryDate).toISOString(),
           notes: data.notes,
           items: data.items.map(item => ({
@@ -153,6 +164,34 @@ export function CreatePurchaseOrderDialog() {
                       {suppliers.map((supplier: any) => (
                         <SelectItem key={supplier.id} value={supplier.id.toString()}>
                           {supplier.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="destinationStoreId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Destination Warehouse (DC)</FormLabel>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select destination warehouse" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {warehouses.map((warehouse: any) => (
+                        <SelectItem key={warehouse.id} value={warehouse.id.toString()}>
+                          {warehouse.name}
                         </SelectItem>
                       ))}
                     </SelectContent>

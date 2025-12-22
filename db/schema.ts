@@ -4,11 +4,6 @@ import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 import { jsonb } from "drizzle-orm/pg-core";
 
-// Role Types table
-export const roleTypes = pgTable("role_types", {
-  id: serial("id").primaryKey(),
-  description: text("description").notNull(),
-});
 
 type Permissions = {
   products: { create: boolean; read: boolean; update: boolean; delete: boolean };
@@ -26,7 +21,7 @@ export const roles = pgTable("roles", {
   id: serial("id").primaryKey(),
   name: text("name").unique().notNull(),
   description: text("description"),
-  roleTypeId: integer("role_type_id").references(() => roleTypes.id).notNull(),
+  isSystemAdmin: boolean("is_system_admin").notNull().default(false),
   permissions: jsonb("permissions").$type<Permissions>().notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -42,10 +37,13 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Stores table
+// Stores table - Supports both RETAIL outlets and WAREHOUSES (Distribution Centers)
 export const stores = pgTable("stores", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  // AI Agent Note: 'type' distinguishes between retail shops and distribution centers/warehouses.
+  // Both are treated as 'stores' to reuse transfer and inventory logic.
+  type: text("type").notNull().default('RETAIL'), // 'RETAIL' or 'WAREHOUSE'
   location: text("location").notNull(),
   contactInfo: text("contact_info").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -146,6 +144,8 @@ export const purchaseOrders = pgTable("purchase_orders", {
   id: serial("id").primaryKey(),
   orderNumber: varchar("order_number", { length: 50 }).notNull().unique(),
   supplierId: integer("supplier_id").references(() => suppliers.id).notNull(),
+  // AI Agent Note: destinationStoreId refers to the Warehouse/DC where the goods will be received.
+  destinationStoreId: integer("destination_store_id").references(() => stores.id),
   orderDate: timestamp("order_date").notNull().defaultNow(),
   deliveryDate: timestamp("delivery_date"),
   status: varchar("status", { length: 20 }).notNull().default('pending'),
@@ -322,16 +322,9 @@ export const productsRelations = relations(products, ({ one, many }) => ({
   purchaseOrderItems: many(purchaseOrderItems)
 }));
 
-export const roleTypesRelations = relations(roleTypes, ({ many }) => ({
-  roles: many(roles),
-}));
 
-export const rolesRelations = relations(roles, ({ many, one }) => ({
+export const rolesRelations = relations(roles, ({ many }) => ({
   users: many(users),
-  roleType: one(roleTypes, {
-    fields: [roles.roleTypeId],
-    references: [roleTypes.id],
-  }),
 }));
 
 export const usersRelations = relations(users, ({ one, many }) => ({
@@ -402,6 +395,10 @@ export const purchaseOrdersRelations = relations(purchaseOrders, ({ many, one })
   supplier: one(suppliers, {
     fields: [purchaseOrders.supplierId],
     references: [suppliers.id],
+  }),
+  destinationStore: one(stores, {
+    fields: [purchaseOrders.destinationStoreId],
+    references: [stores.id],
   }),
   actions: many(purchaseOrderActions),
 }));
@@ -567,17 +564,11 @@ export const selectSupplierSchema = createSelectSchema(suppliers);
 export type InsertSupplier = typeof suppliers.$inferInsert;
 export type SelectSupplier = typeof suppliers.$inferSelect;
 
-export const insertRoleTypeSchema = createInsertSchema(roleTypes);
-export const selectRoleTypeSchema = createSelectSchema(roleTypes);
-export type InsertRoleType = typeof roleTypes.$inferInsert;
-export type SelectRoleType = typeof roleTypes.$inferSelect;
 
 export const insertRoleSchema = createInsertSchema(roles);
 export const selectRoleSchema = createSelectSchema(roles);
 export type InsertRole = typeof roles.$inferInsert;
-export type SelectRole = typeof roles.$inferSelect & {
-  roleType?: SelectRoleType | null;
-};
+export type SelectRole = typeof roles.$inferSelect;
 
 export const insertUserSchema = createInsertSchema(users);
 export const updateUserSchema = insertUserSchema.partial();

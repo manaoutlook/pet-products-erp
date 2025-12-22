@@ -76,6 +76,10 @@ interface PurchaseOrder {
   actions?: PurchaseOrderAction[];
   items?: PurchaseOrderItem[];
   notes?: string;
+  destinationStore?: {
+    id: number;
+    name: string;
+  } | null;
 }
 
 function PurchaseOrdersPage() {
@@ -362,9 +366,7 @@ function PurchaseOrdersPage() {
                                     <div className="space-y-1 text-sm">
                                       <div><strong>Name:</strong> {selectedOrderDetails.supplier?.name}</div>
                                       <div><strong>Total Amount:</strong> {Number(selectedOrderDetails.totalAmount).toLocaleString()} VND</div>
-                                      {selectedOrderDetails.status === 'delivered' && (
-                                        <div><strong>Delivery Location:</strong> DC (Distribution Center)</div>
-                                      )}
+                                      <div><strong>Delivery Location:</strong> {selectedOrderDetails.destinationStore?.name || 'Main Warehouse'}</div>
                                     </div>
                                   </div>
                                 </div>

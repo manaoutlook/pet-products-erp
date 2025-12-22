@@ -42,7 +42,7 @@ function Sidebar() {
   const [location] = useLocation();
   const { logout, user } = useUser();
   const { hasPermission, isAdmin } = usePermissions();
-  const isSystemAdmin = user?.role?.roleType?.description === 'System Administrator';
+  const isSystemAdmin = user?.role?.isSystemAdmin === true;
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
 
   const toggleExpanded = (name: string) => {
@@ -203,12 +203,6 @@ function Sidebar() {
           adminOnly: true
         },
         {
-          name: "Role Types",
-          href: "/role-types",
-          icon: ListIcon,
-          adminOnly: true
-        },
-        {
           name: "Permissions",
           href: "/role-permissions",
           icon: Lock,
@@ -218,12 +212,6 @@ function Sidebar() {
           name: "Store Assignments",
           href: "/store-assignments",
           icon: Store,
-          adminOnly: true
-        },
-        {
-          name: "Role Mapping",
-          href: "/role-mapping",
-          icon: Network,
           adminOnly: true
         },
       ],

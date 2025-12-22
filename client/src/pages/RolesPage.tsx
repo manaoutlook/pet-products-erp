@@ -40,7 +40,7 @@ import {
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { InsertRole, SelectRole, SelectRoleType } from "@db/schema";
+import type { InsertRole, SelectRole } from "@db/schema";
 import { insertRoleSchema } from "@db/schema";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
@@ -55,9 +55,6 @@ function RolesPage() {
     queryKey: ['/api/roles'],
   });
 
-  const { data: roleTypes } = useQuery<SelectRoleType[]>({
-    queryKey: ['/api/role-types'],
-  });
 
   const createMutation = useMutation({
     mutationFn: async (data: InsertRole) => {
@@ -69,10 +66,13 @@ function RolesPage() {
           orders: { create: false, read: false, update: false, delete: false },
           inventory: { create: false, read: false, update: false, delete: false },
           users: { create: false, read: false, update: false, delete: false },
-          stores: { create: false, read: false, update: false, delete: false }
+          stores: { create: false, read: false, update: false, delete: false },
+          masterData: { create: false, read: false, update: false, delete: false },
+          pos: { create: false, read: false, update: false, delete: false },
+          receipts: { create: false, read: false, update: false, delete: false }
         }
       };
-      
+
       console.log("Sending create role request with data:", dataWithPermissions);
       const res = await fetch('/api/roles', {
         method: 'POST',
@@ -100,8 +100,8 @@ function RolesPage() {
     },
     onError: (error: Error) => {
       console.error("Create role mutation error:", error);
-      toast({ 
-        title: "Error", 
+      toast({
+        title: "Error",
         description: error.message || "Failed to create role",
         variant: "destructive"
       });
@@ -118,7 +118,10 @@ function RolesPage() {
           orders: { create: false, read: true, update: false, delete: false },
           inventory: { create: false, read: true, update: false, delete: false },
           users: { create: false, read: false, update: false, delete: false },
-          stores: { create: false, read: true, update: false, delete: false }
+          stores: { create: false, read: true, update: false, delete: false },
+          masterData: { create: false, read: false, update: false, delete: false },
+          pos: { create: false, read: false, update: false, delete: false },
+          receipts: { create: false, read: false, update: false, delete: false }
         }
       };
 
@@ -137,8 +140,8 @@ function RolesPage() {
       toast({ title: "Success", description: "Role updated successfully" });
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
+      toast({
+        title: "Error",
         description: error.message,
         variant: "destructive"
       });
@@ -159,8 +162,8 @@ function RolesPage() {
       toast({ title: "Success", description: "Role deleted successfully" });
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
+      toast({
+        title: "Error",
         description: error.message,
         variant: "destructive"
       });
@@ -172,11 +175,11 @@ function RolesPage() {
     defaultValues: {
       name: "",
       description: "",
-      roleTypeId: undefined,
+      isSystemAdmin: false,
     },
   });
 
-  const filteredRoles = roles?.filter(role => 
+  const filteredRoles = roles?.filter(role =>
     role.name.toLowerCase().includes(search.toLowerCase()) ||
     role.description?.toLowerCase().includes(search.toLowerCase())
   );
@@ -197,15 +200,6 @@ function RolesPage() {
         return;
       }
 
-      if (!data.roleTypeId) {
-        console.error("Role type is required");
-        toast({
-          title: "Validation Error", 
-          description: "Role type is required",
-          variant: "destructive"
-        });
-        return;
-      }
 
       // Add default permissions for new roles
       const formData = {
@@ -215,7 +209,10 @@ function RolesPage() {
           orders: { create: false, read: true, update: false, delete: false },
           inventory: { create: false, read: true, update: false, delete: false },
           users: { create: false, read: false, update: false, delete: false },
-          stores: { create: false, read: true, update: false, delete: false }
+          stores: { create: false, read: true, update: false, delete: false },
+          masterData: { create: false, read: false, update: false, delete: false },
+          pos: { create: false, read: false, update: false, delete: false },
+          receipts: { create: false, read: false, update: false, delete: false }
         }
       };
 
@@ -245,7 +242,7 @@ function RolesPage() {
     form.reset({
       name: "",
       description: "",
-      roleTypeId: undefined,
+      isSystemAdmin: false,
     });
     setDialogOpen(true);
   };
@@ -255,7 +252,7 @@ function RolesPage() {
     form.reset({
       name: role.name,
       description: role.description || "",
-      roleTypeId: role.roleTypeId,
+      isSystemAdmin: role.isSystemAdmin,
     });
     setDialogOpen(true);
   };
@@ -305,31 +302,22 @@ function RolesPage() {
                 />
                 <FormField
                   control={form.control}
-                  name="roleTypeId"
+                  name="isSystemAdmin"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Role Type</FormLabel>
-                      <Select
-                        onValueChange={(value) => field.onChange(parseInt(value))}
-                        value={field.value?.toString()}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select role type" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {roleTypes?.map((type) => (
-                            <SelectItem
-                              key={type.id}
-                              value={type.id.toString()}
-                            >
-                              {type.description}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
+                    <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                      <FormControl>
+                        <Input
+                          type="checkbox"
+                          checked={field.value}
+                          onChange={field.onChange}
+                          className="w-4 h-4"
+                        />
+                      </FormControl>
+                      <div className="space-y-1 leading-none">
+                        <FormLabel>
+                          System Administrator
+                        </FormLabel>
+                      </div>
                     </FormItem>
                   )}
                 />
@@ -383,7 +371,7 @@ function RolesPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Description</TableHead>
-                  <TableHead>Role Type</TableHead>
+                  <TableHead>System Admin</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -392,7 +380,7 @@ function RolesPage() {
                   <TableRow key={role.id}>
                     <TableCell className="font-medium">{role.name}</TableCell>
                     <TableCell>{role.description}</TableCell>
-                    <TableCell>{role.roleType?.description}</TableCell>
+                    <TableCell>{role.isSystemAdmin ? 'Yes' : 'No'}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Button

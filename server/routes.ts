@@ -4,7 +4,7 @@ import { setupAuth } from "./auth";
 import { db } from "@db";
 import {
   products, inventory, orders, orderItems, users,
-  roles, roleTypes, stores, userStoreAssignments,
+  roles, stores, userStoreAssignments,
   categories, brands, suppliers, purchaseOrders,
   purchaseOrderItems, purchaseOrderActions, customerProfiles, insertCustomerProfileSchema,
   insertPurchaseOrderActionSchema, selectPurchaseOrderActionSchema,
@@ -24,6 +24,8 @@ import { initializeStoreCounter, generateInvoiceNumber } from "./invoice-counter
 // Schema validations
 const createPurchaseOrderSchema = z.object({
   supplierId: z.number().positive("Supplier ID is required"),
+  // AI Agent Note: destinationStoreId is the specific Warehouse (Store Type WAREHOUSE) receiving the goods.
+  destinationStoreId: z.number().positive("Destination Warehouse is required").optional(),
   deliveryDate: z.string().datetime("Valid delivery date is required"),
   notes: z.string().optional(),
   items: z.array(z.object({
@@ -53,6 +55,7 @@ function generateInventoryBarcode(
   const prefix = inventoryType === 'DC' ? 'DC' : 'ST';
   const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
 
+  // AI Agent Note: In multiple DC mode, storePrefix should always be populated even for Warehouses.
   const storePrefix = storeId ? storeId.toString().padStart(3, '0') : '000';
   return `${prefix}${storePrefix}${productSku}${randomNum}`;
 }
@@ -97,7 +100,7 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { name, location, contactInfo } = result.data;
+      const { name, location, contactInfo, type } = result.data; // AI Agent Note: Added 'type' for multiple DC support
 
       // Check if store exists
       const existingStore = await db.query.stores.findFirst({
@@ -117,6 +120,7 @@ export function registerRoutes(app: Express): Server {
           name,
           location,
           contactInfo,
+          type: type || 'RETAIL', // AI Agent Note: Save store type
         })
         .returning();
 
@@ -155,7 +159,7 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { name, location, contactInfo } = result.data;
+      const { name, location, contactInfo, type } = result.data; // AI Agent Note: Added 'type' for multiple DC support
 
       // Check if store exists
       const existingStore = await db.query.stores.findFirst({
@@ -178,6 +182,7 @@ export function registerRoutes(app: Express): Server {
           name,
           location,
           contactInfo,
+          type: type || 'RETAIL', // AI Agent Note: Save store type
           updatedAt: new Date()
         })
         .where(eq(stores.id, parseInt(id)))
@@ -286,7 +291,8 @@ export function registerRoutes(app: Express): Server {
             with: {
               performedByUser: true
             }
-          }
+          },
+          destinationStore: true
         },
         orderBy: [desc(purchaseOrders.updatedAt)],
       });
@@ -313,7 +319,7 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { supplierId, deliveryDate, notes, items } = result.data;
+      const { supplierId, destinationStoreId, deliveryDate, notes, items } = result.data;
 
       // Generate unique order number
       const orderNumber = generateOrderNumber();
@@ -327,6 +333,7 @@ export function registerRoutes(app: Express): Server {
         .values({
           orderNumber,
           supplierId: parseInt(supplierId),
+          destinationStoreId: destinationStoreId || null,
           deliveryDate: new Date(deliveryDate),
           status: 'pending',
           totalAmount: totalAmount.toString(), // Store as string for decimal
@@ -495,6 +502,7 @@ export function registerRoutes(app: Express): Server {
         console.log('Found', purchaseOrderItemList.length, 'purchase order items to process');
 
         for (const item of purchaseOrderItemList) {
+          // AI Agent Note: Search inventory in the specific destination warehouse/store
           const [currentInventory] = await db
             .select({
               id: inventory.id,
@@ -504,7 +512,9 @@ export function registerRoutes(app: Express): Server {
             .where(
               and(
                 eq(inventory.productId, item.productId),
-                eq(inventory.inventoryType, 'DC')
+                purchaseOrder.destinationStoreId
+                  ? eq(inventory.storeId, purchaseOrder.destinationStoreId)
+                  : eq(inventory.inventoryType, 'DC')
               )
             )
             .limit(1);
@@ -519,7 +529,7 @@ export function registerRoutes(app: Express): Server {
               })
               .where(eq(inventory.id, currentInventory.id));
           } else {
-            const barcode = generateInventoryBarcode('DC', item.productId.toString());
+            const barcode = generateInventoryBarcode('DC', item.productId.toString(), purchaseOrder.destinationStoreId);
             console.log('Creating new inventory item for product:', item.productId);
 
             // Check if product exists first
@@ -540,6 +550,7 @@ export function registerRoutes(app: Express): Server {
                 productId: item.productId,
                 quantity: item.quantity,
                 inventoryType: 'DC',
+                storeId: purchaseOrder.destinationStoreId, // Explicitly link to the DC/Warehouse
                 barcode,
                 supplierId: purchaseOrder.supplierId,
                 purchaseDate: new Date().toISOString().split('T')[0] // YYYY-MM-DD format
@@ -604,7 +615,8 @@ export function registerRoutes(app: Express): Server {
             with: {
               product: true
             }
-          }
+          },
+          destinationStore: true
         }
       });
 
@@ -672,7 +684,7 @@ export function registerRoutes(app: Express): Server {
       // If status changed to 'delivered', update inventory
       if (status === 'delivered' && currentPO.status !== 'delivered') {
         for (const item of currentPO.items) {
-          // Get current inventory
+          // AI Agent Note: Search inventory in the specific destination warehouse/store
           const [currentInventory] = await db
             .select({
               id: inventory.id,
@@ -682,7 +694,9 @@ export function registerRoutes(app: Express): Server {
             .where(
               and(
                 eq(inventory.productId, item.productId),
-                eq(inventory.inventoryType, 'DC')
+                currentPO.destinationStoreId
+                  ? eq(inventory.storeId, currentPO.destinationStoreId)
+                  : eq(inventory.inventoryType, 'DC')
               )
             )
             .limit(1);
@@ -699,13 +713,14 @@ export function registerRoutes(app: Express): Server {
               .where(eq(inventory.id, currentInventory.id));
           } else {
             // Create new inventory entry
-            const barcode = generateInventoryBarcode('DC', item.productId.toString());
+            const barcode = generateInventoryBarcode('DC', item.productId.toString(), currentPO.destinationStoreId);
             await db
               .insert(inventory)
               .values({
                 productId: item.productId,
                 quantity: item.quantity,
                 inventoryType: 'DC',
+                storeId: currentPO.destinationStoreId, // Explicitly link to the DC/Warehouse
                 barcode,
                 supplierId: currentPO.supplierId,
                 purchaseDate: new Date()
@@ -940,178 +955,13 @@ export function registerRoutes(app: Express): Server {
   });
 
 
-  app.get("/api/role-types", async (req, res) => {
-    try {
-      const roleTypes = await db.query.roleTypes.findMany();
-      res.json(roleTypes);
-    } catch (error) {
-      console.error('Error fetching role types:', error);
-      res.status(500).send("Failed to fetch role types");
-    }
-  });
-
-  app.post("/api/role-types", requireRole(['admin']), async (req, res) => {
-    try {
-      const { description } = req.body;
-
-      if (!description) {
-        return res.status(400).json({
-          message: "Description is required",
-          suggestion: "Please provide a role type description"
-        });
-      }
-
-      // Check if role type already exists
-      const existingRoleType = await db.query.roleTypes.findFirst({
-        where: eq(roleTypes.description, description),
-      });
-
-      if (existingRoleType) {
-        return res.status(400).json({
-          message: "Role type with this description already exists",
-          suggestion: "Please use a different description"
-        });
-      }
-
-      const [newRoleType] = await db
-        .insert(roleTypes)
-        .values({
-          description,
-        })
-        .returning();
-
-      res.json({
-        message: "Role type created successfully",
-        roleType: newRoleType,
-      });
-    } catch (error) {
-      console.error('Error creating role type:', error);
-      res.status(500).json({
-        message: "Failed to create role type",
-        suggestion: "Please try again later"
-      });
-    }
-  });
-
-  app.put("/api/role-types/:id", requireRole(['admin']), async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { description } = req.body;
-
-      if (!description) {
-        return res.status(400).json({
-          message: "Description is required",
-          suggestion: "Please provide a role type description"
-        });
-      }
-
-      // Check if role type exists
-      const existingRoleType = await db.query.roleTypes.findFirst({
-        where: and(
-          eq(roleTypes.description, description),
-          sql`id != ${id}`
-        ),
-      });
-
-      if (existingRoleType) {
-        return res.status(400).json({
-          message: "Role type with this description already exists",
-          suggestion: "Please use a different description"
-        });
-      }
-
-      const [updatedRoleType] = await db
-        .update(roleTypes)
-        .set({
-          description,
-        })
-        .where(eq(roleTypes.id, parseInt(id)))
-        .returning();
-
-      if (!updatedRoleType) {
-        return res.status(404).json({
-          message: "Role type not found",
-          suggestion: "Please verify the role type ID"
-        });
-      }
-
-      res.json({
-        message: "Role type updated successfully",
-        roleType: updatedRoleType,
-      });
-    } catch (error) {
-      console.error('Error updating role type:', error);
-      res.status(500).json({
-        message: "Failed to update role type",
-        suggestion: "Please try again later"
-      });
-    }
-  });
-
-  app.delete("/api/role-types/:id", requireRole(['admin']), async (req, res) => {
-    try {
-      const { id } = req.params;
-
-      // Check if role type exists
-      const roleType = await db.query.roleTypes.findFirst({
-        where: eq(roleTypes.id, parseInt(id)),
-      });
-
-      if (!roleType) {
-        return res.status(404).json({
-          message: "Role type not found",
-          suggestion: "Please verify the role type ID"
-        });
-      }
-
-      // Check if role type is used by any roles
-      const rolesWithType = await db.query.roles.findMany({
-        where: eq(roles.roleTypeId, parseInt(id)),
-        limit: 1,
-      });
-
-      if (rolesWithType.length > 0) {
-        return res.status(400).json({
-          message: "Cannot delete role type that is assigned to roles",
-          suggestion: "Please reassign or delete the roles first"
-        });
-      }
-
-      await db
-        .delete(roleTypes)
-        .where(eq(roleTypes.id, parseInt(id)));
-
-      res.json({ message: "Role type deleted successfully" });
-    } catch (error) {
-      console.error('Error deleting role type:', error);
-      res.status(500).json({
-        message: "Failed to delete role type",
-        suggestion: "Please try again later"
-      });
-    }
-  });
 
   // Roles endpoints - admin only
   app.get("/api/roles", requireRole(['admin']), async (req, res) => {
     try {
-      const allRoles = await db
-        .select({
-          id: roles.id,
-          name: roles.name,
-          description: roles.description,
-          permissions: roles.permissions,
-          roleTypeId: roles.roleTypeId,
-          createdAt: roles.createdAt,
-          updatedAt: roles.updatedAt,
-          roleType: {
-            id: roleTypes.id,
-            description: roleTypes.description,
-          },
-        })
-        .from(roles)
-        .leftJoin(roleTypes, eq(roles.roleTypeId, roleTypes.id))
-        .orderBy(roles.name);
-
+      const allRoles = await db.query.roles.findMany({
+        orderBy: roles.name,
+      });
       res.json(allRoles);
     } catch (error) {
       console.error('Error fetching roles:', error);
@@ -1121,28 +971,10 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/roles", requireRole(['admin']), async (req, res) => {
     try {
-      const { name, description, roleTypeId, permissions } = req.body;
+      const { name, description, isSystemAdmin, permissions } = req.body;
 
-      if (!name || !roleTypeId) {
-        return res.status(400).send("Role name and role type are required");
-      }
-
-      // Check if role exists
-      const existingRole = await db.query.roles.findFirst({
-        where: eq(roles.name, name),
-      });
-
-      if (existingRole) {
-        return res.status(400).send("Role name already exists");
-      }
-
-      // Check if role type exists
-      const roleType = await db.query.roleTypes.findFirst({
-        where: eq(roleTypes.id, roleTypeId),
-      });
-
-      if (!roleType) {
-        return res.status(400).send("Invalid role type");
+      if (!name) {
+        return res.status(400).send("Role name is required");
       }
 
       // Set default permissions if none provided
@@ -1162,22 +994,14 @@ export function registerRoutes(app: Express): Server {
         .values({
           name,
           description,
-          roleTypeId,
+          isSystemAdmin: !!isSystemAdmin,
           permissions: defaultPermissions,
         })
         .returning();
 
-      // Fetch the complete role with role type
-      const roleWithType = await db.query.roles.findFirst({
-        where: eq(roles.id, newRole.id),
-        with: {
-          roleType: true,
-        },
-      });
-
       res.json({
         message: "Role created successfully",
-        role: roleWithType,
+        role: newRole,
       });
     } catch (error) {
       console.error('Error creating role:', error);
@@ -1188,31 +1012,10 @@ export function registerRoutes(app: Express): Server {
   app.put("/api/roles/:id", requireRole(['admin']), async (req, res) => {
     try {
       const { id } = req.params;
-      const { name, description, roleTypeId } = req.body;
+      const { name, description, isSystemAdmin } = req.body;
 
-      if (!name || !roleTypeId) {
-        return res.status(400).send("Role name and role type are required");
-      }
-
-      // Check if role exists
-      const existingRole = await db.query.roles.findFirst({
-        where: and(
-          eq(roles.name, name),
-          sql`id != ${id}`
-        ),
-      });
-
-      if (existingRole) {
-        return res.status(400).send("Role name already exists");
-      }
-
-      // Check if role type exists
-      const roleType = await db.query.roleTypes.findFirst({
-        where: eq(roleTypes.id, roleTypeId),
-      });
-
-      if (!roleType) {
-        return res.status(400).send("Invalid role type");
+      if (!name) {
+        return res.status(400).send("Role name is required");
       }
 
       // Prevent updating admin role name
@@ -1229,23 +1032,15 @@ export function registerRoutes(app: Express): Server {
         .set({
           name,
           description,
-          roleTypeId,
+          isSystemAdmin: !!isSystemAdmin,
           updatedAt: new Date(),
         })
         .where(eq(roles.id, parseInt(id)))
         .returning();
 
-      // Fetch the complete role with role type
-      const roleWithType = await db.query.roles.findFirst({
-        where: eq(roles.id, updatedRole.id),
-        with: {
-          roleType: true,
-        },
-      });
-
       res.json({
         message: "Role updated successfully",
-        role: roleWithType,
+        role: updatedRole,
       });
     } catch (error) {
       console.error('Error updating role:', error);
@@ -1323,17 +1118,9 @@ export function registerRoutes(app: Express): Server {
         .where(eq(roles.id, parseInt(id)))
         .returning();
 
-      // Fetch the complete role with updated permissions
-      const roleWithPermissions = await db.query.roles.findFirst({
-        where: eq(roles.id, updatedRole.id),
-        with: {
-          roleType: true,
-        },
-      });
-
       res.json({
         message: "Role permissions updated successfully",
-        role: roleWithPermissions,
+        role: updatedRole,
       });
     } catch (error) {
       console.error('Error updating role permissions:', error);
@@ -1465,7 +1252,6 @@ export function registerRoutes(app: Express): Server {
       // Fetch roles with users and role types
       const roles = await db.query.roles.findMany({
         with: {
-          roleType: true,
           users: {
             columns: {
               id: true,
@@ -1496,11 +1282,7 @@ export function registerRoutes(app: Express): Server {
     try {
       const allUsers = await db.query.users.findMany({
         with: {
-          role: {
-            with: {
-              roleType: true,
-            }
-          },
+          role: true,
         },
       });
 
@@ -1729,7 +1511,7 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { name, location, contactInfo } = result.data;
+      const { name, location, contactInfo, type } = result.data; // AI Agent Note: Added 'type' for multiple DC support
 
       // Check if store exists
       const existingStore = await db.query.stores.findFirst({
@@ -1749,6 +1531,7 @@ export function registerRoutes(app: Express): Server {
           name,
           location,
           contactInfo,
+          type: type || 'RETAIL', // AI Agent Note: Save store type
         })
         .returning();
 
@@ -1779,7 +1562,7 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { name, location, contactInfo } = result.data;
+      const { name, location, contactInfo, type } = result.data; // AI Agent Note: Added 'type' for multiple DC support
 
       // Check if store exists
       const existingStore = await db.query.stores.findFirst({
@@ -1802,6 +1585,7 @@ export function registerRoutes(app: Express): Server {
           name,
           location,
           contactInfo,
+          type: type || 'RETAIL', // AI Agent Note: Save store type
           updatedAt: new Date()
         })
         .where(eq(stores.id, parseInt(id)))
@@ -1913,7 +1697,7 @@ export function registerRoutes(app: Express): Server {
 
   app.get("/api/store-assignments/users", requireRole(['admin']), async (req, res) => {
     try {
-      // Get all users with Pet Store Users role type
+      // Get all non-system admin users
       const petStoreUsers = await db
         .select({
           id: users.id,
@@ -1921,16 +1705,12 @@ export function registerRoutes(app: Express): Server {
           role: {
             id: roles.id,
             name: roles.name,
-            roleType: {
-              id: roleTypes.id,
-              description: roleTypes.description
-            }
+            isSystemAdmin: roles.isSystemAdmin
           }
         })
         .from(users)
         .innerJoin(roles, eq(users.roleId, roles.id))
-        .innerJoin(roleTypes, eq(roles.roleTypeId, roleTypes.id))
-        .where(eq(roleTypes.description, 'Pet Store Users'));
+        .where(eq(roles.isSystemAdmin, false));
 
       console.log('Pet Store users found:', petStoreUsers.length);
       res.json(petStoreUsers);
@@ -1955,11 +1735,7 @@ export function registerRoutes(app: Express): Server {
       const user = await db.query.users.findFirst({
         where: eq(users.id, userId),
         with: {
-          role: {
-            with: {
-              roleType: true
-            }
-          }
+          role: true
         }
       });
 
@@ -1967,8 +1743,8 @@ export function registerRoutes(app: Express): Server {
         return res.status(404).send("User not found");
       }
 
-      if (user.role?.roleType?.description !== 'Pet Store Users') {
-        return res.status(400).send("Only Pet Store users can be assigned to stores");
+      if (user.role?.isSystemAdmin) {
+        return res.status(400).send("System administrators cannot be assigned to specific stores as they have global access");
       }
 
       // Check if store exists
@@ -2359,7 +2135,7 @@ export function registerRoutes(app: Express): Server {
         return res.status(401).send("Unauthorized");
       }
 
-      console.log(`Fetching inventory for user ${user.username} with role type ${user.role?.roleType?.description}`);
+      console.log(`Fetching inventory for user ${user.username} (Admin: ${user.role?.isSystemAdmin})`);
 
       let inventoryQuery = db.query.inventory.findMany({
         with: {

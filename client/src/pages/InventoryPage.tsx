@@ -442,36 +442,35 @@ function InventoryPage() {
                       )}
                     />
 
-                    {form.watch('inventoryType') === 'STORE' && (
-                      <FormField
-                        control={form.control}
-                        name="storeId"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Store</FormLabel>
-                            <Select
-                              value={field.value}
-                              onValueChange={field.onChange}
-                              defaultValue={field.value}
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select a store" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {stores?.map((store) => (
-                                  <SelectItem key={store.id} value={store.id.toString()}>
-                                    {store.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    )}
+                    <FormField
+                      control={form.control}
+                      name="storeId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{form.watch('inventoryType') === 'DC' ? 'Distribution Center (Warehouse)' : 'Store'}</FormLabel>
+                          <Select
+                            value={field.value}
+                            onValueChange={field.onChange}
+                            defaultValue={field.value}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder={`Select a ${form.watch('inventoryType') === 'DC' ? 'DC' : 'store'}`} />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {/* AI Agent Note: Filter stores based on the selected inventory type (DC/Warehouse vs Retail Store) */}
+                              {stores?.filter(s => (form.watch('inventoryType') === 'DC' ? (s as any).type === 'WAREHOUSE' : (s as any).type === 'RETAIL')).map((store) => (
+                                <SelectItem key={store.id} value={store.id.toString()}>
+                                  {store.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
                     <FormField
                       control={form.control}
@@ -741,18 +740,17 @@ function InventoryPage() {
               <TableBody>
                 {filteredInventory?.map((item) => (
                   <TableRow key={item.id}>
-                    <TableCell>{item.inventoryType === 'DC' ? 'Distribution Center' : 'Store'}</TableCell>
+                    <TableCell>{item.inventoryType === 'DC' ? 'Warehouse / DC' : 'Retail Store'}</TableCell>
                     <TableCell>{item.product.name}</TableCell>
                     <TableCell>{item.location || '-'}</TableCell>
-                    <TableCell>{item.store?.name || (item.inventoryType === 'DC' ? 'DC001' : '-')}</TableCell>
+                    <TableCell>{item.store?.name || '-'}</TableCell>
                     <TableCell>{item.supplier?.name || '-'}</TableCell>
                     <TableCell>{item.quantity}</TableCell>
                     <TableCell>
-                      <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        item.quantity <= item.product.minStock
+                      <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${item.quantity <= item.product.minStock
                           ? 'bg-red-100 text-red-800'
                           : 'bg-green-100 text-green-800'
-                      }`}>
+                        }`}>
                         {item.quantity <= item.product.minStock ? 'Low Stock' : 'In Stock'}
                       </div>
                     </TableCell>

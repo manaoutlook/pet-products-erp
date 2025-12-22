@@ -21,6 +21,7 @@ interface Permissions {
 interface Role {
   id: number;
   name: string;
+  isSystemAdmin: boolean;
   permissions: Permissions;
 }
 
@@ -56,7 +57,7 @@ export function usePermissions() {
     hasPermission,
     getModulePermissions,
     getAllowedModules,
-    isAdmin: user?.role?.name === 'admin',
+    isAdmin: user?.role?.name === 'admin' || user?.role?.isSystemAdmin === true,
     role: user?.role,
   };
 }

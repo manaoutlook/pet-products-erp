@@ -12,68 +12,83 @@ async function seedUsersAndRoles() {
       {
         name: "store_manager",
         description: "Store Manager - Full access to their assigned stores",
-        roleTypeId: 1, // System Administrator type
+        isSystemAdmin: false,
         permissions: {
           products: { create: true, read: true, update: true, delete: false },
           orders: { create: true, read: true, update: true, delete: false },
           inventory: { create: true, read: true, update: true, delete: false },
           users: { create: false, read: true, update: false, delete: false },
-          stores: { create: false, read: true, update: false, delete: false }
+          stores: { create: false, read: true, update: false, delete: false },
+          masterData: { create: false, read: true, update: false, delete: false },
+          pos: { create: true, read: true, update: true, delete: false },
+          receipts: { create: true, read: true, update: true, delete: false }
         }
       },
       {
         name: "sales_associate",
         description: "Sales Associate - Can create orders and view products",
-        roleTypeId: 1,
+        isSystemAdmin: false,
         permissions: {
           products: { create: false, read: true, update: false, delete: false },
           orders: { create: true, read: true, update: true, delete: false },
           inventory: { create: false, read: true, update: false, delete: false },
           users: { create: false, read: false, update: false, delete: false },
-          stores: { create: false, read: true, update: false, delete: false }
+          stores: { create: false, read: true, update: false, delete: false },
+          masterData: { create: false, read: true, update: false, delete: false },
+          pos: { create: true, read: true, update: true, delete: false },
+          receipts: { create: true, read: true, update: true, delete: false }
         }
       },
       {
         name: "inventory_clerk",
         description: "Inventory Clerk - Manages stock and suppliers",
-        roleTypeId: 1,
+        isSystemAdmin: false,
         permissions: {
           products: { create: false, read: true, update: false, delete: false },
           orders: { create: false, read: false, update: false, delete: false },
           inventory: { create: true, read: true, update: true, delete: false },
           users: { create: false, read: false, update: false, delete: false },
-          stores: { create: false, read: true, update: false, delete: false }
+          stores: { create: false, read: true, update: false, delete: false },
+          masterData: { create: true, read: true, update: true, delete: false },
+          pos: { create: false, read: true, update: false, delete: false },
+          receipts: { create: false, read: true, update: false, delete: false }
         }
       },
       {
         name: "customer_service",
         description: "Customer Service - Handles customer inquiries and profiles",
-        roleTypeId: 1,
+        isSystemAdmin: false,
         permissions: {
           products: { create: false, read: true, update: false, delete: false },
           orders: { create: false, read: true, update: false, delete: false },
           inventory: { create: false, read: true, update: false, delete: false },
           users: { create: false, read: false, update: false, delete: false },
-          stores: { create: false, read: true, update: false, delete: false }
+          stores: { create: false, read: true, update: false, delete: false },
+          masterData: { create: false, read: true, update: false, delete: false },
+          pos: { create: false, read: true, update: false, delete: false },
+          receipts: { create: true, read: true, update: false, delete: false }
         }
       },
       {
         name: "regional_manager",
         description: "Regional Manager - Oversees multiple stores",
-        roleTypeId: 1,
+        isSystemAdmin: false,
         permissions: {
           products: { create: true, read: true, update: true, delete: true },
           orders: { create: true, read: true, update: true, delete: true },
           inventory: { create: true, read: true, update: true, delete: true },
           users: { create: true, read: true, update: true, delete: false },
-          stores: { create: true, read: true, update: true, delete: false }
+          stores: { create: true, read: true, update: true, delete: false },
+          masterData: { create: true, read: true, update: true, delete: true },
+          pos: { create: true, read: true, update: true, delete: true },
+          receipts: { create: true, read: true, update: true, delete: true }
         }
       }
     ];
 
-    const createdRoles = [];
+    const createdRoles: any[] = [];
     for (const role of rolesData) {
-      const result = await db.insert(roles).values(role).returning();
+      const result = await db.insert(roles).values(role as any).returning();
       createdRoles.push(result[0]);
       console.log(`✓ Created role: ${role.name} (${role.description})`);
     }
@@ -94,7 +109,7 @@ async function seedUsersAndRoles() {
       { username: "regional_boss", roleId: createdRoles[4].id } // regional_manager
     ];
 
-    const createdUsers = [];
+    const createdUsers: any[] = [];
     for (const user of usersData) {
       // Hash password (using 'password123' for all demo users)
       // Note: Using the same scrypt logic as server/auth.ts
