@@ -151,7 +151,7 @@ function UsersPage() {
     },
   });
 
-  const filteredUsers = users?.filter(user =>
+  const filteredUsers = users?.filter((user: UserWithRole) =>
     user.username.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -250,7 +250,7 @@ function UsersPage() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {roles?.map(role => (
+                          {roles?.map((role: SelectRole) => (
                             <SelectItem key={role.id} value={role.id.toString()}>
                               {role.name} {role.isSystemAdmin ? '(Admin)' : ''}
                             </SelectItem>
@@ -307,7 +307,7 @@ function UsersPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredUsers?.map((user) => (
+                {filteredUsers?.map((user: UserWithRole) => (
                   <TableRow key={user.id}>
                     <TableCell>{user.username}</TableCell>
                     <TableCell>
