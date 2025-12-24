@@ -3,7 +3,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
-const app = express();
+export const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
@@ -37,47 +37,53 @@ app.use((req, res, next) => {
   next();
 });
 
-(async () => {
-  const server = registerRoutes(app);
+// Initialize routes and server instance
+// We move this outside the async block so it runs when imported by tests
+const server = registerRoutes(app);
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+// Error handling middleware
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  const status = err.status || err.statusCode || 500;
+  const message = err.message || "Internal Server Error";
 
-    res.status(status).json({ message });
-    throw err;
-  });
+  res.status(status).json({ message });
+  throw err;
+});
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
-  }
+// Only start the server if not running in test mode
+if (process.env.NODE_ENV !== 'test') {
+  (async () => {
+    // importantly only setup vite in development and after
+    // setting up all the other routes so the catch-all route
+    // doesn't interfere with the other routes
+    if (app.get("env") === "development") {
+      await setupVite(app, server);
+    } else {
+      serveStatic(app);
+    }
 
-  // Try to serve the app on port 5000, fall back to alternative ports if needed
-  // this serves both the API and the client
-  const PORT = 5000;
-  const MAX_RETRIES = 3;
-  
-  const startServer = (port: number, retries = 0) => {
-    server.listen(port, "0.0.0.0")
-      .on("listening", () => {
-        log(`serving on port ${port}`);
-      })
-      .on("error", (err: any) => {
-        if (err.code === 'EADDRINUSE' && retries < MAX_RETRIES) {
-          log(`Port ${port} is in use, trying port ${port + 1}...`);
-          server.close();
-          startServer(port + 1, retries + 1);
-        } else {
-          log(`Failed to start server: ${err.message}`);
-          throw err;
-        }
-      });
-  };
-  
-  startServer(PORT);
-})();
+    // Try to serve the app on port 5000, fall back to alternative ports if needed
+    // this serves both the API and the client
+    const PORT = 5000;
+    const MAX_RETRIES = 3;
+
+    const startServer = (port: number, retries = 0) => {
+      server.listen(port, "0.0.0.0")
+        .on("listening", () => {
+          log(`serving on port ${port}`);
+        })
+        .on("error", (err: any) => {
+          if (err.code === 'EADDRINUSE' && retries < MAX_RETRIES) {
+            log(`Port ${port} is in use, trying port ${port + 1}...`);
+            server.close();
+            startServer(port + 1, retries + 1);
+          } else {
+            log(`Failed to start server: ${err.message}`);
+            throw err;
+          }
+        });
+    };
+
+    startServer(PORT);
+  })();
+}

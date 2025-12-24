@@ -190,6 +190,9 @@ pet-products-erp/
 - `npm run build` - Build for production
 - `npm run start` - Start production server
 - `npm run check` - Type checking
+- `npm test` - Run tests in watch mode
+- `npm run test:run` - Run all tests once
+- `npm run test:coverage` - Run tests with coverage report
 
 ### Database Development
 
@@ -199,6 +202,37 @@ When making schema changes:
 2. Run `npm run db:push` to apply changes
 3. Update seed scripts if needed
 4. Test thoroughly
+
+## Testing
+
+The application includes comprehensive automated testing:
+
+### Quick Start
+
+```bash
+# Run all tests
+npm test
+
+# Run tests with UI
+npm run test:ui
+
+# Run tests with coverage
+npm run test:coverage
+```
+
+### Test Structure
+
+- **Backend Tests** - API endpoints, database operations, business logic
+- **Frontend Tests** - React components, hooks, user interactions
+- **Integration Tests** - End-to-end user workflows
+
+### Coverage Requirements
+
+- Overall coverage: 70%+
+- Backend API routes: 80%+
+- Critical business logic: 90%+
+
+For detailed testing documentation, see [TESTING.md](./TESTING.md)
 
 ## Security Notes
 
