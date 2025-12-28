@@ -41,6 +41,7 @@ interface Permissions {
   masterData: Permission;
   pos: Permission;
   receipts: Permission;
+  customerProfiles: Permission;
 }
 
 interface Role {
@@ -142,6 +143,7 @@ function RolePermissionsPage() {
     { key: 'masterData' as const, label: 'Master Data Module' },
     { key: 'pos' as const, label: 'Point of Sales Module' },
     { key: 'receipts' as const, label: 'Receipts Module' },
+    { key: 'customerProfiles' as const, label: 'Customer Profiles Module' },
   ];
 
   const permissions = [
@@ -248,14 +250,11 @@ function RolePermissionsPage() {
                           <div key={permission.key} className="flex items-center justify-between gap-2">
                             <span className="text-sm">{permission.label}</span>
                             <Switch
-                              checked={role.permissions[module.key]?.[permission.key] ?? false}
+                              checked={role.name === 'admin' ? true : (role.permissions[module.key]?.[permission.key] ?? false)}
                               onCheckedChange={(checked) => {
                                 handlePermissionChange(role.id, module.key, permission.key, checked);
                               }}
-                              disabled={
-                                role.name === 'admin' || // Admin role always has full permissions
-                                updatePermissionsMutation.isPending
-                              }
+                              disabled={updatePermissionsMutation.isPending}
                             />
                           </div>
                         ))}

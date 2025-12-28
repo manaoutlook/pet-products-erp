@@ -26,11 +26,11 @@ async function setupDatabase() {
 
     // Run seed scripts in order using execSync
     const seedScripts = [
-      "seed-users-roles.ts",
-      "seed-stores-demo.ts",
-      "seed-products.ts",
-      "seed-customer-profiles.ts",
       "seed-sample-data.ts",
+      "seed-products.ts",
+      "seed-stores-demo.ts",
+      "seed-users-roles.ts",
+      "seed-customer-profiles.ts",
       "seed-inventory.ts"
     ];
 

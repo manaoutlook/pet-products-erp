@@ -30,7 +30,14 @@ import { formatDate } from "@/lib/utils";
 import { CreateCustomerProfileDialog } from "@/components/CustomerProfiles/CreateCustomerProfileDialog";
 import { EditCustomerProfileDialog } from "@/components/CustomerProfiles/EditCustomerProfileDialog";
 import { useToast } from "@/hooks/use-toast";
-import { Pencil, Trash2, Search } from "lucide-react";
+import { usePermissions } from "@/hooks/use-permissions";
+import { Pencil, Trash2, Search, Eye } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface CustomerProfile {
   id: number;
@@ -43,16 +50,87 @@ interface CustomerProfile {
   petType: 'CAT' | 'DOG';
 }
 
+// View Customer Profile Dialog Component
+function ViewCustomerProfileDialog({
+  profile,
+  open,
+  onOpenChange
+}: {
+  profile: CustomerProfile | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  if (!profile) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Customer Profile Details</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm font-medium text-gray-500">Phone Number</label>
+              <p className="mt-1 text-sm text-gray-900">{profile.phoneNumber}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-500">Name</label>
+              <p className="mt-1 text-sm text-gray-900">{profile.name}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-500">Email</label>
+              <p className="mt-1 text-sm text-gray-900">{profile.email}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-500">Pet Type</label>
+              <p className="mt-1 text-sm text-gray-900 capitalize">{profile.petType.toLowerCase()}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-500">Pet Birthday</label>
+              <p className="mt-1 text-sm text-gray-900">
+                {profile.petBirthday ? formatDate(profile.petBirthday) : 'Not specified'}
+              </p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-500">Address</label>
+              <p className="mt-1 text-sm text-gray-900">{profile.address || 'Not specified'}</p>
+            </div>
+          </div>
+          {profile.photo && (
+            <div>
+              <label className="text-sm font-medium text-gray-500">Photo</label>
+              <div className="mt-2">
+                <img
+                  src={profile.photo}
+                  alt={`${profile.name}'s photo`}
+                  className="w-32 h-32 object-cover rounded-lg border"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function CustomerProfilesPage() {
   const [search, setSearch] = useState("");
   const [selectedProfile, setSelectedProfile] = useState<CustomerProfile | null>(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isViewOpen, setIsViewOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const { toast } = useToast();
+  const { hasPermission } = usePermissions();
 
   const { data: customerProfiles = [], isLoading, refetch } = useQuery<CustomerProfile[]>({
     queryKey: ['/api/customer-profiles'],
   });
+
+  const canCreate = hasPermission('customerProfiles', 'create');
+  const canUpdate = hasPermission('customerProfiles', 'update');
+  const canDelete = hasPermission('customerProfiles', 'delete');
 
   const filteredProfiles = customerProfiles.filter(profile =>
     profile.phoneNumber.toLowerCase().includes(search.toLowerCase()) ||
@@ -96,7 +174,7 @@ function CustomerProfilesPage() {
     <div className="space-y-6 p-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Customer Profiles</h1>
-        <CreateCustomerProfileDialog />
+        {canCreate && <CreateCustomerProfileDialog />}
       </div>
 
       <Card>
@@ -144,21 +222,35 @@ function CustomerProfilesPage() {
                           size="icon"
                           onClick={() => {
                             setSelectedProfile(profile);
-                            setIsEditOpen(true);
+                            setIsViewOpen(true);
                           }}
                         >
-                          <Pencil className="h-4 w-4" />
+                          <Eye className="h-4 w-4" />
                         </Button>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => {
-                            setSelectedProfile(profile);
-                            setIsDeleteDialogOpen(true);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {canUpdate && (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => {
+                              setSelectedProfile(profile);
+                              setIsEditOpen(true);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {canDelete && (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => {
+                              setSelectedProfile(profile);
+                              setIsDeleteDialogOpen(true);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -170,14 +262,24 @@ function CustomerProfilesPage() {
       </Card>
 
       {selectedProfile && (
-        <EditCustomerProfileDialog
-          profile={selectedProfile}
-          open={isEditOpen}
-          onOpenChange={(open) => {
-            setIsEditOpen(open);
-            if (!open) setSelectedProfile(null);
-          }}
-        />
+        <>
+          <EditCustomerProfileDialog
+            profile={selectedProfile}
+            open={isEditOpen}
+            onOpenChange={(open) => {
+              setIsEditOpen(open);
+              if (!open) setSelectedProfile(null);
+            }}
+          />
+          <ViewCustomerProfileDialog
+            profile={selectedProfile}
+            open={isViewOpen}
+            onOpenChange={(open) => {
+              setIsViewOpen(open);
+              if (!open) setSelectedProfile(null);
+            }}
+          />
+        </>
       )}
 
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>

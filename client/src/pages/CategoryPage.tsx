@@ -34,7 +34,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, Plus, Pencil, Trash2, AlertCircle } from "lucide-react";
+import { Loader2, Search, Plus, Pencil, Trash2, AlertCircle, Eye } from "lucide-react";
 import { z } from "zod";
 import { usePermissions } from "@/hooks/use-permissions";
 
@@ -57,8 +57,53 @@ interface Category {
 function CategoryPage() {
   const [search, setSearch] = useState("");
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [viewingCategory, setViewingCategory] = useState<Category | null>(null);
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const { toast } = useToast();
   const { hasPermission } = usePermissions();
+
+  // View Category Dialog Component
+  function ViewCategoryDialog({
+    category,
+    open,
+    onOpenChange
+  }: {
+    category: Category | null;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+  }) {
+    if (!category) return null;
+
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Category Details</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium text-gray-500">Name</label>
+                <p className="mt-1 text-sm text-gray-900">{category.name}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Description</label>
+                <p className="mt-1 text-sm text-gray-900">{category.description || 'Not specified'}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Created At</label>
+                <p className="mt-1 text-sm text-gray-900">{new Date(category.createdAt).toLocaleString()}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Updated At</label>
+                <p className="mt-1 text-sm text-gray-900">{new Date(category.updatedAt).toLocaleString()}</p>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   const { data: categories, isLoading, refetch } = useQuery<Category[]>({
     queryKey: ['/api/categories'],
@@ -290,9 +335,7 @@ function CategoryPage() {
                   <TableHead>Description</TableHead>
                   <TableHead>Created At</TableHead>
                   <TableHead>Updated At</TableHead>
-                  {(hasPermission('masterData', 'update') || hasPermission('masterData', 'delete')) && (
-                    <TableHead>Actions</TableHead>
-                  )}
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -302,90 +345,98 @@ function CategoryPage() {
                     <TableCell>{category.description}</TableCell>
                     <TableCell>{new Date(category.createdAt).toLocaleString()}</TableCell>
                     <TableCell>{new Date(category.updatedAt).toLocaleString()}</TableCell>
-                    {(hasPermission('masterData', 'update') || hasPermission('masterData', 'delete')) && (
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          {hasPermission('masterData', 'update') && (
-                            <Dialog>
-                              <DialogTrigger asChild>
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  onClick={() => {
-                                    setEditingCategory(category);
-                                    form.reset({
-                                      name: category.name,
-                                      description: category.description || "",
-                                    });
-                                  }}
-                                >
-                                  <Pencil className="h-4 w-4" />
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>Edit Category</DialogTitle>
-                                </DialogHeader>
-                                <Form {...form}>
-                                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                                    <FormField
-                                      control={form.control}
-                                      name="name"
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel>Name</FormLabel>
-                                          <FormControl>
-                                            <Input {...field} />
-                                          </FormControl>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
-                                    <FormField
-                                      control={form.control}
-                                      name="description"
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel>Description</FormLabel>
-                                          <FormControl>
-                                            <Input {...field} />
-                                          </FormControl>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
-                                    <Button
-                                      type="submit"
-                                      className="w-full"
-                                      disabled={form.formState.isSubmitting}
-                                    >
-                                      {form.formState.isSubmitting && (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                      )}
-                                      Update Category
-                                    </Button>
-                                  </form>
-                                </Form>
-                              </DialogContent>
-                            </Dialog>
-                          )}
-                          {hasPermission('masterData', 'delete') && (
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="text-destructive"
-                              onClick={() => {
-                                if (confirm('Are you sure you want to delete this category?')) {
-                                  deleteMutation.mutate(category.id);
-                                }
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    )}
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => {
+                            setViewingCategory(category);
+                            setIsViewDialogOpen(true);
+                          }}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        {hasPermission('masterData', 'update') && (
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => {
+                                  setEditingCategory(category);
+                                  form.reset({
+                                    name: category.name,
+                                    description: category.description || "",
+                                  });
+                                }}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Edit Category</DialogTitle>
+                              </DialogHeader>
+                              <Form {...form}>
+                                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                                  <FormField
+                                    control={form.control}
+                                    name="name"
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormLabel>Name</FormLabel>
+                                        <FormControl>
+                                          <Input {...field} />
+                                        </FormControl>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+                                  <FormField
+                                    control={form.control}
+                                    name="description"
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormLabel>Description</FormLabel>
+                                        <FormControl>
+                                          <Input {...field} />
+                                        </FormControl>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+                                  <Button
+                                    type="submit"
+                                    className="w-full"
+                                    disabled={form.formState.isSubmitting}
+                                  >
+                                    {form.formState.isSubmitting && (
+                                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    )}
+                                    Update Category
+                                  </Button>
+                                </form>
+                              </Form>
+                            </DialogContent>
+                          </Dialog>
+                        )}
+                        {hasPermission('masterData', 'delete') && (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="text-destructive"
+                            onClick={() => {
+                              if (confirm('Are you sure you want to delete this category?')) {
+                                deleteMutation.mutate(category.id);
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -393,6 +444,15 @@ function CategoryPage() {
           )}
         </CardContent>
       </Card>
+
+      <ViewCategoryDialog
+        category={viewingCategory}
+        open={isViewDialogOpen}
+        onOpenChange={(open) => {
+          setIsViewDialogOpen(open);
+          if (!open) setViewingCategory(null);
+        }}
+      />
     </div>
   );
 }

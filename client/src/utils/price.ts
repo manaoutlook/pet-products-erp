@@ -14,7 +14,7 @@ export const PRICE_CONSTRAINTS = {
  * @param price - The price to validate
  * @returns An object containing validation result and error message if any
  */
-export function validatePrice(price: number | string): { isValid: boolean; error?: string } {
+export function validatePrice(price: number | string): { isValid: boolean; error?: string; value?: number } {
   const numericPrice = typeof price === 'string' ? parseFloat(price) : price;
 
   if (isNaN(numericPrice)) {
@@ -29,7 +29,7 @@ export function validatePrice(price: number | string): { isValid: boolean; error
     return { isValid: false, error: `Price cannot exceed ${formatPrice(PRICE_CONSTRAINTS.MAX_PRICE)}` };
   }
 
-  return { isValid: true };
+  return { isValid: true, value: numericPrice };
 }
 
 /**

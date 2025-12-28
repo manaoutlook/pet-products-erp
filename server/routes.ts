@@ -797,7 +797,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.get("/api/customer-profiles", requireAuth, async (req, res) => {
+  app.get("/api/customer-profiles", requirePermission('customerProfiles', 'read'), async (req, res) => {
     try {
       const allCustomerProfiles = await db.query.customerProfiles.findMany({
         orderBy: [desc(customerProfiles.updatedAt)],
@@ -812,7 +812,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/customer-profiles", requireAuth, async (req, res) => {
+  app.post("/api/customer-profiles", requirePermission('customerProfiles', 'create'), async (req, res) => {
     try {
       const result = insertCustomerProfileSchema.safeParse(req.body);
       if (!result.success) {
@@ -865,7 +865,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.put("/api/customer-profiles/:id", requireAuth, async (req, res) => {
+  app.put("/api/customer-profiles/:id", requirePermission('customerProfiles', 'update'), async (req, res) => {
     try {
       const { id } = req.params;
       const result = insertCustomerProfileSchema.safeParse(req.body);
@@ -924,7 +924,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/customer-profiles/:id", requireAuth, async (req, res) => {
+  app.delete("/api/customer-profiles/:id", requirePermission('customerProfiles', 'delete'), async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -956,8 +956,8 @@ export function registerRoutes(app: Express): Server {
 
 
 
-  // Roles endpoints - admin only
-  app.get("/api/roles", requireRole(['admin']), async (req, res) => {
+  // Roles endpoints
+  app.get("/api/roles", requirePermission('users', 'read'), async (req, res) => {
     try {
       const allRoles = await db.query.roles.findMany({
         orderBy: roles.name,
@@ -969,7 +969,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/roles", requireRole(['admin']), async (req, res) => {
+  app.post("/api/roles", requirePermission('users', 'create'), async (req, res) => {
     try {
       const { name, description, isSystemAdmin, permissions } = req.body;
 
@@ -977,8 +977,18 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).send("Role name is required");
       }
 
-      // Set default permissions if none provided
-      const defaultPermissions = permissions || {
+      // Set default permissions - Admin gets all permissions by default
+      const defaultPermissions = permissions || (name === 'admin' ? {
+        products: { create: true, read: true, update: true, delete: true },
+        orders: { create: true, read: true, update: true, delete: true },
+        inventory: { create: true, read: true, update: true, delete: true },
+        users: { create: true, read: true, update: true, delete: true },
+        stores: { create: true, read: true, update: true, delete: true },
+        masterData: { create: true, read: true, update: true, delete: true },
+        pos: { create: true, read: true, update: true, delete: true },
+        receipts: { create: true, read: true, update: true, delete: true },
+        customerProfiles: { create: true, read: true, update: true, delete: true }
+      } : {
         products: { create: false, read: true, update: false, delete: false },
         orders: { create: false, read: false, update: false, delete: false },
         inventory: { create: false, read: false, update: false, delete: false },
@@ -986,8 +996,9 @@ export function registerRoutes(app: Express): Server {
         stores: { create: false, read: false, update: false, delete: false },
         masterData: { create: false, read: false, update: false, delete: false },
         pos: { create: false, read: false, update: false, delete: false },
-        receipts: { create: false, read: false, update: false, delete: false }
-      };
+        receipts: { create: false, read: false, update: false, delete: false },
+        customerProfiles: { create: false, read: false, update: false, delete: false }
+      });
 
       const [newRole] = await db
         .insert(roles)
@@ -1009,7 +1020,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.put("/api/roles/:id", requireRole(['admin']), async (req, res) => {
+  app.put("/api/roles/:id", requirePermission('users', 'update'), async (req, res) => {
     try {
       const { id } = req.params;
       const { name, description, isSystemAdmin } = req.body;
@@ -1048,7 +1059,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/roles/:id", requireRole(['admin']), async (req, res) => {
+  app.delete("/api/roles/:id", requirePermission('users', 'delete'), async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -1086,7 +1097,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Add new endpoint for updating role permissions
-  app.put("/api/roles/:id/permissions", requireRole(['admin']), async (req, res) => {
+  app.put("/api/roles/:id/permissions", requirePermission('users', 'update'), async (req, res) => {
     try {
       const { id } = req.params;
       const { permissions } = req.body;
@@ -1246,8 +1257,8 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Role Mapping endpoint - admin only
-  app.get("/api/roles/mapping", requireRole(['admin']), async (req, res) => {
+  // Role Mapping endpoint
+  app.get("/api/roles/mapping", requirePermission('users', 'read'), async (req, res) => {
     try {
       // Fetch roles with users and role types
       const roles = await db.query.roles.findMany({
@@ -1277,8 +1288,8 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // User management endpoints - admin only
-  app.get("/api/users", requireRole(['admin']), async (req, res) => {
+  // User management endpoints
+  app.get("/api/users", requirePermission('users', 'read'), async (req, res) => {
     try {
       const allUsers = await db.query.users.findMany({
         with: {
@@ -1295,7 +1306,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/users", requireRole(['admin']), async (req, res) => {
+  app.post("/api/users", requirePermission('users', 'create'), async (req, res) => {
     try {
       const result = insertUserSchema.safeParse(req.body);
       if (!result.success) {
@@ -1351,7 +1362,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.put("/api/users/:id", requireRole(['admin']), async (req, res) => {
+  app.put("/api/users/:id", requirePermission('users', 'update'), async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -1459,7 +1470,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/users/:id", requireRole(['admin']), async (req, res) => {
+  app.delete("/api/users/:id", requirePermission('users', 'delete'), async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -1498,7 +1509,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/stores", requireRole(['admin']), async (req, res) => {
+  app.post("/api/stores", requirePermission('stores', 'create'), async (req, res) => {
     try {
       const result = insertStoreSchema.safeParse(req.body);
       if (!result.success) {
@@ -1548,7 +1559,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.put("/api/stores/:id", requireRole(['admin']), async (req, res) => {
+  app.put("/api/stores/:id", requirePermission('stores', 'update'), async (req, res) => {
     try {
       const { id } = req.params;
       const result = insertStoreSchema.safeParse(req.body);
@@ -1611,7 +1622,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/stores/:id", requireRole(['admin']), async (req, res) => {
+  app.delete("/api/stores/:id", requirePermission('stores', 'delete'), async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -1680,7 +1691,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // User-Store Assignment endpoints
-  app.get("/api/store-assignments", requireRole(['admin']), async (req, res) => {
+  app.get("/api/store-assignments", requirePermission('stores', 'read'), async (req, res) => {
     try {
       const assignments = await db.query.userStoreAssignments.findMany({
         with: {
@@ -1695,7 +1706,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.get("/api/store-assignments/users", requireRole(['admin']), async (req, res) => {
+  app.get("/api/store-assignments/users", requirePermission('users', 'read'), async (req, res) => {
     try {
       // Get all non-system admin users
       const petStoreUsers = await db
@@ -1723,7 +1734,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/store-assignments", requireRole(['admin']), async (req, res) => {
+  app.post("/api/store-assignments", requirePermission('users', 'create'), async (req, res) => {
     try {
       const { userId, storeId } = req.body;
 
@@ -1794,7 +1805,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/store-assignments/:id", requireRole(['admin']), async (req, res) => {
+  app.delete("/api/store-assignments/:id", requirePermission('users', 'delete'), async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -1819,8 +1830,8 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Stats API - admin only
-  app.get("/api/stats", requireRole(['admin']), async (req, res) => {
+  // Stats API
+  app.get("/api/stats", requirePermission('users', 'read'), async (req, res) => {
     try {
       const [orderStats] = await db
         .select({
@@ -1847,8 +1858,8 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  //// Orders trend for chart - admin only
-  app.get("/api/stats/orders-trend", requireRole(['admin']), async (req, res) => {
+  //// Orders trend for chart
+  app.get("/api/stats/orders-trend", requirePermission('users', 'read'), async (req, res) => {
     const trend = await db
       .select({
         date: sql<string>`date_trunc('day', created_at)::date`,
@@ -1891,8 +1902,8 @@ export function registerRoutes(app: Express): Server {
     brandId: z.number().positive("Brand ID is required").optional(),
   });
 
-  // Products API - Create product (admin only)
-  app.post("/api/products", requireRole(['admin']), async (req, res) => {
+  // Products API - Create product
+  app.post("/api/products", requirePermission('products', 'create'), async (req, res) => {
     try {
       const result = insertProductSchema.safeParse(req.body);
       if (!result.success) {
@@ -1978,8 +1989,8 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Products API - Update product (admin only)
-  app.put("/api/products/:id", requireRole(['admin']), async (req, res) => {
+  // Products API - Update product
+  app.put("/api/products/:id", requirePermission('products', 'update'), async (req, res) => {
     try {
       const { id } = req.params;
       const { name, description, sku, price, categoryId, minStock, brandId } = req.body;
@@ -2057,8 +2068,8 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Products API - Delete product (admin only)
-  app.delete("/api/products/:id", requireRole(['admin']), async (req, res) => {
+  // Products API - Delete product
+  app.delete("/api/products/:id", requirePermission('products', 'delete'), async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -2106,8 +2117,8 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Orders API - admin only
-  app.get("/api/orders", requireRole(['admin']), async (req, res) => {
+  // Orders API
+  app.get("/api/orders", requirePermission('orders', 'read'), async (req, res) => {
     try {
       const allOrders = await db.query.orders.findMany({
         with: {
@@ -2276,7 +2287,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/inventory/:id", requireRole(['admin']), async (req, res) => {
+  app.delete("/api/inventory/:id", requirePermission('inventory', 'delete'), async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -2812,7 +2823,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Get sales transactions with filtering
-  app.get("/api/sales-transactions", requirePermission('receipts', 'read'), async (req, res) => {
+  app.get("/api/sales-transactions", requireAuth, async (req, res) => {
     try {
       const {
         search,
@@ -2848,7 +2859,16 @@ export function registerRoutes(app: Express): Server {
 
         if (userAssignments.length > 0) {
           const storeIds = userAssignments.map(assignment => assignment.storeId);
-          whereConditions.push(sql`${salesTransactions.storeId} IN ${storeIds}`);
+          // Users can see transactions from their assigned stores OR transactions they created
+          whereConditions.push(
+            or(
+              sql`${salesTransactions.storeId} IN ${storeIds}`,
+              eq(salesTransactions.cashierUserId, user.id)
+            )
+          );
+        } else {
+          // If user has no store assignments, they can only see transactions they created
+          whereConditions.push(eq(salesTransactions.cashierUserId, user.id));
         }
       }
 
@@ -3193,8 +3213,8 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Get invoice counters (admin only)
-  app.get("/api/invoice-counters", requireRole(['admin']), async (req, res) => {
+  // Get invoice counters
+  app.get("/api/invoice-counters", requirePermission('users', 'read'), async (req, res) => {
     try {
       const counters = await db.query.invoiceCounters.findMany({
         with: {
@@ -3374,7 +3394,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Get inventory transaction history
-  app.get("/api/inventory/transactions", requireRole(['admin']), async (req, res) => {
+  app.get("/api/inventory/transactions", requirePermission('inventory', 'read'), async (req, res) => {
     try {
       const { productId, storeId, limit = '100', offset = '0' } = req.query;
 

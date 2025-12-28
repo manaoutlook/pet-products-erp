@@ -36,15 +36,62 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import type { InsertSupplier, SelectSupplier } from "@db/schema";
 import { insertSupplierSchema } from "@db/schema";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, Plus, Pencil, Trash2, AlertCircle } from "lucide-react";
+import { Loader2, Search, Plus, Pencil, Trash2, AlertCircle, Eye } from "lucide-react";
 import { usePermissions } from "@/hooks/use-permissions";
 
 function SuppliersPage() {
   const [search, setSearch] = useState("");
   const [editingSupplier, setEditingSupplier] = useState<SelectSupplier | null>(null);
+  const [viewingSupplier, setViewingSupplier] = useState<SelectSupplier | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const { toast } = useToast();
   const { hasPermission } = usePermissions();
+
+  // View Supplier Dialog Component
+  function ViewSupplierDialog({
+    supplier,
+    open,
+    onOpenChange
+  }: {
+    supplier: SelectSupplier | null;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+  }) {
+    if (!supplier) return null;
+
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogHeader>
+          <DialogTitle>Supplier Details</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm font-medium text-gray-500">Supplier Name</label>
+              <p className="mt-1 text-sm text-gray-900">{supplier.name}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-500">Contact Information</label>
+              <p className="mt-1 text-sm text-gray-900">{supplier.contactInfo}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-500">Address</label>
+              <p className="mt-1 text-sm text-gray-900">{supplier.address}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-500">Created At</label>
+              <p className="mt-1 text-sm text-gray-900">{new Date(supplier.createdAt!).toLocaleString()}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-500">Updated At</label>
+              <p className="mt-1 text-sm text-gray-900">{new Date(supplier.updatedAt!).toLocaleString()}</p>
+            </div>
+          </div>
+        </div>
+      </Dialog>
+    );
+  }
 
   const { data: suppliers, isLoading, refetch } = useQuery<SelectSupplier[]>({
     queryKey: ['/api/suppliers'],
@@ -303,9 +350,7 @@ function SuppliersPage() {
                   <TableHead>Supplier Name</TableHead>
                   <TableHead>Contact Information</TableHead>
                   <TableHead>Address</TableHead>
-                  {(hasPermission('masterData', 'update') || hasPermission('masterData', 'delete')) && (
-                    <TableHead>Actions</TableHead>
-                  )}
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -314,35 +359,43 @@ function SuppliersPage() {
                     <TableCell className="font-medium">{supplier.name}</TableCell>
                     <TableCell>{supplier.contactInfo}</TableCell>
                     <TableCell>{supplier.address}</TableCell>
-                    {(hasPermission('masterData', 'update') || hasPermission('masterData', 'delete')) && (
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          {hasPermission('masterData', 'update') && (
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              onClick={() => handleEditSupplier(supplier)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                          )}
-                          {hasPermission('masterData', 'delete') && (
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="text-destructive"
-                              onClick={() => {
-                                if (confirm('Are you sure you want to delete this supplier?')) {
-                                  deleteMutation.mutate(supplier.id);
-                                }
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    )}
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => {
+                            setViewingSupplier(supplier);
+                            setIsViewDialogOpen(true);
+                          }}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        {hasPermission('masterData', 'update') && (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => handleEditSupplier(supplier)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {hasPermission('masterData', 'delete') && (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="text-destructive"
+                            onClick={() => {
+                              if (confirm('Are you sure you want to delete this supplier?')) {
+                                deleteMutation.mutate(supplier.id);
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -350,6 +403,15 @@ function SuppliersPage() {
           )}
         </CardContent>
       </Card>
+
+      <ViewSupplierDialog
+        supplier={viewingSupplier}
+        open={isViewDialogOpen}
+        onOpenChange={(open) => {
+          setIsViewDialogOpen(open);
+          if (!open) setViewingSupplier(null);
+        }}
+      />
     </div>
   );
 }

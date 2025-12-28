@@ -32,7 +32,7 @@ interface NavItem {
   name: string;
   href?: string;
   icon: any;
-  module?: 'products' | 'orders' | 'inventory' | 'users' | 'stores' | 'masterData' | 'pos' | 'receipts';
+  module?: 'products' | 'orders' | 'inventory' | 'users' | 'stores' | 'masterData' | 'pos' | 'receipts' | 'customerProfiles';
   action?: 'create' | 'read' | 'update' | 'delete';
   adminOnly?: boolean;
   children?: NavItem[];
@@ -180,7 +180,7 @@ function Sidebar() {
       name: "Customer Profiles",
       href: "/customers",
       icon: UserCircle,
-      module: 'users',
+      module: 'customerProfiles',
       action: 'read'
     },
     {

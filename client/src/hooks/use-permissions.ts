@@ -16,6 +16,7 @@ interface Permissions {
   masterData: Permission;
   pos: Permission;
   receipts: Permission;
+  customerProfiles: Permission;
 }
 
 interface Role {

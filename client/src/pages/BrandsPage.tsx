@@ -37,14 +37,57 @@ import type { InsertBrand, SelectBrand } from "@db/schema";
 import { insertBrandSchema } from "@db/schema";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
-import { Loader2, Search, Plus, Pencil, Trash2, AlertCircle } from "lucide-react";
+import { Loader2, Search, Plus, Pencil, Trash2, AlertCircle, Eye } from "lucide-react";
 
 function BrandsPage() {
   const [search, setSearch] = useState("");
   const [editingBrand, setEditingBrand] = useState<SelectBrand | null>(null);
+  const [viewingBrand, setViewingBrand] = useState<SelectBrand | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const { toast } = useToast();
   const { hasPermission } = usePermissions();
+
+  // View Brand Dialog Component
+  function ViewBrandDialog({
+    brand,
+    open,
+    onOpenChange
+  }: {
+    brand: SelectBrand | null;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+  }) {
+    if (!brand) return null;
+
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogHeader>
+          <DialogTitle>Brand Details</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm font-medium text-gray-500">Brand Name</label>
+              <p className="mt-1 text-sm text-gray-900">{brand.name}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-500">Description</label>
+              <p className="mt-1 text-sm text-gray-900">{brand.description || 'Not specified'}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-500">Created At</label>
+              <p className="mt-1 text-sm text-gray-900">{new Date(brand.createdAt!).toLocaleString()}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-500">Updated At</label>
+              <p className="mt-1 text-sm text-gray-900">{new Date(brand.updatedAt!).toLocaleString()}</p>
+            </div>
+          </div>
+        </div>
+      </Dialog>
+    );
+  }
 
   const { data: brands, isLoading, refetch } = useQuery<SelectBrand[]>({
     queryKey: ['/api/brands'],
@@ -240,6 +283,7 @@ function BrandsPage() {
                         <FormControl>
                           <Input
                             {...field}
+                            value={field.value || ""}
                             placeholder="Enter brand description"
                           />
                         </FormControl>
@@ -290,9 +334,7 @@ function BrandsPage() {
                 <TableRow>
                   <TableHead>Brand Name</TableHead>
                   <TableHead>Description</TableHead>
-                  {(hasPermission('masterData', 'update') || hasPermission('masterData', 'delete')) && (
-                    <TableHead>Actions</TableHead>
-                  )}
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -300,31 +342,39 @@ function BrandsPage() {
                   <TableRow key={brand.id}>
                     <TableCell className="font-medium">{brand.name}</TableCell>
                     <TableCell>{brand.description}</TableCell>
-                    {(hasPermission('masterData', 'update') || hasPermission('masterData', 'delete')) && (
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          {hasPermission('masterData', 'update') && (
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              onClick={() => handleEditBrand(brand)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                          )}
-                          {hasPermission('masterData', 'delete') && (
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="text-destructive"
-                              onClick={() => handleDeleteBrand(brand.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    )}
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => {
+                            setViewingBrand(brand);
+                            setIsViewDialogOpen(true);
+                          }}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        {hasPermission('masterData', 'update') && (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => handleEditBrand(brand)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {hasPermission('masterData', 'delete') && (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="text-destructive"
+                            onClick={() => handleDeleteBrand(brand.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -332,6 +382,15 @@ function BrandsPage() {
           )}
         </CardContent>
       </Card>
+
+      <ViewBrandDialog
+        brand={viewingBrand}
+        open={isViewDialogOpen}
+        onOpenChange={(open) => {
+          setIsViewDialogOpen(open);
+          if (!open) setViewingBrand(null);
+        }}
+      />
     </div>
   );
 }

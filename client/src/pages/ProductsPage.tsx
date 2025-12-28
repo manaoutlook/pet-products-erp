@@ -34,7 +34,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, Plus, Pencil, Trash2, AlertCircle } from "lucide-react";
+import { Loader2, Search, Plus, Pencil, Trash2, AlertCircle, Eye } from "lucide-react";
 import { z } from "zod";
 import { validatePrice, formatPrice, normalizePrice } from "@/utils/price";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -115,8 +115,7 @@ function ProductsPage() {
   const [search, setSearch] = useState("");
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const { toast } = useToast();
-  const { hasPermission } = usePermissions();
-  const isAdmin = true; //This needs to be fetched from auth context
+  const { hasPermission, isAdmin } = usePermissions();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [open, setOpen] = useState(false);
@@ -248,6 +247,80 @@ function ProductsPage() {
     return { label: 'In Stock', class: 'bg-green-100 text-green-800' };
   };
 
+  const [viewingProduct, setViewingProduct] = useState<Product | null>(null);
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
+
+  // View Product Dialog Component
+  function ViewProductDialog({
+    product,
+    open,
+    onOpenChange
+  }: {
+    product: Product | null;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+  }) {
+    if (!product) return null;
+
+    const stockStatus = getStockStatus(product);
+
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Product Details</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium text-gray-500">Name</label>
+                <p className="mt-1 text-sm text-gray-900">{product.name}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">SKU</label>
+                <p className="mt-1 text-sm text-gray-900">{product.sku}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Category</label>
+                <p className="mt-1 text-sm text-gray-900">{product.category.name}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Brand</label>
+                <p className="mt-1 text-sm text-gray-900">{product.brand?.name || 'Not specified'}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Price</label>
+                <p className="mt-1 text-sm text-gray-900">{formatPrice(product.price)}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Stock Status</label>
+                <div className="mt-1">
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${stockStatus.class}`}>
+                    {stockStatus.label}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Current Stock</label>
+                <p className="mt-1 text-sm text-gray-900">{product.inventory[0]?.quantity ?? 0}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Minimum Stock</label>
+                <p className="mt-1 text-sm text-gray-900">{product.minStock}</p>
+              </div>
+            </div>
+            {product.description && (
+              <div>
+                <label className="text-sm font-medium text-gray-500">Description</label>
+                <p className="mt-1 text-sm text-gray-900">{product.description}</p>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   const onSubmit = async (data: ProductFormData) => {
     try {
       if (editingProduct) {
@@ -276,8 +349,13 @@ function ProductsPage() {
   const handleDeleteClick = (id: number) => {
     // Find the product to get its name for the confirmation message
     const productToDelete = products?.find(product => product.id === id);
-    setProductToDelete(productToDelete);
+    setProductToDelete(productToDelete || null);
     setIsDeleteDialogOpen(true);
+  };
+
+  const handleViewClick = (product: Product) => {
+    setViewingProduct(product);
+    setIsViewDialogOpen(true);
   };
 
   // If user doesn't have read permission, show access denied
@@ -531,9 +609,7 @@ function ProductsPage() {
                   <TableHead>Price</TableHead>
                   <TableHead>Stock</TableHead>
                   <TableHead>Status</TableHead>
-                  {hasPermission('products', 'update') && (
-                    <TableHead>Actions</TableHead>
-                  )}
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -554,9 +630,16 @@ function ProductsPage() {
                           {stockStatus.label}
                         </div>
                       </TableCell>
-                      {hasPermission('products', 'update') && (
-                        <TableCell>
-                          <div className="flex items-center gap-2">
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleViewClick(product)}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          {hasPermission('products', 'update') && (
                             <Dialog open={open} onOpenChange={setOpen}>
                               <DialogTrigger asChild>
                                 <Button
@@ -631,17 +714,13 @@ function ProductsPage() {
                                       name="price"
                                       render={({ field }) => (
                                         <FormItem>
-                                          <FormLabel>Price (VND)</FormLabel>
+                                          <FormLabel>Price</FormLabel>
                                           <FormControl>
                                             <Input
+                                              type="number"
+                                              step="0.01"
                                               {...field}
-                                              value={formatPrice(field.value)}
-                                              onChange={(e) => {
-                                                const value = validatePrice(e.target.value);
-                                                if (value !== null) {
-                                                  field.onChange(value);
-                                                }
-                                              }}
+                                              onChange={(e) => field.onChange(parseFloat(e.target.value))}
                                             />
                                           </FormControl>
                                           <FormMessage />
@@ -685,11 +764,10 @@ function ProductsPage() {
                                         <FormItem>
                                           <FormLabel>Brand</FormLabel>
                                           <div className="flex space-x-2">
-                                            <Select
-                                              value={field.value?.toString()}
-                                              onValueChange={(value) => field.onChange(parseInt(value))}
-                                              className="flex-1"
-                                            >
+                                      <Select
+                                        value={field.value?.toString()}
+                                        onValueChange={(value) => field.onChange(parseInt(value))}
+                                      >
                                               <FormControl>
                                                 <SelectTrigger>
                                                   <SelectValue placeholder="Select a brand" />
@@ -706,7 +784,12 @@ function ProductsPage() {
                                                 ))}
                                               </SelectContent>
                                             </Select>
-                                            <BrandQuickAddModal onSuccess={refetchBrands} />
+                                            <BrandQuickAddModal
+                                              onSuccess={(brand) => {
+                                                refetchBrands();
+                                                field.onChange(brand.id);
+                                              }}
+                                            />
                                           </div>
                                           <FormMessage />
                                         </FormItem>
@@ -739,18 +822,18 @@ function ProductsPage() {
                                 </Form>
                               </DialogContent>
                             </Dialog>
-                            {(hasPermission('products', 'delete') || isAdmin) && (
-                              <Button
-                                onClick={() => handleDeleteClick(product.id)}
-                                variant="ghost"
-                                size="icon"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            )}
-                          </div>
-                        </TableCell>
-                      )}
+                          )}
+                          {(hasPermission('products', 'delete') || isAdmin) && (
+                            <Button
+                              onClick={() => handleDeleteClick(product.id)}
+                              variant="ghost"
+                              size="icon"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -780,6 +863,15 @@ function ProductsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <ViewProductDialog
+        product={viewingProduct}
+        open={isViewDialogOpen}
+        onOpenChange={(open) => {
+          setIsViewDialogOpen(open);
+          if (!open) setViewingProduct(null);
+        }}
+      />
     </div>
   );
 }
