@@ -11,6 +11,7 @@ import CategoryPage from "./pages/CategoryPage";
 import BrandsPage from "./pages/BrandsPage";
 import UsersPage from "./pages/UsersPage";
 import RolesPage from "./pages/RolesPage";
+import RegionsPage from "./pages/RegionsPage";
 import RolePermissionsPage from "./pages/RolePermissionsPage";
 import StorePage from "./pages/StorePage";
 import StoreAssignmentPage from "./pages/StoreAssignmentPage";
@@ -52,6 +53,7 @@ function App() {
         <Route path="/customers" component={CustomerProfilesPage} />
         <Route path="/users" component={UsersPage} />
         <Route path="/roles" component={RolesPage} />
+        <Route path="/regions" component={RegionsPage} />
         <Route path="/role-permissions" component={RolePermissionsPage} />
         <Route path="/stores" component={StorePage} />
         <Route path="/store-assignments" component={StoreAssignmentPage} />

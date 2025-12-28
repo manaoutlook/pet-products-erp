@@ -116,6 +116,9 @@ function TransferPage() {
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const { toast } = useToast();
   const { hasPermission } = usePermissions();
+  const { user } = useUser();
+  const [approvedQuantities, setApprovedQuantities] = useState<Record<number, number>>({});
+  const [rejectionReason, setRejectionReason] = useState("");
 
   const canCreate = hasPermission('inventory', 'create');
 
@@ -166,6 +169,64 @@ function TransferPage() {
       setDialogOpen(false);
       form.reset();
       toast({ title: "Success", description: "Transfer request created successfully" });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+    },
+  });
+
+  const approveTransferMutation = useMutation({
+    mutationFn: async ({ id, approvedQuantities, notes }: { id: number; approvedQuantities: any[]; notes?: string }) => {
+      const response = await fetch(`/api/transfer-requests/${id}/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actionType: 'approve',
+          approvedQuantities,
+          notes
+        }),
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error(await response.text());
+      return response.json();
+    },
+    onSuccess: () => {
+      refetchTransfers();
+      setDetailsDialogOpen(false);
+      toast({ title: "Success", description: "Transfer approved successfully" });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+    },
+  });
+
+  const rejectTransferMutation = useMutation({
+    mutationFn: async ({ id, reason, notes }: { id: number; reason: string; notes?: string }) => {
+      const response = await fetch(`/api/transfer-requests/${id}/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actionType: 'reject',
+          rejectionReason: reason,
+          notes
+        }),
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error(await response.text());
+      return response.json();
+    },
+    onSuccess: () => {
+      refetchTransfers();
+      setDetailsDialogOpen(false);
+      toast({ title: "Success", description: "Transfer rejected successfully" });
     },
     onError: (error: Error) => {
       toast({
@@ -553,6 +614,13 @@ function TransferPage() {
                         onClick={() => {
                           setSelectedTransfer(transfer);
                           setDetailsDialogOpen(true);
+                          // Initialize approved quantities with requested quantities
+                          const initialQuantities: Record<number, number> = {};
+                          transfer.items.forEach(item => {
+                            initialQuantities[item.id] = item.requestedQuantity;
+                          });
+                          setApprovedQuantities(initialQuantities);
+                          setRejectionReason("");
                         }}
                       >
                         <Eye className="mr-2 h-4 w-4" />
@@ -635,7 +703,21 @@ function TransferPage() {
                         <TableCell>{item.product.sku}</TableCell>
                         <TableCell>{item.requestedQuantity}</TableCell>
                         <TableCell>
-                          {item.approvedQuantity || '-'}
+                          {selectedTransfer.status === 'pending' ? (
+                            <Input
+                              type="number"
+                              min="0"
+                              max={item.requestedQuantity}
+                              value={approvedQuantities[item.id] || 0}
+                              onChange={(e) => setApprovedQuantities({
+                                ...approvedQuantities,
+                                [item.id]: parseInt(e.target.value) || 0
+                              })}
+                              className="w-20"
+                            />
+                          ) : (
+                            item.approvedQuantity || '-'
+                          )}
                         </TableCell>
                         <TableCell>{item.transferredQuantity}</TableCell>
                         <TableCell>
@@ -652,6 +734,50 @@ function TransferPage() {
                   </TableBody>
                 </Table>
               </div>
+
+              {selectedTransfer.status === 'pending' && (
+                <div className="space-y-4 pt-4 border-t">
+                  <div className="space-y-2">
+                    <h4 className="font-medium text-sm">Action Notes / Rejection Reason</h4>
+                    <Textarea
+                      placeholder="Enter a reason for rejection or notes for approval"
+                      value={rejectionReason}
+                      onChange={(e) => setRejectionReason(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="destructive"
+                      onClick={() => rejectTransferMutation.mutate({
+                        id: selectedTransfer.id,
+                        reason: rejectionReason || "Rejected by manager"
+                      })}
+                      disabled={rejectTransferMutation.isPending}
+                    >
+                      {rejectTransferMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Reject Request
+                    </Button>
+                    <Button
+                      variant="default"
+                      onClick={() => {
+                        const quantitiesArray = Object.entries(approvedQuantities).map(([itemId, quantity]) => ({
+                          itemId: parseInt(itemId),
+                          quantity
+                        }));
+                        approveTransferMutation.mutate({
+                          id: selectedTransfer.id,
+                          approvedQuantities: quantitiesArray,
+                          notes: rejectionReason
+                        });
+                      }}
+                      disabled={approveTransferMutation.isPending}
+                    >
+                      {approveTransferMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Approve & Set Quantities
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>

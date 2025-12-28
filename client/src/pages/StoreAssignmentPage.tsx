@@ -43,7 +43,12 @@ type StoreAssignment = {
       isSystemAdmin: boolean;
     };
   };
-  store: SelectStore;
+  store: SelectStore & {
+    region?: {
+      id: number;
+      name: string;
+    } | null;
+  };
 };
 
 function StoreAssignmentPage() {
@@ -65,7 +70,7 @@ function StoreAssignmentPage() {
     }
   });
 
-  const { data: stores, isLoading: isLoadingStores } = useQuery<SelectStore[]>({
+  const { data: stores, isLoading: isLoadingStores } = useQuery<(SelectStore & { region?: { name: string } | null })[]>({
     queryKey: ['/api/stores'],
     queryFn: async () => {
       const response = await fetch('/api/stores', {
@@ -201,9 +206,9 @@ function StoreAssignmentPage() {
                     <SelectValue placeholder="Select a store" />
                   </SelectTrigger>
                   <SelectContent>
-                    {stores?.map((store: SelectStore) => (
-                      <SelectItem key={store.id} value={store.id.toString()}>
-                        {store.name}
+                    {(stores || []).map((store: SelectStore & { region?: { name: string } | null }) => (
+                      <SelectItem key={store.id} value={String(store.id)}>
+                        {store.name} {store.region?.name ? "(" + store.region.name + ")" : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -239,6 +244,7 @@ function StoreAssignmentPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>User</TableHead>
+                  <TableHead>Region</TableHead>
                   <TableHead>Store</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
@@ -246,7 +252,12 @@ function StoreAssignmentPage() {
               <TableBody>
                 {assignments?.map((assignment: StoreAssignment) => (
                   <TableRow key={assignment.id}>
-                    <TableCell>{assignment.user.username}</TableCell>
+                    <TableCell className="font-medium">{assignment.user.username}</TableCell>
+                    <TableCell>
+                      {assignment.store.region?.name || (
+                        <span className="text-muted-foreground italic">No Region</span>
+                      )}
+                    </TableCell>
                     <TableCell>{assignment.store.name}</TableCell>
                     <TableCell>
                       <Button

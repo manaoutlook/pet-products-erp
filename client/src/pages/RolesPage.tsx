@@ -176,6 +176,7 @@ function RolesPage() {
       name: "",
       description: "",
       isSystemAdmin: false,
+      hierarchyLevel: 'staff',
     },
   });
 
@@ -243,6 +244,7 @@ function RolesPage() {
       name: "",
       description: "",
       isSystemAdmin: false,
+      hierarchyLevel: 'staff',
     });
     setDialogOpen(true);
   };
@@ -253,6 +255,7 @@ function RolesPage() {
       name: role.name,
       description: role.description || "",
       isSystemAdmin: role.isSystemAdmin,
+      hierarchyLevel: role.hierarchyLevel as any || 'staff',
     });
     setDialogOpen(true);
   };
@@ -321,6 +324,33 @@ function RolesPage() {
                     </FormItem>
                   )}
                 />
+                <FormField
+                  control={form.control}
+                  name="hierarchyLevel"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Hierarchy Level</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value || 'staff'}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select hierarchy level" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="staff">Store Staff (Own Store Only)</SelectItem>
+                          <SelectItem value="dc_manager">DC Manager (All DCs)</SelectItem>
+                          <SelectItem value="regional">Regional Manager (Assigned Region)</SelectItem>
+                          <SelectItem value="global">Global Manager (Company-wide)</SelectItem>
+                          <SelectItem value="admin">System Admin (Full Access)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <Button
                   type="button"
                   className="w-full"
@@ -372,6 +402,7 @@ function RolesPage() {
                   <TableHead>Name</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead>System Admin</TableHead>
+                  <TableHead>Hierarchy Level</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -381,6 +412,7 @@ function RolesPage() {
                     <TableCell className="font-medium">{role.name}</TableCell>
                     <TableCell>{role.description}</TableCell>
                     <TableCell>{role.isSystemAdmin ? 'Yes' : 'No'}</TableCell>
+                    <TableCell className="capitalize">{role.hierarchyLevel}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Button

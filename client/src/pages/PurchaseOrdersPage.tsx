@@ -36,6 +36,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/utils";
 import { CreatePurchaseOrderDialog } from "@/components/PurchaseOrders/CreatePurchaseOrderDialog";
+import { useUser } from "@/hooks/use-user";
 
 interface Supplier {
   id: number;
@@ -87,6 +88,7 @@ function PurchaseOrdersPage() {
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useUser();
 
   const { data: purchaseOrders = [], isLoading } = useQuery<PurchaseOrder[]>({
     queryKey: ['/api/purchase-orders'],
@@ -163,6 +165,18 @@ function PurchaseOrdersPage() {
   };
 
   const canPerformAction = (order: PurchaseOrder, actionType: string): boolean => {
+    if (!user) return false;
+
+    // Check hierarchy level for sensitive actions
+    const isPowerful = user.role.isSystemAdmin ||
+      user.role.hierarchyLevel === 'admin' ||
+      user.role.hierarchyLevel === 'global' ||
+      user.role.hierarchyLevel === 'dc_manager';
+
+    if (actionType !== 'print' && !isPowerful) {
+      return false;
+    }
+
     if (order.status === 'cancelled' || order.status === 'delivered') {
       return false;
     }

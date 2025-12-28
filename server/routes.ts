@@ -12,10 +12,11 @@ import {
   salesTransactionActions, invoiceCounters,
   transferRequests, transferRequestItems, transferActions, transferHistory,
   insertTransferRequestSchema, insertTransferRequestItemSchema, insertTransferActionSchema,
-  selectTransferRequestSchema, selectTransferRequestItemSchema
+  selectTransferRequestSchema, selectTransferRequestItemSchema,
+  regions, insertRegionSchema, selectRegionSchema
 } from "@db/schema";
 import { sql } from "drizzle-orm";
-import { eq, and, or, desc, gte, lt, isNull } from "drizzle-orm";
+import { eq, and, or, desc, gte, lt, isNull, inArray } from "drizzle-orm";
 import { requireRole, requireAuth, requirePermission } from "./middleware";
 import { z } from "zod";
 import { crypto } from "./auth";
@@ -71,10 +72,49 @@ export function registerRoutes(app: Express): Server {
 
   app.use('/api', requireAuth);
 
+  // Helper to get accessible store IDs based on hierarchy
+  async function getAccessibleStoreIds(user: Express.User): Promise<number[] | null> {
+    if (user.role.isSystemAdmin || user.role.hierarchyLevel === 'admin' || user.role.hierarchyLevel === 'global') {
+      return null; // All stores
+    }
+
+    if (user.role.hierarchyLevel === 'dc_manager') {
+      const dcStores = await db.query.stores.findMany({
+        where: eq(stores.type, 'WAREHOUSE'),
+      });
+      return dcStores.map(s => s.id);
+    }
+
+    if (user.role.hierarchyLevel === 'regional') {
+      const managedRegions = await db.query.regions.findMany({
+        where: eq(regions.managerUserId, user.id),
+      });
+      const regionIds = managedRegions.map(r => r.id);
+      if (regionIds.length === 0) return [];
+
+      const regionalStores = await db.query.stores.findMany({
+        where: inArray(stores.regionId, regionIds),
+      });
+      return regionalStores.map(s => s.id);
+    }
+
+    // Default: staff (assigned stores only)
+    const assignments = await db.query.userStoreAssignments.findMany({
+      where: eq(userStoreAssignments.userId, user.id),
+    });
+    return assignments.map(a => a.storeId);
+  }
+
   // Store Management endpoints
   app.get("/api/stores", requireAuth, async (req, res) => {
     try {
+      const accessibleStoreIds = await getAccessibleStoreIds(req.user!);
+
       const allStores = await db.query.stores.findMany({
+        where: accessibleStoreIds ? inArray(stores.id, accessibleStoreIds) : undefined,
+        with: {
+          region: true
+        },
         orderBy: [desc(stores.updatedAt)],
       });
       res.json(allStores);
@@ -100,7 +140,7 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { name, location, contactInfo, type } = result.data; // AI Agent Note: Added 'type' for multiple DC support
+      const { name, location, contactInfo, type, regionId } = result.data;
 
       // Check if store exists
       const existingStore = await db.query.stores.findFirst({
@@ -120,7 +160,8 @@ export function registerRoutes(app: Express): Server {
           name,
           location,
           contactInfo,
-          type: type || 'RETAIL', // AI Agent Note: Save store type
+          type: type || 'RETAIL',
+          regionId: regionId || null,
         })
         .returning();
 
@@ -159,7 +200,7 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { name, location, contactInfo, type } = result.data; // AI Agent Note: Added 'type' for multiple DC support
+      const { name, location, contactInfo, type, regionId } = result.data;
 
       // Check if store exists
       const existingStore = await db.query.stores.findFirst({
@@ -182,7 +223,8 @@ export function registerRoutes(app: Express): Server {
           name,
           location,
           contactInfo,
-          type: type || 'RETAIL', // AI Agent Note: Save store type
+          type: type || 'RETAIL',
+          regionId: regionId || null,
           updatedAt: new Date()
         })
         .where(eq(stores.id, parseInt(id)))
@@ -276,10 +318,149 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Region Management endpoints
+  app.get("/api/regions", requireAuth, async (req, res) => {
+    try {
+      const allRegions = await db.query.regions.findMany({
+        with: {
+          manager: true,
+          stores: true
+        },
+        orderBy: [desc(regions.updatedAt)],
+      });
+      res.json(allRegions);
+    } catch (error) {
+      console.error('Error fetching regions:', error);
+      res.status(500).json({
+        message: "Failed to fetch regions",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.post("/api/regions", requireAuth, async (req, res) => {
+    try {
+      const result = insertRegionSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({
+          message: "Invalid input",
+          errors: result.error.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message
+          }))
+        });
+      }
+
+      const { name, description, managerUserId } = result.data;
+
+      const [newRegion] = await db
+        .insert(regions)
+        .values({
+          name,
+          description,
+          managerUserId: managerUserId || null,
+        })
+        .returning();
+
+      res.json({
+        message: "Region created successfully",
+        region: newRegion,
+      });
+    } catch (error) {
+      console.error('Error creating region:', error);
+      res.status(500).json({
+        message: "Failed to create region",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.put("/api/regions/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const result = insertRegionSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({
+          message: "Invalid input",
+          errors: result.error.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message
+          }))
+        });
+      }
+
+      const { name, description, managerUserId } = result.data;
+
+      const [updatedRegion] = await db
+        .update(regions)
+        .set({
+          name,
+          description,
+          managerUserId: managerUserId || null,
+          updatedAt: new Date()
+        })
+        .where(eq(regions.id, parseInt(id)))
+        .returning();
+
+      if (!updatedRegion) {
+        return res.status(404).json({
+          message: "Region not found",
+          suggestion: "Please verify the region ID"
+        });
+      }
+
+      res.json({
+        message: "Region updated successfully",
+        region: updatedRegion,
+      });
+    } catch (error) {
+      console.error('Error updating region:', error);
+      res.status(500).json({
+        message: "Failed to update region",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.delete("/api/regions/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if region has any stores
+      const regionStores = await db.query.stores.findFirst({
+        where: eq(stores.regionId, parseInt(id)),
+      });
+
+      if (regionStores) {
+        return res.status(400).json({
+          message: "Cannot delete region with assigned stores",
+          suggestion: "Please reassign or remove all stores from this region first"
+        });
+      }
+
+      await db
+        .delete(regions)
+        .where(eq(regions.id, parseInt(id)));
+
+      res.json({
+        message: "Region deleted successfully"
+      });
+    } catch (error) {
+      console.error('Error deleting region:', error);
+      res.status(500).json({
+        message: "Failed to delete region",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
   // Purchase Orders endpoints
   app.get("/api/purchase-orders", requireAuth, async (req, res) => {
     try {
+      const accessibleStoreIds = await getAccessibleStoreIds(req.user!);
+
       const allPurchaseOrders = await db.query.purchaseOrders.findMany({
+        where: accessibleStoreIds ? inArray(purchaseOrders.destinationStoreId, accessibleStoreIds) : undefined,
         with: {
           supplier: true,
           items: {
@@ -292,7 +473,11 @@ export function registerRoutes(app: Express): Server {
               performedByUser: true
             }
           },
-          destinationStore: true
+          destinationStore: {
+            with: {
+              region: true
+            }
+          }
         },
         orderBy: [desc(purchaseOrders.updatedAt)],
       });
@@ -405,8 +590,20 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/purchase-orders/:id/actions", requireAuth, async (req, res) => {
     try {
+      const user = req.user!;
       const { id } = req.params;
       const { actionType, actionData } = req.body;
+
+      // Hierarchical access check for PO actions
+      const isAuthorizedPO = user.role.isSystemAdmin ||
+        ['admin', 'global', 'dc_manager'].includes(user.role.hierarchyLevel);
+
+      if (!isAuthorizedPO && !['print'].includes(actionType)) {
+        return res.status(403).json({
+          message: "Only Global/DC Managers and Admins can perform this action",
+          suggestion: "Staff can only print purchase orders"
+        });
+      }
 
       if (!actionType) {
         return res.status(400).json({
@@ -971,7 +1168,7 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/roles", requirePermission('users', 'create'), async (req, res) => {
     try {
-      const { name, description, isSystemAdmin, permissions } = req.body;
+      const { name, description, isSystemAdmin, hierarchyLevel, permissions } = req.body;
 
       if (!name) {
         return res.status(400).send("Role name is required");
@@ -1006,6 +1203,7 @@ export function registerRoutes(app: Express): Server {
           name,
           description,
           isSystemAdmin: !!isSystemAdmin,
+          hierarchyLevel: hierarchyLevel || 'staff',
           permissions: defaultPermissions,
         })
         .returning();
@@ -1023,7 +1221,7 @@ export function registerRoutes(app: Express): Server {
   app.put("/api/roles/:id", requirePermission('users', 'update'), async (req, res) => {
     try {
       const { id } = req.params;
-      const { name, description, isSystemAdmin } = req.body;
+      const { name, description, isSystemAdmin, hierarchyLevel } = req.body;
 
       if (!name) {
         return res.status(400).send("Role name is required");
@@ -1044,6 +1242,7 @@ export function registerRoutes(app: Express): Server {
           name,
           description,
           isSystemAdmin: !!isSystemAdmin,
+          hierarchyLevel: hierarchyLevel || (roleToUpdate?.hierarchyLevel || 'staff'),
           updatedAt: new Date(),
         })
         .where(eq(roles.id, parseInt(id)))
@@ -1294,6 +1493,11 @@ export function registerRoutes(app: Express): Server {
       const allUsers = await db.query.users.findMany({
         with: {
           role: true,
+          storeAssignments: {
+            with: {
+              store: true
+            }
+          }
         },
       });
 
@@ -1695,8 +1899,16 @@ export function registerRoutes(app: Express): Server {
     try {
       const assignments = await db.query.userStoreAssignments.findMany({
         with: {
-          user: true,
-          store: true,
+          user: {
+            with: {
+              role: true
+            }
+          },
+          store: {
+            with: {
+              region: true
+            }
+          },
         },
       });
       res.json(assignments);
@@ -2148,17 +2360,20 @@ export function registerRoutes(app: Express): Server {
 
       console.log(`Fetching inventory for user ${user.username} (Admin: ${user.role?.isSystemAdmin})`);
 
-      let inventoryQuery = db.query.inventory.findMany({
+      const accessibleStoreIds = await getAccessibleStoreIds(user);
+
+      const inventoryItems = await db.query.inventory.findMany({
+        where: accessibleStoreIds ? inArray(inventory.storeId, accessibleStoreIds) : undefined,
         with: {
           product: true,
-          store: true,
-          supplier: true, // Add supplier relation
+          store: {
+            with: {
+              region: true
+            }
+          },
+          supplier: true,
         },
       });
-
-      const inventoryItems = await inventoryQuery;
-
-      console.log(`Found ${inventoryItems.length} inventory items for admin user ${user.username}`);
 
       res.json(inventoryItems);
     } catch (error) {
@@ -2845,31 +3060,26 @@ export function registerRoutes(app: Express): Server {
       // Build where conditions
       const whereConditions = [];
 
-      // Store filtering based on user permissions
+      // Apply hierarchical filtering
+      const accessibleStoreIds = await getAccessibleStoreIds(user);
+
       if (store_id) {
-        const storeIdNum = parseInt(store_id);
+        const storeIdNum = parseInt(store_id as string);
         if (!isNaN(storeIdNum)) {
+          // If a specific store is requested, check if it's accessible
+          if (accessibleStoreIds && !accessibleStoreIds.includes(storeIdNum)) {
+            return res.status(403).json({ message: "Access denied to requested store" });
+          }
           whereConditions.push(eq(salesTransactions.storeId, storeIdNum));
         }
-      } else {
-        // Get user's assigned stores for filtering
-        const userAssignments = await db.query.userStoreAssignments.findMany({
-          where: eq(userStoreAssignments.userId, user.id),
-        });
-
-        if (userAssignments.length > 0) {
-          const storeIds = userAssignments.map(assignment => assignment.storeId);
-          // Users can see transactions from their assigned stores OR transactions they created
-          whereConditions.push(
-            or(
-              sql`${salesTransactions.storeId} IN ${storeIds}`,
-              eq(salesTransactions.cashierUserId, user.id)
-            )
-          );
-        } else {
-          // If user has no store assignments, they can only see transactions they created
-          whereConditions.push(eq(salesTransactions.cashierUserId, user.id));
-        }
+      } else if (accessibleStoreIds) {
+        // Filter by accessible stores
+        whereConditions.push(
+          or(
+            inArray(salesTransactions.storeId, accessibleStoreIds),
+            eq(salesTransactions.cashierUserId, user.id)
+          )
+        );
       }
 
       if (transaction_type) {
@@ -3621,21 +3831,20 @@ export function registerRoutes(app: Express): Server {
         whereConditions.push(eq(transferRequests.status, status));
       }
 
-      // Store filters - users can only see transfers involving their stores
-      const userAssignment = await db.query.userStoreAssignments.findFirst({
-        where: eq(userStoreAssignments.userId, user.id),
-      });
-
-      if (userAssignment) {
-        // Regular users see transfers from/to their store
+      // Apply hierarchical filtering
+      const accessibleStoreIds = await getAccessibleStoreIds(user);
+      if (accessibleStoreIds) {
+        if (accessibleStoreIds.length === 0) {
+          // If user has no accessible stores, they shouldn't see any transfers
+          return res.json([]);
+        }
         whereConditions.push(
           or(
-            eq(transferRequests.fromStoreId, userAssignment.storeId),
-            eq(transferRequests.toStoreId, userAssignment.storeId)
+            inArray(transferRequests.fromStoreId, accessibleStoreIds),
+            inArray(transferRequests.toStoreId, accessibleStoreIds)
           )
         );
       }
-      // Admins can see all transfers (no additional filter)
 
       // Additional filters
       if (from_store_id) {
@@ -3793,15 +4002,12 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      // Check if user has access to the destination store (for approval)
-      const userAssignment = await db.query.userStoreAssignments.findFirst({
-        where: eq(userStoreAssignments.userId, user.id),
-      });
-
-      if (userAssignment && transferRequest.toStoreId !== null && userAssignment.storeId !== transferRequest.toStoreId) {
+      // Hierarchical approval check
+      const accessibleStoreIds = await getAccessibleStoreIds(user);
+      if (accessibleStoreIds && transferRequest.toStoreId !== null && !accessibleStoreIds.includes(transferRequest.toStoreId)) {
         return res.status(403).json({
-          message: "You can only approve transfers for your assigned store",
-          suggestion: "Contact administrator for store assignment"
+          message: "You can only approve transfers for your accessible stores/DCs",
+          suggestion: "Regional Managers can only approve within their region; Store Staff within their assigned store."
         });
       }
 
@@ -4182,26 +4388,29 @@ export function registerRoutes(app: Express): Server {
 
       let whereConditions = [];
 
-      // Filter by user's accessible stores
-      const userAssignment = await db.query.userStoreAssignments.findFirst({
-        where: eq(userStoreAssignments.userId, user.id),
-      });
+      // Apply hierarchical filtering
+      const accessibleStoreIds = await getAccessibleStoreIds(user);
+      if (accessibleStoreIds) {
+        if (accessibleStoreIds.length === 0) {
+          return res.json({ transfers: [], total: 0 });
+        }
 
-      if (userAssignment) {
-        // Users can see transfers involving their stores
+        // Find transfer requests involving accessible stores
         const storeTransfers = await db
           .select({ id: transferRequests.id })
           .from(transferRequests)
           .where(
             or(
-              eq(transferRequests.fromStoreId, userAssignment.storeId),
-              eq(transferRequests.toStoreId, userAssignment.storeId)
+              inArray(transferRequests.fromStoreId, accessibleStoreIds),
+              inArray(transferRequests.toStoreId, accessibleStoreIds)
             )
           );
 
         const transferIds = storeTransfers.map(t => t.id);
         if (transferIds.length > 0) {
-          whereConditions.push(sql`${transferHistory.transferRequestId} IN ${transferIds}`);
+          whereConditions.push(inArray(transferHistory.transferRequestId, transferIds));
+        } else {
+          return res.json({ transfers: [], total: 0 });
         }
       }
 
@@ -4253,14 +4462,19 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Quick transfer between stores (for admins/DC staff)
-  app.post("/api/transfers/quick-transfer", requireRole(['admin']), async (req, res) => {
+  app.post("/api/transfers/quick-transfer", async (req, res) => {
     try {
-      const { fromStoreId, toStoreId, productId, quantity, notes } = req.body;
       const user = req.user;
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
 
-      if (!user) {
-        return res.status(401).json({ message: "Unauthorized" });
+      const isAllowed = user.role.isSystemAdmin ||
+        ['admin', 'global', 'regional', 'dc_manager'].includes(user.role.hierarchyLevel);
+
+      if (!isAllowed) {
+        return res.status(403).json({ message: "Access denied: Insufficient hierarchy level" });
       }
+
+      const { fromStoreId, toStoreId, productId, quantity, notes } = req.body;
 
       if (!fromStoreId || !toStoreId || !productId || !quantity || quantity <= 0) {
         return res.status(400).json({

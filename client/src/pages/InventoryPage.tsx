@@ -106,6 +106,7 @@ interface InventoryItem {
 interface FilterState {
   inventoryType: string;
   storeId: string;
+  regionId: string;
   supplierId: string;
   stockStatus: string;
 }
@@ -143,6 +144,7 @@ function InventoryPage() {
     defaultValues: {
       inventoryType: 'all',
       storeId: 'all',
+      regionId: 'all',
       supplierId: 'all',
       stockStatus: 'all',
     },
@@ -158,6 +160,10 @@ function InventoryPage() {
 
   const { data: stores } = useQuery<Store[]>({
     queryKey: ['/api/stores'],
+  });
+
+  const { data: regions } = useQuery({
+    queryKey: ['/api/regions'],
   });
 
   const { data: suppliers } = useQuery<Supplier[]>({
@@ -327,12 +333,13 @@ function InventoryPage() {
 
     const matchesType = !filters.inventoryType || item.inventoryType === filters.inventoryType;
     const matchesStore = !filters.storeId || item.storeId?.toString() === filters.storeId;
+    const matchesRegion = !filters.regionId || (item.store as any)?.regionId?.toString() === filters.regionId;
     const matchesSupplier = !filters.supplierId || item.supplierId?.toString() === filters.supplierId;
     const matchesStockStatus = !filters.stockStatus ||
       (filters.stockStatus === 'low' && item.quantity <= item.product.minStock) ||
       (filters.stockStatus === 'inStock' && item.quantity > item.product.minStock);
 
-    return matchesSearch && matchesType && matchesStore && matchesSupplier && matchesStockStatus;
+    return matchesSearch && matchesType && matchesStore && matchesRegion && matchesSupplier && matchesStockStatus;
   });
 
   const handleFilterChange = (key: keyof FilterState, value: string) => {
@@ -344,6 +351,7 @@ function InventoryPage() {
     setFilters({
       inventoryType: '',
       storeId: '',
+      regionId: '',
       supplierId: '',
       stockStatus: '',
     });
@@ -351,6 +359,7 @@ function InventoryPage() {
     filterForm.reset({
       inventoryType: 'all',
       storeId: 'all',
+      regionId: 'all',
       supplierId: 'all',
       stockStatus: 'all',
     });
@@ -623,6 +632,37 @@ function InventoryPage() {
 
                       <FormField
                         control={filterForm.control}
+                        name="regionId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Region</FormLabel>
+                            <Select
+                              value={field.value}
+                              onValueChange={(value) => {
+                                field.onChange(value);
+                                handleFilterChange('regionId', value);
+                              }}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="All Regions" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="all">All Regions</SelectItem>
+                                {regions?.map((region: any) => (
+                                  <SelectItem key={region.id} value={region.id.toString()}>
+                                    {region.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={filterForm.control}
                         name="supplierId"
                         render={({ field }) => (
                           <FormItem>
@@ -730,6 +770,7 @@ function InventoryPage() {
                   <TableHead>Product</TableHead>
                   <TableHead>Location</TableHead>
                   <TableHead>Store</TableHead>
+                  <TableHead>Region</TableHead>
                   <TableHead>Supplier</TableHead>
                   <TableHead>Quantity</TableHead>
                   <TableHead>Status</TableHead>
@@ -744,12 +785,13 @@ function InventoryPage() {
                     <TableCell>{item.product.name}</TableCell>
                     <TableCell>{item.location || '-'}</TableCell>
                     <TableCell>{item.store?.name || '-'}</TableCell>
+                    <TableCell>{(item.store as any)?.region?.name || '-'}</TableCell>
                     <TableCell>{item.supplier?.name || '-'}</TableCell>
                     <TableCell>{item.quantity}</TableCell>
                     <TableCell>
                       <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${item.quantity <= item.product.minStock
-                          ? 'bg-red-100 text-red-800'
-                          : 'bg-green-100 text-green-800'
+                        ? 'bg-red-100 text-red-800'
+                        : 'bg-green-100 text-green-800'
                         }`}>
                         {item.quantity <= item.product.minStock ? 'Low Stock' : 'In Stock'}
                       </div>

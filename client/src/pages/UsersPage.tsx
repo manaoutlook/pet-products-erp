@@ -43,17 +43,38 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import type { InsertUser, SelectUser, SelectRole } from "@db/schema";
 import { insertUserSchema } from "@db/schema";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
+import { Loader2, Search, Plus, Pencil, Trash2, Filter, RefreshCw } from "lucide-react";
 import { FC } from 'react';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 
 interface UserWithRole extends Omit<SelectUser, 'roleId'> {
   role: SelectRole;
+  storeAssignments?: {
+    id: number;
+    storeId: number;
+    userId: number;
+    store: {
+      id: number;
+      name: string;
+      regionId: number | null;
+    }
+  }[];
 }
 
 function UsersPage() {
   const [search, setSearch] = useState("");
   const [editingUser, setEditingUser] = useState<UserWithRole | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [filters, setFilters] = useState({
+    roleId: 'all',
+    hierarchyLevel: 'all',
+    storeId: 'all'
+  });
   const { toast } = useToast();
 
   const { data: users, isLoading, refetch } = useQuery<UserWithRole[]>({
@@ -62,6 +83,10 @@ function UsersPage() {
 
   const { data: roles } = useQuery<SelectRole[]>({
     queryKey: ['/api/roles'],
+  });
+
+  const { data: stores } = useQuery<any[]>({
+    queryKey: ['/api/stores'],
   });
 
   const createMutation = useMutation({
@@ -151,9 +176,15 @@ function UsersPage() {
     },
   });
 
-  const filteredUsers = users?.filter((user: UserWithRole) =>
-    user.username.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredUsers = users?.filter((user: UserWithRole) => {
+    const matchesSearch = user.username.toLowerCase().includes(search.toLowerCase());
+    const matchesRole = filters.roleId === 'all' || user.role.id.toString() === filters.roleId;
+    const matchesHierarchy = filters.hierarchyLevel === 'all' || user.role.hierarchyLevel === filters.hierarchyLevel;
+    const matchesStore = filters.storeId === 'all' ||
+      user.storeAssignments?.some(sa => sa.storeId.toString() === filters.storeId);
+
+    return matchesSearch && matchesRole && matchesHierarchy && matchesStore;
+  });
 
   const onSubmit = async (data: InsertUser) => {
     try {
@@ -291,6 +322,97 @@ function UsersPage() {
               />
             </div>
           </div>
+
+          <Accordion type="single" collapsible className="mt-4">
+            <AccordionItem value="filters">
+              <AccordionTrigger className="text-sm">
+                <div className="flex items-center gap-2">
+                  <Filter className="h-4 w-4" />
+                  Advanced Filters
+                </div>
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-1">
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium">Role</label>
+                    <Select
+                      value={filters.roleId}
+                      onValueChange={(v) => setFilters(prev => ({ ...prev, roleId: v }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="All Roles" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Roles</SelectItem>
+                        {roles?.map(role => (
+                          <SelectItem key={role.id} value={role.id.toString()}>
+                            {role.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium">Hierarchy Level</label>
+                    <Select
+                      value={filters.hierarchyLevel}
+                      onValueChange={(v) => setFilters(prev => ({ ...prev, hierarchyLevel: v }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="All Levels" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Levels</SelectItem>
+                        <SelectItem value="staff">Staff</SelectItem>
+                        <SelectItem value="dc_manager">DC Manager</SelectItem>
+                        <SelectItem value="regional">Regional Manager</SelectItem>
+                        <SelectItem value="global">Global Manager</SelectItem>
+                        <SelectItem value="admin">System Admin</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium">Store Assignment</label>
+                    <Select
+                      value={filters.storeId}
+                      onValueChange={(v) => setFilters(prev => ({ ...prev, storeId: v }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="All Stores" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Stores</SelectItem>
+                        {stores?.map(store => (
+                          <SelectItem key={store.id} value={store.id.toString()}>
+                            {store.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="flex justify-end mt-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setFilters({
+                        roleId: 'all',
+                        hierarchyLevel: 'all',
+                        storeId: 'all'
+                      });
+                      setSearch("");
+                    }}
+                  >
+                    <RefreshCw className="h-3 w-3 mr-2" />
+                    Reset
+                  </Button>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -303,6 +425,8 @@ function UsersPage() {
                 <TableRow>
                   <TableHead>Username</TableHead>
                   <TableHead>Role</TableHead>
+                  <TableHead>Hierarchy</TableHead>
+                  <TableHead>Store Assignments</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -311,7 +435,26 @@ function UsersPage() {
                   <TableRow key={user.id}>
                     <TableCell>{user.username}</TableCell>
                     <TableCell>
-                      {user.role.name} {user.role.isSystemAdmin ? '(Admin)' : ''}
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${user.role.isSystemAdmin ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                        }`}>
+                        {user.role.name}
+                      </span>
+                    </TableCell>
+                    <TableCell className="capitalize">
+                      {user.role.hierarchyLevel.replace('_', ' ')}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {user.storeAssignments && user.storeAssignments.length > 0 ? (
+                          user.storeAssignments.map(sa => (
+                            <span key={sa.id} className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded text-[10px]">
+                              {sa.store.name}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-gray-400 italic text-xs">Global / No direct store</span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">

@@ -22,6 +22,7 @@ export const roles = pgTable("roles", {
   name: text("name").unique().notNull(),
   description: text("description"),
   isSystemAdmin: boolean("is_system_admin").notNull().default(false),
+  hierarchyLevel: text("hierarchy_level").notNull().default('staff'), // 'staff', 'dc_manager', 'regional', 'global', 'admin'
   permissions: jsonb("permissions").$type<Permissions>().notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -37,6 +38,16 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Regions table
+export const regions = pgTable("regions", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  managerUserId: integer("manager_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Stores table - Supports both RETAIL outlets and WAREHOUSES (Distribution Centers)
 export const stores = pgTable("stores", {
   id: serial("id").primaryKey(),
@@ -46,6 +57,7 @@ export const stores = pgTable("stores", {
   type: text("type").notNull().default('RETAIL'), // 'RETAIL' or 'WAREHOUSE'
   location: text("location").notNull(),
   contactInfo: text("contact_info").notNull(),
+  regionId: integer("region_id").references(() => regions.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -335,10 +347,22 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   storeAssignments: many(userStoreAssignments),
 }));
 
-export const storesRelations = relations(stores, ({ many }) => ({
+export const storesRelations = relations(stores, ({ one, many }) => ({
   inventory: many(inventory),
   orders: many(orders),
   userAssignments: many(userStoreAssignments),
+  region: one(regions, {
+    fields: [stores.regionId],
+    references: [regions.id],
+  }),
+}));
+
+export const regionsRelations = relations(regions, ({ one, many }) => ({
+  manager: one(users, {
+    fields: [regions.managerUserId],
+    references: [users.id],
+  }),
+  stores: many(stores),
 }));
 
 export const userStoreAssignmentsRelations = relations(userStoreAssignments, ({ one }) => ({
@@ -582,6 +606,11 @@ export const insertStoreSchema = createInsertSchema(stores);
 export const selectStoreSchema = createSelectSchema(stores);
 export type InsertStore = typeof stores.$inferInsert;
 export type SelectStore = typeof stores.$inferSelect;
+
+export const insertRegionSchema = createInsertSchema(regions);
+export const selectRegionSchema = createSelectSchema(regions);
+export type InsertRegion = typeof regions.$inferInsert;
+export type SelectRegion = typeof regions.$inferSelect;
 
 export const insertUserStoreAssignmentSchema = createInsertSchema(userStoreAssignments);
 export const selectUserStoreAssignmentSchema = createSelectSchema(userStoreAssignments);

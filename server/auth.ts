@@ -31,6 +31,7 @@ declare global {
         id: number;
         name: string;
         isSystemAdmin: boolean;
+        hierarchyLevel: string;
         permissions: Permissions;
       };
     }
@@ -113,6 +114,7 @@ export async function setupAdmin() {
         name: 'admin',
         description: 'Administrator role with full access',
         isSystemAdmin: true,
+        hierarchyLevel: 'admin',
         permissions: {
           products: { create: true, read: true, update: true, delete: true },
           orders: { create: true, read: true, update: true, delete: true },
@@ -127,8 +129,8 @@ export async function setupAdmin() {
       .onConflictDoNothing()
       .returning();
 
-    // Get admin role ID
-    const [role] = await db
+    // Get admin role ID and ensure it has the correct hierarchy level
+    let [role] = await db
       .select()
       .from(roles)
       .where(eq(roles.name, 'admin'))
@@ -136,6 +138,16 @@ export async function setupAdmin() {
 
     if (!role) {
       throw new Error('Failed to create or find admin role');
+    }
+
+    if (role.hierarchyLevel !== 'admin') {
+      console.log('Updating existing admin role to correct hierarchy level...');
+      const [updatedRole] = await db
+        .update(roles)
+        .set({ hierarchyLevel: 'admin' })
+        .where(eq(roles.id, role.id))
+        .returning();
+      role = updatedRole;
     }
 
     console.log('Admin role:', role);
@@ -211,6 +223,7 @@ export function setupAuth(app: Express) {
               id: roles.id,
               name: roles.name,
               isSystemAdmin: roles.isSystemAdmin,
+              hierarchyLevel: roles.hierarchyLevel,
               permissions: roles.permissions
             }
           })
@@ -260,6 +273,7 @@ export function setupAuth(app: Express) {
             id: roles.id,
             name: roles.name,
             isSystemAdmin: roles.isSystemAdmin,
+            hierarchyLevel: roles.hierarchyLevel,
             permissions: roles.permissions
           }
         })

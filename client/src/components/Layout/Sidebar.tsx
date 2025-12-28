@@ -24,7 +24,8 @@ import {
   UserCircle,
   StoreIcon,
   ListIcon,
-  ArrowRight
+  ArrowRight,
+  MapIcon
 } from "lucide-react";
 import { useState } from "react";
 
@@ -35,6 +36,7 @@ interface NavItem {
   module?: 'products' | 'orders' | 'inventory' | 'users' | 'stores' | 'masterData' | 'pos' | 'receipts' | 'customerProfiles';
   action?: 'create' | 'read' | 'update' | 'delete';
   adminOnly?: boolean;
+  minHierarchy?: 'staff' | 'dc_manager' | 'regional' | 'global' | 'admin';
   children?: NavItem[];
 }
 
@@ -173,6 +175,12 @@ function Sidebar() {
           icon: BarChart,
           module: 'stores',
           action: 'read'
+        },
+        {
+          name: "Regions",
+          href: "/regions",
+          icon: MapIcon,
+          minHierarchy: 'regional'
         }
       ]
     },
@@ -225,6 +233,16 @@ function Sidebar() {
 
     if (item.adminOnly) {
       return isAdmin;
+    }
+
+    if (item.minHierarchy) {
+      const levels = ['staff', 'dc_manager', 'regional', 'global', 'admin'];
+      const userLevel = user?.role?.hierarchyLevel || 'staff';
+      const requiredLevelIndex = levels.indexOf(item.minHierarchy);
+      const userLevelIndex = levels.indexOf(userLevel);
+      if (userLevelIndex < requiredLevelIndex && !isAdmin) {
+        return false;
+      }
     }
 
     if (item.module && item.action) {

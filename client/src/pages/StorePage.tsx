@@ -33,7 +33,7 @@ import {
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { InsertStore, SelectStore } from "@db/schema";
+import type { InsertStore, SelectStore, SelectRegion } from "@db/schema";
 import { insertStoreSchema } from "@db/schema";
 import {
   Select,
@@ -51,10 +51,21 @@ function StorePage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const { toast } = useToast();
 
-  const { data: stores, isLoading, refetch } = useQuery<SelectStore[]>({
+  const { data: stores, isLoading, refetch } = useQuery<(SelectStore & { region?: SelectRegion })[]>({
     queryKey: ['/api/stores'],
     queryFn: async () => {
       const response = await fetch('/api/stores', {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error(await response.text());
+      return response.json();
+    }
+  });
+
+  const { data: regions } = useQuery<SelectRegion[]>({
+    queryKey: ['/api/regions'],
+    queryFn: async () => {
+      const response = await fetch('/api/regions', {
         credentials: 'include'
       });
       if (!response.ok) throw new Error(await response.text());
@@ -168,6 +179,7 @@ function StorePage() {
       type: "RETAIL",
       location: "",
       contactInfo: "",
+      regionId: null,
     });
     setDialogOpen(true);
   };
@@ -179,6 +191,7 @@ function StorePage() {
       type: store.type as "RETAIL" | "WAREHOUSE",
       location: store.location,
       contactInfo: store.contactInfo,
+      regionId: store.regionId as any || null,
     });
     setDialogOpen(true);
   };
@@ -193,7 +206,7 @@ function StorePage() {
     }
   };
 
-  const filteredStores = stores?.filter((store: SelectStore) =>
+  const filteredStores = stores?.filter((store: any) =>
     store.name.toLowerCase().includes(search.toLowerCase()) ||
     store.location.toLowerCase().includes(search.toLowerCase()) ||
     store.contactInfo.toLowerCase().includes(search.toLowerCase())
@@ -288,6 +301,34 @@ function StorePage() {
                     </FormItem>
                   )}
                 />
+                <FormField
+                  control={form.control}
+                  name="regionId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Region</FormLabel>
+                      <Select
+                        onValueChange={(val) => field.onChange(val === 'none' ? null : parseInt(val))}
+                        value={field.value?.toString() || 'none'}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select region" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="none">No Region</SelectItem>
+                          {regions?.map((region: SelectRegion) => (
+                            <SelectItem key={region.id} value={region.id.toString()}>
+                              {region.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <Button
                   type="submit"
                   className="w-full"
@@ -331,12 +372,13 @@ function StorePage() {
                   <TableHead>Store Name</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Location</TableHead>
+                  <TableHead>Region</TableHead>
                   <TableHead>Contact Information</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredStores?.map((store: SelectStore) => (
+                {filteredStores?.map((store: any) => (
                   <TableRow key={store.id}>
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
@@ -348,6 +390,7 @@ function StorePage() {
                       {store.type === 'WAREHOUSE' ? 'Warehouse / DC' : 'Retail Store'}
                     </TableCell>
                     <TableCell>{store.location}</TableCell>
+                    <TableCell>{store.region?.name || 'Unassigned'}</TableCell>
                     <TableCell>{store.contactInfo}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
