@@ -17,6 +17,11 @@ interface Permissions {
   pos: Permission;
   receipts: Permission;
   customerProfiles: Permission;
+  purchase: Permission & {
+    invoice: boolean;
+    payment: boolean;
+    receipt: boolean;
+  };
 }
 
 interface Role {

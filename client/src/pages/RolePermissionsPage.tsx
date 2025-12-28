@@ -42,6 +42,11 @@ interface Permissions {
   pos: Permission;
   receipts: Permission;
   customerProfiles: Permission;
+  purchase: Permission & {
+    invoice: boolean;
+    payment: boolean;
+    receipt: boolean;
+  };
 }
 
 interface Role {
@@ -136,7 +141,7 @@ function RolePermissionsPage() {
 
   const modules = [
     { key: 'products' as const, label: 'Products Module' },
-    { key: 'orders' as const, label: 'Orders Module' },
+    { key: 'purchase' as const, label: 'Purchase Module' },
     { key: 'inventory' as const, label: 'Inventory Module' },
     { key: 'users' as const, label: 'User Management Module' },
     { key: 'stores' as const, label: 'Store Management Module' },
@@ -258,6 +263,40 @@ function RolePermissionsPage() {
                             />
                           </div>
                         ))}
+                        {module.key === 'purchase' && (
+                          <>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-semibold">Workflow: Invoice</span>
+                              <Switch
+                                checked={role.name === 'admin' ? true : (role.permissions.purchase?.invoice ?? false)}
+                                onCheckedChange={(checked) => {
+                                  handlePermissionChange(role.id, 'purchase', 'invoice' as any, checked);
+                                }}
+                                disabled={updatePermissionsMutation.isPending}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-semibold">Workflow: Payment</span>
+                              <Switch
+                                checked={role.name === 'admin' ? true : (role.permissions.purchase?.payment ?? false)}
+                                onCheckedChange={(checked) => {
+                                  handlePermissionChange(role.id, 'purchase', 'payment' as any, checked);
+                                }}
+                                disabled={updatePermissionsMutation.isPending}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-semibold">Workflow: Receipt</span>
+                              <Switch
+                                checked={role.name === 'admin' ? true : (role.permissions.purchase?.receipt ?? false)}
+                                onCheckedChange={(checked) => {
+                                  handlePermissionChange(role.id, 'purchase', 'receipt' as any, checked);
+                                }}
+                                disabled={updatePermissionsMutation.isPending}
+                              />
+                            </div>
+                          </>
+                        )}
                       </div>
                     </TableCell>
                   ))}

@@ -455,7 +455,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Purchase Orders endpoints
-  app.get("/api/purchase-orders", requireAuth, async (req, res) => {
+  app.get("/api/purchase-orders", requirePermission('purchase', 'read'), async (req, res) => {
     try {
       const accessibleStoreIds = await getAccessibleStoreIds(req.user!);
 
@@ -491,7 +491,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/purchase-orders", requireAuth, async (req, res) => {
+  app.post("/api/purchase-orders", requirePermission('purchase', 'create'), async (req, res) => {
     try {
       const result = createPurchaseOrderSchema.safeParse(req.body);
       if (!result.success) {
@@ -566,7 +566,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Purchase Order Actions endpoints
-  app.get("/api/purchase-orders/:id/actions", requireAuth, async (req, res) => {
+  app.get("/api/purchase-orders/:id/actions", requirePermission('purchase', 'read'), async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -594,17 +594,6 @@ export function registerRoutes(app: Express): Server {
       const { id } = req.params;
       const { actionType, actionData } = req.body;
 
-      // Hierarchical access check for PO actions
-      const isAuthorizedPO = user.role.isSystemAdmin ||
-        ['admin', 'global', 'dc_manager'].includes(user.role.hierarchyLevel);
-
-      if (!isAuthorizedPO && !['print'].includes(actionType)) {
-        return res.status(403).json({
-          message: "Only Global/DC Managers and Admins can perform this action",
-          suggestion: "Staff can only print purchase orders"
-        });
-      }
-
       if (!actionType) {
         return res.status(400).json({
           message: "Action type is required",
@@ -617,6 +606,38 @@ export function registerRoutes(app: Express): Server {
           message: "Invalid action type",
           validTypes: validActionTypes
         });
+      }
+
+      // Check permissions for specific action types
+      const userPermissions = user.role.permissions as any;
+      const purchasePerms = userPermissions?.purchase;
+
+      if (user.role.name !== 'admin') {
+        let hasPermission = false;
+        switch (actionType) {
+          case 'print':
+            hasPermission = !!purchasePerms?.read;
+            break;
+          case 'cancel':
+            hasPermission = !!purchasePerms?.update;
+            break;
+          case 'invoice_received':
+            hasPermission = !!purchasePerms?.invoice;
+            break;
+          case 'payment_sent':
+            hasPermission = !!purchasePerms?.payment;
+            break;
+          case 'goods_receipt':
+            hasPermission = !!purchasePerms?.receipt;
+            break;
+        }
+
+        if (!hasPermission) {
+          return res.status(403).json({
+            message: `Access denied: Insufficient permission to perform '${actionType}'`,
+            suggestion: "Contact administrator to update your role permissions"
+          });
+        }
       }
 
       // Check if purchase order exists

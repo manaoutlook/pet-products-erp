@@ -14,6 +14,15 @@ type Permissions = {
   masterData: { create: boolean; read: boolean; update: boolean; delete: boolean };
   pos: { create: boolean; read: boolean; update: boolean; delete: boolean };
   receipts: { create: boolean; read: boolean; update: boolean; delete: boolean };
+  purchase: {
+    create: boolean;
+    read: boolean;
+    update: boolean;
+    delete: boolean;
+    invoice: boolean;
+    payment: boolean;
+    receipt: boolean;
+  };
 };
 
 // Roles table with proper JSONB handling

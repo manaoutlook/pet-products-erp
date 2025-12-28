@@ -167,15 +167,30 @@ function PurchaseOrdersPage() {
   const canPerformAction = (order: PurchaseOrder, actionType: string): boolean => {
     if (!user) return false;
 
-    // Check hierarchy level for sensitive actions
-    const isPowerful = user.role.isSystemAdmin ||
-      user.role.hierarchyLevel === 'admin' ||
-      user.role.hierarchyLevel === 'global' ||
-      user.role.hierarchyLevel === 'dc_manager';
-
-    if (actionType !== 'print' && !isPowerful) {
-      return false;
+    // Admin role always has all permissions
+    if (user.role.name === 'admin') {
+      if (order.status === 'cancelled' || order.status === 'delivered') {
+        return false;
+      }
+      // Admins can perform everything if order status allows
+      switch (actionType) {
+        case 'cancel':
+        case 'print':
+          return true;
+        case 'invoice_received':
+          return order.status === 'pending' || order.status === 'confirmed';
+        case 'payment_sent':
+          return hasAction(order, 'invoice_received');
+        case 'goods_receipt':
+          return hasAction(order, 'payment_sent');
+        default:
+          return false;
+      }
     }
+
+    // Check granular permissions for non-admin users
+    const purchasePerms = (user.role.permissions as any)?.purchase;
+    if (!purchasePerms) return false;
 
     if (order.status === 'cancelled' || order.status === 'delivered') {
       return false;
@@ -183,15 +198,15 @@ function PurchaseOrdersPage() {
 
     switch (actionType) {
       case 'cancel':
-        return true; // Can cancel if not completed/cancelled
+        return !!purchasePerms.update;
       case 'print':
-        return true;
+        return !!purchasePerms.read;
       case 'invoice_received':
-        return order.status === 'pending' || order.status === 'confirmed';
+        return !!purchasePerms.invoice && (order.status === 'pending' || order.status === 'confirmed');
       case 'payment_sent':
-        return hasAction(order, 'invoice_received');
+        return !!purchasePerms.payment && hasAction(order, 'invoice_received');
       case 'goods_receipt':
-        return hasAction(order, 'payment_sent');
+        return !!purchasePerms.receipt && hasAction(order, 'payment_sent');
       default:
         return false;
     }

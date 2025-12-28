@@ -33,7 +33,7 @@ interface NavItem {
   name: string;
   href?: string;
   icon: any;
-  module?: 'products' | 'orders' | 'inventory' | 'users' | 'stores' | 'masterData' | 'pos' | 'receipts' | 'customerProfiles';
+  module?: 'products' | 'orders' | 'inventory' | 'users' | 'stores' | 'masterData' | 'pos' | 'receipts' | 'customerProfiles' | 'purchase';
   action?: 'create' | 'read' | 'update' | 'delete';
   adminOnly?: boolean;
   minHierarchy?: 'staff' | 'dc_manager' | 'regional' | 'global' | 'admin';
@@ -106,16 +106,16 @@ function Sidebar() {
       ]
     },
     {
-      name: "Orders",
+      name: "Purchasing",
       icon: ShoppingCart,
-      module: 'orders',
+      module: 'purchase',
       action: 'read',
       children: [
         {
           name: "Purchase Orders",
           href: "/purchase-orders",
           icon: ClipboardList,
-          module: 'orders',
+          module: 'purchase',
           action: 'read'
         }
       ]
