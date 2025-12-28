@@ -33,7 +33,7 @@ interface NavItem {
   name: string;
   href?: string;
   icon: any;
-  module?: 'products' | 'orders' | 'inventory' | 'users' | 'stores' | 'masterData' | 'pos' | 'receipts' | 'customerProfiles' | 'purchase';
+  module?: 'products' | 'orders' | 'inventory' | 'users' | 'stores' | 'masterData' | 'pos' | 'receipts' | 'customerProfiles' | 'purchase' | 'inventoryTransfer';
   action?: 'create' | 'read' | 'update' | 'delete';
   adminOnly?: boolean;
   minHierarchy?: 'staff' | 'dc_manager' | 'regional' | 'global' | 'admin';
@@ -137,7 +137,7 @@ function Sidebar() {
           name: "Transfers",
           href: "/transfers",
           icon: ArrowRight,
-          module: 'inventory',
+          module: 'inventoryTransfer',
           action: 'read'
         }
       ]
@@ -245,15 +245,19 @@ function Sidebar() {
       }
     }
 
+    let moduleAllowed = true;
     if (item.module && item.action) {
-      return hasPermission(item.module, item.action);
+      moduleAllowed = hasPermission(item.module, item.action);
+      if (item.name === 'Transfers') {
+        console.log(`[Sidebar] Access check for Transfers: moduleAllowed=${moduleAllowed}, user=${user?.username}`);
+      }
     }
 
     if (item.children) {
-      return item.children.some(child => hasAccess(child));
+      return moduleAllowed || item.children.some(child => hasAccess(child));
     }
 
-    return true;
+    return moduleAllowed;
   };
 
   const renderNavItem = (item: NavItem) => {
@@ -322,7 +326,7 @@ function Sidebar() {
   return (
     <div className="flex flex-col w-64 bg-sidebar border-r border-sidebar-border">
       <div className="p-4 border-b border-sidebar-border">
-        <h1 className="text-xl font-bold text-sidebar-foreground">Pet Products ERP</h1>
+        <h1 className="text-xl font-bold text-sidebar-foreground">Pet Products ERP 🐾</h1>
       </div>
 
       <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">

@@ -25,7 +25,7 @@ export function requireRole(allowedRoles: string[]) {
 }
 
 // Permission check middleware
-export function requirePermission(module: string, action: 'create' | 'read' | 'update' | 'delete') {
+export function requirePermission(module: string, action: string) {
   return async (req: Request, res: Response, next: NextFunction) => {
     if (!req.isAuthenticated()) {
       return res.status(401).send('Not authenticated');
@@ -51,7 +51,7 @@ export function requirePermission(module: string, action: 'create' | 'read' | 'u
     }
 
     // Check if the role has the required permission
-    const modulePermissions = req.user.role.permissions[module];
+    const modulePermissions = (req.user.role.permissions as any)[module];
     if (!modulePermissions || !modulePermissions[action]) {
       return res.status(403).json({
         message: `Access denied: Insufficient ${module} ${action} permission`,

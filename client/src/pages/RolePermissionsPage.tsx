@@ -47,6 +47,11 @@ interface Permissions {
     payment: boolean;
     receipt: boolean;
   };
+  inventoryTransfer: Permission & {
+    approve: boolean;
+    execute: boolean;
+    reject: boolean;
+  };
 }
 
 interface Role {
@@ -89,6 +94,8 @@ function RolePermissionsPage() {
         );
       });
       toast({ title: "Success", description: "Permissions updated successfully" });
+      queryClient.invalidateQueries({ queryKey: ['user'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/user'] });
     },
     onError: (error: Error) => {
       toast({
@@ -143,6 +150,7 @@ function RolePermissionsPage() {
     { key: 'products' as const, label: 'Products Module' },
     { key: 'purchase' as const, label: 'Purchase Module' },
     { key: 'inventory' as const, label: 'Inventory Module' },
+    { key: 'inventoryTransfer' as const, label: 'Inventory Transfer Module' },
     { key: 'users' as const, label: 'User Management Module' },
     { key: 'stores' as const, label: 'Store Management Module' },
     { key: 'masterData' as const, label: 'Master Data Module' },
@@ -291,6 +299,40 @@ function RolePermissionsPage() {
                                 checked={role.name === 'admin' ? true : (role.permissions.purchase?.receipt ?? false)}
                                 onCheckedChange={(checked) => {
                                   handlePermissionChange(role.id, 'purchase', 'receipt' as any, checked);
+                                }}
+                                disabled={updatePermissionsMutation.isPending}
+                              />
+                            </div>
+                          </>
+                        )}
+                        {module.key === 'inventoryTransfer' && (
+                          <>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-semibold">Workflow: Approve</span>
+                              <Switch
+                                checked={role.name === 'admin' ? true : (role.permissions.inventoryTransfer?.approve ?? false)}
+                                onCheckedChange={(checked) => {
+                                  handlePermissionChange(role.id, 'inventoryTransfer', 'approve' as any, checked);
+                                }}
+                                disabled={updatePermissionsMutation.isPending}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-semibold">Workflow: Execute</span>
+                              <Switch
+                                checked={role.name === 'admin' ? true : (role.permissions.inventoryTransfer?.execute ?? false)}
+                                onCheckedChange={(checked) => {
+                                  handlePermissionChange(role.id, 'inventoryTransfer', 'execute' as any, checked);
+                                }}
+                                disabled={updatePermissionsMutation.isPending}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-semibold">Workflow: Reject</span>
+                              <Switch
+                                checked={role.name === 'admin' ? true : (role.permissions.inventoryTransfer?.reject ?? false)}
+                                onCheckedChange={(checked) => {
+                                  handlePermissionChange(role.id, 'inventoryTransfer', 'reject' as any, checked);
                                 }}
                                 disabled={updatePermissionsMutation.isPending}
                               />

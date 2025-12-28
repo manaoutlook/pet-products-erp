@@ -3681,7 +3681,7 @@ export function registerRoutes(app: Express): Server {
   // ===============================
 
   // Create transfer request
-  app.post("/api/transfer-requests", requireAuth, async (req, res) => {
+  app.post("/api/transfer-requests", requirePermission('inventoryTransfer', 'create'), async (req, res) => {
     try {
       const { fromStoreId, toStoreId, priority, notes, items } = req.body;
       const user = req.user;
@@ -3829,7 +3829,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Get transfer requests (with filtering)
-  app.get("/api/transfer-requests", requireAuth, async (req, res) => {
+  app.get("/api/transfer-requests", requirePermission('inventoryTransfer', 'read'), async (req, res) => {
     try {
       const user = req.user;
       if (!user) {
@@ -3914,7 +3914,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Get specific transfer request
-  app.get("/api/transfer-requests/:id", requireAuth, async (req, res) => {
+  app.get("/api/transfer-requests/:id", requirePermission('inventoryTransfer', 'read'), async (req, res) => {
     try {
       const { id } = req.params;
       const user = req.user;
@@ -3999,6 +3999,29 @@ export function registerRoutes(app: Express): Server {
           message: "Invalid action type",
           validTypes: ['approve', 'reject']
         });
+      }
+
+      // Check permissions for specific action types
+      const userPermissions = user.role.permissions as any;
+      const transferPerms = userPermissions?.inventoryTransfer;
+
+      if (!user.role.isSystemAdmin && user.role.name !== 'admin') {
+        let hasPermission = false;
+        switch (actionType) {
+          case 'approve':
+            hasPermission = !!transferPerms?.approve;
+            break;
+          case 'reject':
+            hasPermission = !!transferPerms?.reject;
+            break;
+        }
+
+        if (!hasPermission) {
+          return res.status(403).json({
+            message: `Access denied: Insufficient permission to perform '${actionType}'`,
+            suggestion: "Contact administrator to update your role permissions"
+          });
+        }
       }
 
       // Get transfer request
@@ -4133,7 +4156,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Execute approved transfer
-  app.post("/api/transfer-requests/:id/execute", requireAuth, async (req, res) => {
+  app.post("/api/transfer-requests/:id/execute", requirePermission('inventoryTransfer', 'execute'), async (req, res) => {
     try {
       const { id } = req.params;
       const { notes } = req.body;
@@ -4314,7 +4337,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Cancel transfer request
-  app.post("/api/transfer-requests/:id/cancel", requireAuth, async (req, res) => {
+  app.post("/api/transfer-requests/:id/cancel", requirePermission('inventoryTransfer', 'update'), async (req, res) => {
     try {
       const { id } = req.params;
       const { reason } = req.body;
@@ -4389,7 +4412,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Get transfer history/analytics
-  app.get("/api/transfer-history", requireAuth, async (req, res) => {
+  app.get("/api/transfer-history", requirePermission('inventoryTransfer', 'read'), async (req, res) => {
     try {
       const user = req.user;
       if (!user) {

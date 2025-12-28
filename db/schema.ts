@@ -14,6 +14,7 @@ type Permissions = {
   masterData: { create: boolean; read: boolean; update: boolean; delete: boolean };
   pos: { create: boolean; read: boolean; update: boolean; delete: boolean };
   receipts: { create: boolean; read: boolean; update: boolean; delete: boolean };
+  customerProfiles: { create: boolean; read: boolean; update: boolean; delete: boolean };
   purchase: {
     create: boolean;
     read: boolean;
@@ -22,6 +23,15 @@ type Permissions = {
     invoice: boolean;
     payment: boolean;
     receipt: boolean;
+  };
+  inventoryTransfer: {
+    create: boolean;
+    read: boolean;
+    update: boolean;
+    delete: boolean;
+    approve: boolean;
+    execute: boolean;
+    reject: boolean;
   };
 };
 

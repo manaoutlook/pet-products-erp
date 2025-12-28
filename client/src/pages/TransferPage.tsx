@@ -46,6 +46,8 @@ import {
 } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useUser } from "@/hooks/use-user";
+import { useQueryClient } from "@tanstack/react-query";
 
 const createTransferSchema = z.object({
   fromStoreId: z.string().min(1, "Source store is required"),
@@ -115,12 +117,16 @@ function TransferPage() {
   const [selectedTransfer, setSelectedTransfer] = useState<TransferRequest | null>(null);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const { hasPermission } = usePermissions();
   const { user } = useUser();
   const [approvedQuantities, setApprovedQuantities] = useState<Record<number, number>>({});
   const [rejectionReason, setRejectionReason] = useState("");
 
-  const canCreate = hasPermission('inventory', 'create');
+  const canCreate = hasPermission('inventoryTransfer', 'create');
+  const canApprove = hasPermission('inventoryTransfer', 'approve');
+  const canExecute = hasPermission('inventoryTransfer', 'execute');
+  const canReject = hasPermission('inventoryTransfer', 'reject');
 
   const form = useForm<CreateTransferFormValues>({
     resolver: zodResolver(createTransferSchema),
@@ -237,6 +243,31 @@ function TransferPage() {
     },
   });
 
+  const executeTransferMutation = useMutation({
+    mutationFn: async ({ id, notes }: { id: number; notes?: string }) => {
+      const response = await fetch(`/api/transfer-requests/${id}/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes }),
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error(await response.text());
+      return response.json();
+    },
+    onSuccess: () => {
+      refetchTransfers();
+      setDetailsDialogOpen(false);
+      toast({ title: "Success", description: "Transfer executed successfully" });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+    },
+  });
+
   const onSubmit = async (data: CreateTransferFormValues) => {
     try {
       await createTransferMutation.mutateAsync(data);
@@ -292,7 +323,7 @@ function TransferPage() {
     );
   };
 
-  const filteredTransfers = transfers?.filter(transfer =>
+  const filteredTransfers = transfers?.filter((transfer: any) =>
     search.trim() === '' ||
     transfer.transferNumber.toLowerCase().includes(search.toLowerCase()) ||
     (transfer.fromStore?.name || 'DC (Distribution Center)').toLowerCase().includes(search.toLowerCase()) ||
@@ -312,6 +343,10 @@ function TransferPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {(() => {
+            console.log(`[TransferPage] Rendering check: canCreate=${canCreate}, user=${user?.username}, role=${user?.role?.name}`);
+            return null;
+          })()}
           {canCreate && (
             <Dialog open={dialogOpen} onOpenChange={(open) => {
               setDialogOpen(open);
@@ -349,7 +384,7 @@ function TransferPage() {
                               </FormControl>
                               <SelectContent>
                                 <SelectItem value="DC">DC (Distribution Center)</SelectItem>
-                                {stores?.map((store) => (
+                                {stores?.map((store: any) => (
                                   <SelectItem key={store.id} value={store.id.toString()}>
                                     {store.name}
                                   </SelectItem>
@@ -460,7 +495,7 @@ function TransferPage() {
                                         </SelectTrigger>
                                       </FormControl>
                                       <SelectContent>
-                                        {products?.map((product) => (
+                                        {products?.map((product: any) => (
                                           <SelectItem key={product.id} value={product.id.toString()}>
                                             {product.name} ({product.sku})
                                           </SelectItem>
@@ -538,11 +573,12 @@ function TransferPage() {
                     </div>
                   </form>
                 </Form>
-              </DialogContent>
-            </Dialog>
-          )}
-        </div>
-      </div>
+              </DialogContent >
+            </Dialog >
+          )
+          }
+        </div >
+      </div >
 
       <Card>
         <CardHeader>
@@ -617,7 +653,9 @@ function TransferPage() {
                           // Initialize approved quantities with requested quantities
                           const initialQuantities: Record<number, number> = {};
                           transfer.items.forEach(item => {
-                            initialQuantities[item.id] = item.requestedQuantity;
+                            initialQuantities[item.id] = (item.approvedQuantity !== null && item.approvedQuantity !== undefined)
+                              ? item.approvedQuantity
+                              : item.requestedQuantity;
                           });
                           setApprovedQuantities(initialQuantities);
                           setRejectionReason("");
@@ -719,7 +757,11 @@ function TransferPage() {
                             item.approvedQuantity || '-'
                           )}
                         </TableCell>
-                        <TableCell>{item.transferredQuantity}</TableCell>
+                        <TableCell>
+                          {(selectedTransfer.status === 'approved' || selectedTransfer.status === 'completed')
+                            ? item.transferredQuantity
+                            : '-'}
+                        </TableCell>
                         <TableCell>
                           {item.transferredQuantity === item.requestedQuantity ? (
                             <Badge variant="default">Complete</Badge>
@@ -735,7 +777,7 @@ function TransferPage() {
                 </Table>
               </div>
 
-              {selectedTransfer.status === 'pending' && (
+              {selectedTransfer.status === 'pending' && (canApprove || canReject) && (
                 <div className="space-y-4 pt-4 border-t">
                   <div className="space-y-2">
                     <h4 className="font-medium text-sm">Action Notes / Rejection Reason</h4>
@@ -746,35 +788,80 @@ function TransferPage() {
                     />
                   </div>
                   <div className="flex justify-end gap-2">
-                    <Button
-                      variant="destructive"
-                      onClick={() => rejectTransferMutation.mutate({
-                        id: selectedTransfer.id,
-                        reason: rejectionReason || "Rejected by manager"
-                      })}
-                      disabled={rejectTransferMutation.isPending}
-                    >
-                      {rejectTransferMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Reject Request
-                    </Button>
-                    <Button
-                      variant="default"
-                      onClick={() => {
-                        const quantitiesArray = Object.entries(approvedQuantities).map(([itemId, quantity]) => ({
-                          itemId: parseInt(itemId),
-                          quantity
-                        }));
-                        approveTransferMutation.mutate({
+                    {canReject && (
+                      <Button
+                        variant="destructive"
+                        onClick={() => rejectTransferMutation.mutate({
                           id: selectedTransfer.id,
-                          approvedQuantities: quantitiesArray,
+                          reason: rejectionReason || "Rejected by manager"
+                        })}
+                        disabled={rejectTransferMutation.isPending}
+                      >
+                        {rejectTransferMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Reject Request
+                      </Button>
+                    )}
+                    {canApprove && (
+                      <Button
+                        variant="default"
+                        onClick={() => {
+                          const quantitiesArray = Object.entries(approvedQuantities).map(([itemId, quantity]) => ({
+                            itemId: parseInt(itemId),
+                            quantity
+                          }));
+                          approveTransferMutation.mutate({
+                            id: selectedTransfer.id,
+                            approvedQuantities: quantitiesArray,
+                            notes: rejectionReason
+                          });
+                        }}
+                        disabled={approveTransferMutation.isPending}
+                      >
+                        {approveTransferMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Approve & Set Quantities
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {selectedTransfer.status === 'approved' && (canExecute || canReject) && (
+                <div className="space-y-4 pt-4 border-t">
+                  <div className="space-y-2">
+                    <h4 className="font-medium text-sm">Action Notes / Rejection Reason</h4>
+                    <Textarea
+                      placeholder="Enter notes for execution or reason for rejection"
+                      value={rejectionReason}
+                      onChange={(e) => setRejectionReason(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    {canReject && (
+                      <Button
+                        variant="destructive"
+                        onClick={() => rejectTransferMutation.mutate({
+                          id: selectedTransfer.id,
+                          reason: rejectionReason || "Rejected/Cancelled after approval"
+                        })}
+                        disabled={rejectTransferMutation.isPending}
+                      >
+                        {rejectTransferMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Reject/Cancel Transfer
+                      </Button>
+                    )}
+                    {canExecute && (
+                      <Button
+                        variant="default"
+                        onClick={() => executeTransferMutation.mutate({
+                          id: selectedTransfer.id,
                           notes: rejectionReason
-                        });
-                      }}
-                      disabled={approveTransferMutation.isPending}
-                    >
-                      {approveTransferMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Approve & Set Quantities
-                    </Button>
+                        })}
+                        disabled={executeTransferMutation.isPending}
+                      >
+                        {executeTransferMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Execute Transfer
+                      </Button>
+                    )}
                   </div>
                 </div>
               )}
@@ -782,7 +869,7 @@ function TransferPage() {
           )}
         </DialogContent>
       </Dialog>
-    </div>
+    </div >
   );
 }
 

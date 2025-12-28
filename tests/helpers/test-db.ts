@@ -216,6 +216,9 @@ export async function seedTestData() {
             masterData: { create: true, read: true, update: true, delete: true },
             pos: { create: true, read: true, update: true, delete: true },
             receipts: { create: true, read: true, update: true, delete: true },
+            customerProfiles: { create: true, read: true, update: true, delete: true },
+            purchase: { create: true, read: true, update: true, delete: true, invoice: true, payment: true, receipt: true },
+            inventoryTransfer: { create: true, read: true, update: true, delete: true, approve: true, execute: true, reject: true },
         },
     }).returning();
 
@@ -232,6 +235,9 @@ export async function seedTestData() {
             masterData: { create: false, read: true, update: false, delete: false },
             pos: { create: true, read: true, update: true, delete: false },
             receipts: { create: true, read: true, update: true, delete: false },
+            customerProfiles: { create: true, read: true, update: true, delete: false },
+            purchase: { create: true, read: true, update: true, delete: false, invoice: true, payment: true, receipt: true },
+            inventoryTransfer: { create: true, read: true, update: true, delete: false, approve: true, execute: true, reject: true },
         },
     }).returning();
 

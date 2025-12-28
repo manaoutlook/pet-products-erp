@@ -77,17 +77,17 @@ export function useUser() {
   const { data: user, error, isLoading } = useQuery<SelectUser | null, Error>({
     queryKey: ['user'],
     queryFn: fetchUser,
-    staleTime: Infinity,
+    staleTime: 0, // Always refetch on mount to ensure latest permissions
     retry: false
   });
 
   const loginMutation = useMutation({
     mutationFn: (userData: InsertUser) => handleRequest('/api/login', 'POST', userData),
-    onSuccess: (data) => {
+    onSuccess: (data: RequestResult) => {
       console.log('Login successful:', data);
       queryClient.invalidateQueries({ queryKey: ['user'] });
     },
-    onError: (error) => {
+    onError: (error: Error) => {
       console.error('Login failed:', error);
     }
   });
@@ -98,7 +98,7 @@ export function useUser() {
       console.log('Logout successful');
       queryClient.invalidateQueries({ queryKey: ['user'] });
     },
-    onError: (error) => {
+    onError: (error: Error) => {
       console.error('Logout failed:', error);
     }
   });
