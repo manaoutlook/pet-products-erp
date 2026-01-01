@@ -16,13 +16,24 @@ type Permissions = {
   receipts: { create: boolean; read: boolean; update: boolean; delete: boolean };
 };
 
-// Roles table with proper JSONB handling
+// Roles table with proper JSONB handling and hierarchy levels
 export const roles = pgTable("roles", {
   id: serial("id").primaryKey(),
   name: text("name").unique().notNull(),
   description: text("description"),
   isSystemAdmin: boolean("is_system_admin").notNull().default(false),
+  hierarchyLevel: text("hierarchy_level").notNull().default('staff'), // 'staff', 'regional_manager', 'global_manager', 'admin'
   permissions: jsonb("permissions").$type<Permissions>().notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Regions table - For hierarchical access control
+export const regions = pgTable("regions", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  managerUserId: integer("manager_user_id").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -41,6 +52,7 @@ export const users = pgTable("users", {
 export const stores = pgTable("stores", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  regionId: integer("region_id").references(() => regions.id), // For hierarchical access control
   // AI Agent Note: 'type' distinguishes between retail shops and distribution centers/warehouses.
   // Both are treated as 'stores' to reuse transfer and inventory logic.
   type: text("type").notNull().default('RETAIL'), // 'RETAIL' or 'WAREHOUSE'
@@ -551,6 +563,15 @@ export const transferHistoryRelations = relations(transferHistory, ({ one }) => 
     fields: [transferHistory.transferredByUserId],
     references: [users.id],
   }),
+}));
+
+// Add regions relations
+export const regionsRelations = relations(regions, ({ one, many }) => ({
+  managerUser: one(users, {
+    fields: [regions.managerUserId],
+    references: [users.id],
+  }),
+  stores: many(stores),
 }));
 
 // Export schemas

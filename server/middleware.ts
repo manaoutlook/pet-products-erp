@@ -24,7 +24,7 @@ export function requireRole(allowedRoles: string[]) {
   };
 }
 
-// Permission check middleware
+// Permission check middleware with hierarchical access control
 export function requirePermission(module: string, action: 'create' | 'read' | 'update' | 'delete') {
   return async (req: Request, res: Response, next: NextFunction) => {
     if (!req.isAuthenticated()) {
@@ -37,28 +37,27 @@ export function requirePermission(module: string, action: 'create' | 'read' | 'u
 
     // Admin role always has all permissions
     if (req.user.role.name === 'admin') {
-      // Add permissions to the request for use in routes
       req.permissions = {
         module,
         action,
-        granted: true
+        granted: true,
+        hierarchyLevel: 'admin'
       };
       return next();
     }
 
-    if (!req.user.role.permissions) {
-      return res.status(403).send('Access denied: No permissions defined');
-    }
+    // Check hierarchical permissions based on user role level
+    const hierarchyLevel = req.user.role.hierarchyLevel || 'staff';
+    const hasPermission = checkHierarchicalPermission(hierarchyLevel, module, action, req.user.role.permissions);
 
-    // Check if the role has the required permission
-    const modulePermissions = req.user.role.permissions[module];
-    if (!modulePermissions || !modulePermissions[action]) {
+    if (!hasPermission) {
       return res.status(403).json({
         message: `Access denied: Insufficient ${module} ${action} permission`,
         permission: {
           module,
           action,
-          granted: false
+          granted: false,
+          hierarchyLevel
         }
       });
     }
@@ -67,11 +66,46 @@ export function requirePermission(module: string, action: 'create' | 'read' | 'u
     req.permissions = {
       module,
       action,
-      granted: true
+      granted: true,
+      hierarchyLevel
     };
 
     next();
   };
+}
+
+// Helper function to check hierarchical permissions
+function checkHierarchicalPermission(
+  hierarchyLevel: string,
+  module: string,
+  action: string,
+  rolePermissions?: any
+): boolean {
+  // Global managers have all permissions except admin-only actions
+  if (hierarchyLevel === 'global_manager') {
+    // Global managers can do everything except user management (admin only)
+    if (module === 'users') return false;
+    return true;
+  }
+
+  // Regional managers have regional permissions
+  if (hierarchyLevel === 'regional_manager') {
+    // Regional managers can approve transfers, manage inventory, but not global user management
+    if (module === 'users' && action === 'delete') return false;
+    if (module === 'transfers') return true;
+    if (module === 'inventory') return true;
+    if (module === 'purchaseOrders') return true; // Can approve POs in their region
+  }
+
+  // Staff have only basic permissions defined in their role
+  if (hierarchyLevel === 'staff') {
+    if (!rolePermissions) return false;
+    const modulePermissions = rolePermissions[module];
+    return !!(modulePermissions && modulePermissions[action]);
+  }
+
+  // Default deny for unknown hierarchy levels
+  return false;
 }
 
 // Authentication check middleware
@@ -90,6 +124,7 @@ declare global {
         module: string;
         action: string;
         granted: boolean;
+        hierarchyLevel?: string;
       };
     }
   }

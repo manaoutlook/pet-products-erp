@@ -4,7 +4,7 @@ import { setupAuth } from "./auth";
 import { db } from "@db";
 import {
   products, inventory, orders, orderItems, users,
-  roles, stores, userStoreAssignments,
+  roles, stores, userStoreAssignments, regions,
   categories, brands, suppliers, purchaseOrders,
   purchaseOrderItems, purchaseOrderActions, customerProfiles, insertCustomerProfileSchema,
   insertPurchaseOrderActionSchema, selectPurchaseOrderActionSchema,
@@ -15,7 +15,7 @@ import {
   selectTransferRequestSchema, selectTransferRequestItemSchema
 } from "@db/schema";
 import { sql } from "drizzle-orm";
-import { eq, and, or, desc, gte, lt, isNull } from "drizzle-orm";
+import { eq, and, or, desc, gte, lt, isNull, gt } from "drizzle-orm";
 import { requireRole, requireAuth, requirePermission } from "./middleware";
 import { z } from "zod";
 import { crypto } from "./auth";
@@ -1139,6 +1139,280 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Region Management endpoints - admin and regional managers only
+  app.get("/api/regions", requireAuth, async (req, res) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      // Global managers and admins can see all regions
+      // Regional managers can only see their own region
+      let whereCondition = undefined;
+
+      if (user.role?.hierarchyLevel === 'regional_manager') {
+        // Regional managers can only see regions they manage
+        whereCondition = eq(regions.managerUserId, user.id);
+      }
+
+      const allRegions = await db.query.regions.findMany({
+        where: whereCondition,
+        with: {
+          managerUser: true,
+        },
+        orderBy: [desc(regions.updatedAt)],
+      });
+
+      res.json(allRegions);
+    } catch (error) {
+      console.error('Error fetching regions:', error);
+      res.status(500).json({
+        message: "Failed to fetch regions",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.post("/api/regions", requirePermission('stores', 'create'), async (req, res) => {
+    try {
+      const { name, description, managerUserId } = req.body;
+
+      if (!name) {
+        return res.status(400).json({
+          message: "Region name is required",
+          suggestion: "Provide a name for the region"
+        });
+      }
+
+      // Check if region name already exists
+      const existingRegion = await db.query.regions.findFirst({
+        where: eq(regions.name, name),
+      });
+
+      if (existingRegion) {
+        return res.status(400).json({
+          message: "Region with this name already exists",
+          suggestion: "Please use a different region name"
+        });
+      }
+
+      // Validate manager user if provided
+      if (managerUserId) {
+        const managerUser = await db.query.users.findFirst({
+          where: eq(users.id, managerUserId),
+          with: {
+            role: true,
+          },
+        });
+
+        if (!managerUser) {
+          return res.status(400).json({
+            message: "Manager user not found",
+            suggestion: "Select a valid user as region manager"
+          });
+        }
+
+        if (managerUser.role?.hierarchyLevel !== 'regional_manager') {
+          return res.status(400).json({
+            message: "Manager must have regional_manager role",
+            suggestion: "Assign regional_manager role to the user first"
+          });
+        }
+
+        // Check if user is already managing another region
+        const existingManagedRegion = await db.query.regions.findFirst({
+          where: eq(regions.managerUserId, managerUserId),
+        });
+
+        if (existingManagedRegion) {
+          return res.status(400).json({
+            message: "User is already managing another region",
+            suggestion: "Select a different user or remove them from their current region"
+          });
+        }
+      }
+
+      const [newRegion] = await db
+        .insert(regions)
+        .values({
+          name,
+          description: description || null,
+          managerUserId: managerUserId || null,
+        })
+        .returning();
+
+      // Fetch the complete region with manager
+      const regionWithManager = await db.query.regions.findFirst({
+        where: eq(regions.id, newRegion.id),
+        with: {
+          managerUser: true,
+        },
+      });
+
+      res.json({
+        message: "Region created successfully",
+        region: regionWithManager,
+      });
+    } catch (error) {
+      console.error('Error creating region:', error);
+      res.status(500).json({
+        message: "Failed to create region",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.put("/api/regions/:id", requirePermission('stores', 'update'), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, description, managerUserId } = req.body;
+
+      if (!name) {
+        return res.status(400).json({
+          message: "Region name is required",
+          suggestion: "Provide a name for the region"
+        });
+      }
+
+      // Check if another region has the same name
+      const existingRegion = await db.query.regions.findFirst({
+        where: and(
+          eq(regions.name, name),
+          sql`id != ${id}`
+        ),
+      });
+
+      if (existingRegion) {
+        return res.status(400).json({
+          message: "Region with this name already exists",
+          suggestion: "Please use a different region name"
+        });
+      }
+
+      // Validate manager user if provided
+      if (managerUserId) {
+        const managerUser = await db.query.users.findFirst({
+          where: eq(users.id, managerUserId),
+          with: {
+            role: true,
+          },
+        });
+
+        if (!managerUser) {
+          return res.status(400).json({
+            message: "Manager user not found",
+            suggestion: "Select a valid user as region manager"
+          });
+        }
+
+        if (managerUser.role?.hierarchyLevel !== 'regional_manager') {
+          return res.status(400).json({
+            message: "Manager must have regional_manager role",
+            suggestion: "Assign regional_manager role to the user first"
+          });
+        }
+
+        // Check if user is already managing another region (excluding current)
+        const existingManagedRegion = await db.query.regions.findFirst({
+          where: and(
+            eq(regions.managerUserId, managerUserId),
+            sql`id != ${id}`
+          ),
+        });
+
+        if (existingManagedRegion) {
+          return res.status(400).json({
+            message: "User is already managing another region",
+            suggestion: "Select a different user or remove them from their current region"
+          });
+        }
+      }
+
+      const [updatedRegion] = await db
+        .update(regions)
+        .set({
+          name,
+          description: description || null,
+          managerUserId: managerUserId || null,
+          updatedAt: new Date(),
+        })
+        .where(eq(regions.id, parseInt(id)))
+        .returning();
+
+      if (!updatedRegion) {
+        return res.status(404).json({
+          message: "Region not found",
+          suggestion: "Please verify the region ID"
+        });
+      }
+
+      // Fetch the complete region with manager
+      const regionWithManager = await db.query.regions.findFirst({
+        where: eq(regions.id, updatedRegion.id),
+        with: {
+          managerUser: true,
+        },
+      });
+
+      res.json({
+        message: "Region updated successfully",
+        region: regionWithManager,
+      });
+    } catch (error) {
+      console.error('Error updating region:', error);
+      res.status(500).json({
+        message: "Failed to update region",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
+  app.delete("/api/regions/:id", requirePermission('stores', 'delete'), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if region exists
+      const region = await db.query.regions.findFirst({
+        where: eq(regions.id, parseInt(id)),
+      });
+
+      if (!region) {
+        return res.status(404).json({
+          message: "Region not found",
+          suggestion: "Please verify the region ID"
+        });
+      }
+
+      // Check if region has any stores assigned
+      const storesInRegion = await db.query.stores.findMany({
+        where: eq(stores.regionId, parseInt(id)),
+        limit: 1,
+      });
+
+      if (storesInRegion.length > 0) {
+        return res.status(400).json({
+          message: "Cannot delete region with assigned stores",
+          suggestion: "Reassign or remove all stores from this region first"
+        });
+      }
+
+      await db
+        .delete(regions)
+        .where(eq(regions.id, parseInt(id)));
+
+      res.json({
+        message: "Region deleted successfully"
+      });
+    } catch (error) {
+      console.error('Error deleting region:', error);
+      res.status(500).json({
+        message: "Failed to delete region",
+        suggestion: "Please try again later"
+      });
+    }
+  });
+
   // Category Management endpoints
   app.get("/api/categories", requirePermission('masterData', 'read'), async (req, res) => {
     try {
@@ -1888,6 +2162,78 @@ export function registerRoutes(app: Express): Server {
     } catch (error) {
       console.error('Error fetching products:', error);
       res.status(500).send("Failed to fetch products");
+    }
+  });
+
+  // Products API - Get products available in a specific store with stock > 0
+  app.get("/api/products/available-in-store", requireAuth, async (req, res) => {
+    try {
+      const { storeId } = req.query;
+
+      if (!storeId) {
+        return res.status(400).json({
+          message: "storeId query parameter is required",
+          suggestion: "Provide a storeId to filter products"
+        });
+      }
+
+      // Parse storeId - if it's "DC", treat as null for DC inventory
+      const parsedStoreId = storeId === 'DC' ? null : parseInt(storeId as string);
+
+      if (storeId !== 'DC' && isNaN(parsedStoreId!)) {
+        return res.status(400).json({
+          message: "Invalid storeId format",
+          suggestion: "storeId must be a number or 'DC'"
+        });
+      }
+
+      // Get products that have inventory > 0 in the specified store
+      const productsWithInventory = await db
+        .select({
+          id: products.id,
+          name: products.name,
+          sku: products.sku,
+          price: products.price,
+          description: products.description,
+          categoryId: products.categoryId,
+          brandId: products.brandId,
+          minStock: products.minStock,
+          category: {
+            id: categories.id,
+            name: categories.name,
+          },
+          brand: {
+            id: brands.id,
+            name: brands.name,
+          },
+          inventory: {
+            id: inventory.id,
+            quantity: inventory.quantity,
+            storeId: inventory.storeId,
+            inventoryType: inventory.inventoryType,
+          },
+        })
+        .from(products)
+        .innerJoin(inventory, eq(products.id, inventory.productId))
+        .leftJoin(categories, eq(products.categoryId, categories.id))
+        .leftJoin(brands, eq(products.brandId, brands.id))
+        .where(
+          and(
+            gt(inventory.quantity, 0),
+            parsedStoreId === null
+              ? isNull(inventory.storeId)
+              : eq(inventory.storeId, parsedStoreId)
+          )
+        )
+        .orderBy(products.name);
+
+      res.json(productsWithInventory);
+    } catch (error) {
+      console.error('Error fetching products available in store:', error);
+      res.status(500).json({
+        message: "Failed to fetch products available in store",
+        suggestion: "Please try again later"
+      });
     }
   });
 
@@ -2835,7 +3181,17 @@ export function registerRoutes(app: Express): Server {
         end_date,
         limit = '50',
         offset = '0'
-      } = req.query;
+      } = req.query as {
+        search?: string;
+        store_id?: string;
+        transaction_type?: string;
+        cashier_user_id?: string;
+        status?: string;
+        start_date?: string;
+        end_date?: string;
+        limit?: string;
+        offset?: string;
+      };
 
       const user = req.user;
       if (!user) {

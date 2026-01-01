@@ -58,10 +58,16 @@ export function ProductSelector({ onAddToCart, cartItems, storeId }: ProductSele
   ) || [];
 
   const getAvailableStock = (product: Product): number => {
-    // Find inventory for this store or DC
-    const inventoryItem = product.inventory.find(inv =>
+    // Find inventory for this store first, then fall back to DC
+    let inventoryItem = product.inventory.find(inv =>
       storeId ? inv.storeId === storeId : inv.inventoryType === 'DC'
     );
+
+    // If no store inventory, try DC inventory
+    if (!inventoryItem && storeId) {
+      inventoryItem = product.inventory.find(inv => inv.inventoryType === 'DC');
+    }
+
     return inventoryItem?.quantity || 0;
   };
 
@@ -111,10 +117,15 @@ export function ProductSelector({ onAddToCart, cartItems, storeId }: ProductSele
       return;
     }
 
-    // Find the appropriate inventory item
-    const inventoryItem = product.inventory.find(inv =>
+    // Find the appropriate inventory item - prioritize store inventory, then DC
+    let inventoryItem = product.inventory.find(inv =>
       storeId ? inv.storeId === storeId : inv.inventoryType === 'DC'
     );
+
+    // If no store inventory, try DC inventory
+    if (!inventoryItem && storeId) {
+      inventoryItem = product.inventory.find(inv => inv.inventoryType === 'DC');
+    }
 
     if (!inventoryItem) {
       toast({

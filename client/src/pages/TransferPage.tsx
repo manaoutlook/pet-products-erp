@@ -142,6 +142,22 @@ function TransferPage() {
     queryKey: ['/api/products'],
   });
 
+  const { data: availableProducts, refetch: refetchAvailableProducts } = useQuery<Product[]>({
+    queryKey: ['/api/products/available-in-store', form.watch('fromStoreId')],
+    queryFn: async () => {
+      const fromStoreId = form.watch('fromStoreId');
+      if (!fromStoreId) return [];
+
+      const storeParam = fromStoreId === 'DC' ? 'DC' : fromStoreId;
+      const response = await fetch(`/api/products/available-in-store?storeId=${storeParam}`, {
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Failed to fetch products');
+      return response.json();
+    },
+    enabled: !!form.watch('fromStoreId'),
+  });
+
   const createTransferMutation = useMutation({
     mutationFn: async (data: CreateTransferFormValues) => {
       const response = await fetch('/api/transfer-requests', {
@@ -166,6 +182,127 @@ function TransferPage() {
       setDialogOpen(false);
       form.reset();
       toast({ title: "Success", description: "Transfer request created successfully" });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+    },
+  });
+
+  // Transfer Action Mutations
+  const approveMutation = useMutation({
+    mutationFn: async ({ transferId, approvedQuantities, notes }: {
+      transferId: number;
+      approvedQuantities: Array<{ itemId: number; quantity: number }>;
+      notes?: string;
+    }) => {
+      const response = await fetch(`/api/transfer-requests/${transferId}/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actionType: 'approve',
+          approvedQuantities,
+          notes,
+        }),
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error(await response.text());
+      return response.json();
+    },
+    onSuccess: () => {
+      refetchTransfers();
+      setDetailsDialogOpen(false);
+      setSelectedTransfer(null);
+      toast({ title: "Success", description: "Transfer approved successfully" });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async ({ transferId, reason, notes }: {
+      transferId: number;
+      reason: string;
+      notes?: string;
+    }) => {
+      const response = await fetch(`/api/transfer-requests/${transferId}/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actionType: 'reject',
+          rejectionReason: reason,
+          notes,
+        }),
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error(await response.text());
+      return response.json();
+    },
+    onSuccess: () => {
+      refetchTransfers();
+      setDetailsDialogOpen(false);
+      setSelectedTransfer(null);
+      toast({ title: "Success", description: "Transfer rejected" });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+    },
+  });
+
+  const executeMutation = useMutation({
+    mutationFn: async ({ transferId, notes }: { transferId: number; notes?: string }) => {
+      const response = await fetch(`/api/transfer-requests/${transferId}/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes }),
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error(await response.text());
+      return response.json();
+    },
+    onSuccess: () => {
+      refetchTransfers();
+      setDetailsDialogOpen(false);
+      setSelectedTransfer(null);
+      toast({ title: "Success", description: "Transfer executed successfully" });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: async ({ transferId, reason }: { transferId: number; reason: string }) => {
+      const response = await fetch(`/api/transfer-requests/${transferId}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error(await response.text());
+      return response.json();
+    },
+    onSuccess: () => {
+      refetchTransfers();
+      setDetailsDialogOpen(false);
+      setSelectedTransfer(null);
+      toast({ title: "Success", description: "Transfer cancelled" });
     },
     onError: (error: Error) => {
       toast({
@@ -238,6 +375,50 @@ function TransferPage() {
     (transfer.toStore?.name || 'DC (Distribution Center)').toLowerCase().includes(search.toLowerCase()) ||
     transfer.requestedByUser.username.toLowerCase().includes(search.toLowerCase())
   );
+
+  // Handler functions for transfer actions
+  const handleApproveTransfer = async (transfer: TransferRequest) => {
+    // Simple approval - approve all requested quantities
+    const approvedQuantities = transfer.items.map(item => ({
+      itemId: item.id,
+      quantity: item.requestedQuantity,
+    }));
+
+    await approveMutation.mutateAsync({
+      transferId: transfer.id,
+      approvedQuantities,
+      notes: 'Approved via interface',
+    });
+  };
+
+  const handleRejectTransfer = async (transfer: TransferRequest) => {
+    const reason = prompt('Please provide a reason for rejection:');
+    if (!reason) return;
+
+    await rejectMutation.mutateAsync({
+      transferId: transfer.id,
+      reason,
+      notes: 'Rejected via interface',
+    });
+  };
+
+  const handleExecuteTransfer = async (transfer: TransferRequest) => {
+    const notes = prompt('Add execution notes (optional):') || undefined;
+    await executeMutation.mutateAsync({
+      transferId: transfer.id,
+      notes,
+    });
+  };
+
+  const handleCancelTransfer = async (transfer: TransferRequest) => {
+    const reason = prompt('Please provide a reason for cancellation:');
+    if (!reason) return;
+
+    await cancelMutation.mutateAsync({
+      transferId: transfer.id,
+      reason,
+    });
+  };
 
   const isPending = createTransferMutation.isPending;
 
@@ -399,7 +580,7 @@ function TransferPage() {
                                         </SelectTrigger>
                                       </FormControl>
                                       <SelectContent>
-                                        {products?.map((product) => (
+                                        {(availableProducts && availableProducts.length > 0 ? availableProducts : products)?.map((product) => (
                                           <SelectItem key={product.id} value={product.id.toString()}>
                                             {product.name} ({product.sku})
                                           </SelectItem>
@@ -547,17 +728,29 @@ function TransferPage() {
                       {new Date(transfer.requestedAt).toLocaleDateString()}
                     </TableCell>
                     <TableCell>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedTransfer(transfer);
-                          setDetailsDialogOpen(true);
-                        }}
-                      >
-                        <Eye className="mr-2 h-4 w-4" />
-                        View Details
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedTransfer(transfer);
+                            setDetailsDialogOpen(true);
+                          }}
+                        >
+                          <Eye className="mr-2 h-4 w-4" />
+                          View Details
+                        </Button>
+                        {transfer.status === 'pending' && hasPermission('inventory', 'update') && (
+                          <Badge variant="secondary" className="ml-2">
+                            Action Required
+                          </Badge>
+                        )}
+                        {transfer.status === 'approved' && hasPermission('inventory', 'update') && (
+                          <Badge variant="default" className="ml-2">
+                            Ready to Execute
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -651,6 +844,54 @@ function TransferPage() {
                     ))}
                   </TableBody>
                 </Table>
+              </div>
+
+              {/* Action Buttons Based on Transfer Status and User Permissions */}
+              <div className="flex justify-end gap-2 pt-4 border-t">
+                {selectedTransfer.status === 'pending' && (hasPermission('inventory', 'update') || hasPermission('inventory', 'create')) && (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleApproveTransfer(selectedTransfer)}
+                      disabled={approveMutation.isPending}
+                    >
+                      {approveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      <CheckCircle className="mr-2 h-4 w-4" />
+                      Approve Transfer
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleRejectTransfer(selectedTransfer)}
+                      disabled={rejectMutation.isPending}
+                    >
+                      {rejectMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      <XCircle className="mr-2 h-4 w-4" />
+                      Reject Transfer
+                    </Button>
+                  </>
+                )}
+
+                {selectedTransfer.status === 'approved' && hasPermission('inventory', 'update') && (
+                  <Button
+                    onClick={() => handleExecuteTransfer(selectedTransfer)}
+                    disabled={executeMutation.isPending}
+                  >
+                    {executeMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    <ArrowRight className="mr-2 h-4 w-4" />
+                    Execute Transfer
+                  </Button>
+                )}
+
+                {selectedTransfer.status === 'pending' && hasPermission('inventory', 'delete') && (
+                  <Button
+                    variant="outline"
+                    onClick={() => handleCancelTransfer(selectedTransfer)}
+                    disabled={cancelMutation.isPending}
+                  >
+                    {cancelMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Cancel Transfer
+                  </Button>
+                )}
               </div>
             </div>
           )}

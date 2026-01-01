@@ -214,6 +214,13 @@ function Sidebar() {
           icon: Store,
           adminOnly: true
         },
+        {
+          name: "Regions",
+          href: "/regions",
+          icon: Network,
+          module: 'stores',
+          action: 'read'
+        },
       ],
     },
   ];
