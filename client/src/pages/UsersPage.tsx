@@ -52,6 +52,7 @@ interface UserWithRole extends Omit<SelectUser, 'roleId'> {
 
 function UsersPage() {
   const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<string>("all");
   const [editingUser, setEditingUser] = useState<UserWithRole | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const { toast } = useToast();
@@ -151,9 +152,11 @@ function UsersPage() {
     },
   });
 
-  const filteredUsers = users?.filter((user: UserWithRole) =>
-    user.username.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredUsers = users?.filter((user: UserWithRole) => {
+    const matchesSearch = user.username.toLowerCase().includes(search.toLowerCase());
+    const matchesRole = roleFilter === "all" || user.role.id.toString() === roleFilter;
+    return matchesSearch && matchesRole;
+  });
 
   const onSubmit = async (data: InsertUser) => {
     try {
@@ -290,6 +293,19 @@ function UsersPage() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
+            <Select value={roleFilter} onValueChange={setRoleFilter}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Filter by role" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Roles</SelectItem>
+                {roles?.map((role: SelectRole) => (
+                  <SelectItem key={role.id} value={role.id.toString()}>
+                    {role.name} {role.isSystemAdmin ? '(Admin)' : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </CardHeader>
         <CardContent>
