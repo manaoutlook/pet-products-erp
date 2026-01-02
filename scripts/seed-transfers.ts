@@ -49,17 +49,17 @@ async function seedTransfers() {
             {
                 transferNumber: generateTransferNumber(),
                 fromStoreId: 1, // Downtown Store
-                toStoreId: 4, // Airport Store
-                requestedByUserId: 4, // lisa_manager
+                toStoreId: 3, // Mall Store
+                requestedByUserId: 4, // lisa_sales
                 status: 'in_transit',
                 priority: 'low',
-                notes: 'Airport store restocking'
+                notes: 'Mall store restocking'
             },
             {
                 transferNumber: generateTransferNumber(),
-                fromStoreId: 4, // Airport Store
-                toStoreId: 2, // Uptown Store
-                requestedByUserId: 5, // david_manager
+                fromStoreId: 3, // Mall Store
+                toStoreId: 2, // Suburban Store
+                requestedByUserId: 5, // david_sales
                 status: 'cancelled',
                 priority: 'normal',
                 notes: 'Cancelled due to inventory changes'

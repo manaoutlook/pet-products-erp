@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { db } from "../db/index.js";
 import { roles, users, userStoreAssignments } from "../db/schema.js";
 

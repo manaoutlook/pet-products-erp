@@ -328,7 +328,7 @@ async function seedInventory() {
         purchaseDate: "2024-12-08"
       },
       {
-        productId: 21, // Pedigree Dental Chews
+        productId: 20, // Pedigree Dental Chews
         storeId: 3,
         supplierId: 4,
         quantity: 22,

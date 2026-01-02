@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { db } from "../db/index.js";
 import { stores, userStoreAssignments } from "../db/schema.js";
 import { eq } from "drizzle-orm";
@@ -9,20 +10,49 @@ async function seedStoresDemo() {
     // Step 1: Create stores
     console.log("\n📍 Step 1: Creating Stores");
     const storesData = [
+      // Retail stores
       {
         name: "Downtown Pet Store",
+        regionId: 2, // South Zone (HCMC area)
+        type: "RETAIL",
         location: "123 Main Street, Downtown District",
         contactInfo: "Phone: (555) 111-2222 | Email: downtown@pets.com"
       },
       {
         name: "Suburban Pet Center",
+        regionId: 2, // South Zone (HCMC area)
+        type: "RETAIL",
         location: "456 Oak Avenue, Suburban Plaza",
         contactInfo: "Phone: (555) 333-4444 | Email: suburban@pets.com"
       },
       {
         name: "Mall Pet Boutique",
+        regionId: 1, // North Zone (Hanoi area)
+        type: "RETAIL",
         location: "789 Shopping Mall, Level 2",
         contactInfo: "Phone: (555) 555-6666 | Email: mall@pets.com"
+      },
+      // Distribution Centers (Warehouses)
+      {
+        name: "HCMC Distribution Center",
+        regionId: 2, // South Zone
+        type: "WAREHOUSE",
+        location: "Industrial Zone, Ho Chi Minh City",
+        contactInfo: "Phone: (555) 777-8888 | Email: hcmc.dc@pets.com"
+      },
+      {
+        name: "Hanoi Distribution Center",
+        regionId: 1, // North Zone
+        type: "WAREHOUSE",
+        location: "Logistics Park, Hanoi",
+        contactInfo: "Phone: (555) 999-0000 | Email: hanoi.dc@pets.com"
+      },
+      {
+        name: "Hoi An Distribution Center",
+        regionId: 4, // East Zone (Central Vietnam)
+        type: "WAREHOUSE",
+        location: "Port Area, Hoi An",
+        contactInfo: "Phone: (555) 222-3333 | Email: hoian.dc@pets.com"
       }
     ];
 
