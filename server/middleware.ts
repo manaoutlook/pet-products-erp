@@ -92,6 +92,7 @@ function checkHierarchicalPermission(
   if (hierarchyLevel === 'regional_manager') {
     // Regional managers can approve transfers, manage inventory, but not global user management
     if (module === 'users' && action === 'delete') return false;
+    if (module === 'users' && (action === 'read' || action === 'create' || action === 'update')) return true; // Allow reading/creating/updating users for region management
     if (module === 'transfers') return true;
     if (module === 'inventory') return true;
     if (module === 'purchaseOrders') return true; // Can approve POs in their region

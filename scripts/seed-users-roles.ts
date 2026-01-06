@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { db } from "../db/index.js";
 import { roles, users, userStoreAssignments } from "../db/schema.js";
+import { eq } from "drizzle-orm";
 
 async function seedUsersAndRoles() {
   console.log("👥 Creating Users and Roles...");
@@ -74,6 +75,7 @@ async function seedUsersAndRoles() {
         name: "regional_manager",
         description: "Regional Manager - Oversees multiple stores",
         isSystemAdmin: false,
+        hierarchyLevel: 'regional_manager',
         permissions: {
           products: { create: true, read: true, update: true, delete: true },
           orders: { create: true, read: true, update: true, delete: true },
@@ -84,14 +86,42 @@ async function seedUsersAndRoles() {
           pos: { create: true, read: true, update: true, delete: true },
           receipts: { create: true, read: true, update: true, delete: true }
         }
+      },
+      {
+        name: "global_manager",
+        description: "Global Manager - Oversees all regions and operations",
+        isSystemAdmin: false,
+        hierarchyLevel: 'global_manager',
+        permissions: {
+          products: { create: true, read: true, update: true, delete: true },
+          orders: { create: true, read: true, update: true, delete: true },
+          inventory: { create: true, read: true, update: true, delete: true },
+          users: { create: true, read: true, update: true, delete: true },
+          stores: { create: true, read: true, update: true, delete: true },
+          masterData: { create: true, read: true, update: true, delete: true },
+          pos: { create: true, read: true, update: true, delete: true },
+          receipts: { create: true, read: true, update: true, delete: true },
+          customerProfiles: { create: true, read: true, update: true, delete: true }
+        }
       }
     ];
 
     const createdRoles: any[] = [];
     for (const role of rolesData) {
-      const result = await db.insert(roles).values(role as any).returning();
-      createdRoles.push(result[0]);
-      console.log(`✓ Created role: ${role.name} (${role.description})`);
+      const result = await db.insert(roles).values(role as any).onConflictDoNothing().returning();
+      if (result.length > 0) {
+        createdRoles.push(result[0]);
+        console.log(`✓ Created role: ${role.name} (${role.description})`);
+      } else {
+        // Role already exists, fetch it
+        const existingRole = await db.query.roles.findFirst({
+          where: eq(roles.name, role.name)
+        });
+        if (existingRole) {
+          createdRoles.push(existingRole);
+          console.log(`✓ Role already exists: ${role.name} (${role.description})`);
+        }
+      }
     }
 
     // Step 2: Create 10 users with different roles
@@ -107,28 +137,39 @@ async function seedUsersAndRoles() {
       { username: "tom_inventory", roleId: createdRoles[2].id }, // inventory_clerk
       { username: "jane_service", roleId: createdRoles[3].id }, // customer_service
       { username: "mark_service", roleId: createdRoles[3].id }, // customer_service
-      { username: "regional_boss", roleId: createdRoles[4].id } // regional_manager
+      { username: "regional_boss", roleId: createdRoles[4].id }, // regional_manager
+      { username: "global_boss", roleId: createdRoles[5].id } // global_manager
     ];
 
     const createdUsers: any[] = [];
     for (const user of usersData) {
-      // Hash password (using 'password123' for all demo users)
-      // Note: Using the same scrypt logic as server/auth.ts
-      const { scrypt, randomBytes } = await import("crypto");
-      const { promisify } = await import("util");
-      const scryptAsync = promisify(scrypt);
+      // Check if user already exists
+      const existingUser = await db.query.users.findFirst({
+        where: eq(users.username, user.username)
+      });
 
-      const salt = randomBytes(16).toString("hex");
-      const derivedKey = (await scryptAsync('password123', salt, 64)) as Buffer;
-      const hashedPassword = `${derivedKey.toString("hex")}.${salt}`;
+      if (existingUser) {
+        createdUsers.push(existingUser);
+        console.log(`✓ User already exists: ${user.username} (Role: ${createdRoles.find(r => r.id === user.roleId)?.name})`);
+      } else {
+        // Hash password (using 'password123' for all demo users)
+        // Note: Using the same scrypt logic as server/auth.ts
+        const { scrypt, randomBytes } = await import("crypto");
+        const { promisify } = await import("util");
+        const scryptAsync = promisify(scrypt);
 
-      const result = await db.insert(users).values({
-        ...user,
-        password: hashedPassword
-      }).returning();
+        const salt = randomBytes(16).toString("hex");
+        const derivedKey = (await scryptAsync('password123', salt, 64)) as Buffer;
+        const hashedPassword = `${derivedKey.toString("hex")}.${salt}`;
 
-      createdUsers.push(result[0]);
-      console.log(`✓ Created user: ${user.username} (Role: ${createdRoles.find(r => r.id === user.roleId)?.name})`);
+        const result = await db.insert(users).values({
+          ...user,
+          password: hashedPassword
+        }).returning();
+
+        createdUsers.push(result[0]);
+        console.log(`✓ Created user: ${user.username} (Role: ${createdRoles.find(r => r.id === user.roleId)?.name})`);
+      }
     }
 
     // Step 3: Assign users to stores (demonstrating multi-store access)
@@ -159,7 +200,12 @@ async function seedUsersAndRoles() {
       // Regional manager - access to all stores
       { userId: createdUsers[9].id, storeId: 1 }, // regional_boss -> Downtown
       { userId: createdUsers[9].id, storeId: 2 }, // regional_boss -> Suburban
-      { userId: createdUsers[9].id, storeId: 3 }  // regional_boss -> Mall
+      { userId: createdUsers[9].id, storeId: 3 }, // regional_boss -> Mall
+
+      // Global manager - access to all stores
+      { userId: createdUsers[10].id, storeId: 1 }, // global_boss -> Downtown
+      { userId: createdUsers[10].id, storeId: 2 }, // global_boss -> Suburban
+      { userId: createdUsers[10].id, storeId: 3 }  // global_boss -> Mall
     ];
 
     for (const assignment of storeAssignments) {

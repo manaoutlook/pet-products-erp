@@ -1,15 +1,28 @@
 import "dotenv/config";
 import { db } from "../db/index.js";
-import { regions } from "../db/schema.js";
+import { regions, users } from "../db/schema.js";
+import { eq } from "drizzle-orm";
 
 async function seedRegions() {
   console.log("🗺️ Seeding regions...");
 
   try {
+    // First, get the regional manager user
+    const regionalManager = await db.query.users.findFirst({
+      where: eq(users.username, 'regional_boss'),
+    });
+
+    if (!regionalManager) {
+      console.log("⚠️  Regional manager user not found. Please run user seeding first.");
+      console.log("Run: npm run seed:users");
+      process.exit(1);
+    }
+
     const regionsData = [
       {
         name: "North Zone",
-        description: "Northern region covering Hanoi and surrounding areas"
+        description: "Northern region covering Hanoi and surrounding areas",
+        managerUserId: regionalManager.id
       },
       {
         name: "South Zone",
@@ -34,10 +47,12 @@ async function seedRegions() {
     console.log("✅ Regions seeding completed successfully!");
     console.log("\n📊 Summary:");
     console.log("- 4 Regions inserted");
-    console.log("  • North Zone");
+    console.log("  • North Zone (Managed by regional_boss)");
     console.log("  • South Zone");
     console.log("  • West Zone");
     console.log("  • East Zone");
+    console.log("\n👤 Regional Manager Assignment:");
+    console.log(`  • regional_boss manages North Zone`);
 
   } catch (error) {
     console.error("❌ Error seeding regions:", error);

@@ -31,6 +31,7 @@ declare global {
         id: number;
         name: string;
         isSystemAdmin: boolean;
+        hierarchyLevel: string;
         permissions: Permissions;
       };
     }
@@ -113,6 +114,7 @@ export async function setupAdmin() {
         name: 'admin',
         description: 'Administrator role with full access',
         isSystemAdmin: true,
+        hierarchyLevel: 'admin',
         permissions: {
           products: { create: true, read: true, update: true, delete: true },
           orders: { create: true, read: true, update: true, delete: true },
@@ -211,6 +213,7 @@ export function setupAuth(app: Express) {
               id: roles.id,
               name: roles.name,
               isSystemAdmin: roles.isSystemAdmin,
+              hierarchyLevel: roles.hierarchyLevel,
               permissions: roles.permissions
             }
           })
@@ -260,6 +263,7 @@ export function setupAuth(app: Express) {
             id: roles.id,
             name: roles.name,
             isSystemAdmin: roles.isSystemAdmin,
+            hierarchyLevel: roles.hierarchyLevel,
             permissions: roles.permissions
           }
         })

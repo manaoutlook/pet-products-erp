@@ -128,6 +128,10 @@ function RegionPage() {
     user.role?.hierarchyLevel === 'regional_manager'
   );
 
+  // Debug logging
+  console.log('Users data:', users);
+  console.log('Regional managers:', regionalManagers);
+
   const createRegionMutation = useMutation({
     mutationFn: async (data: CreateRegionFormValues) => {
       const response = await fetch('/api/regions', {
@@ -135,7 +139,7 @@ function RegionPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...data,
-          managerUserId: data.managerUserId ? parseInt(data.managerUserId) : undefined,
+          managerUserId: data.managerUserId && data.managerUserId !== 'none' ? parseInt(data.managerUserId) : undefined,
         }),
         credentials: 'include',
       });
@@ -164,7 +168,7 @@ function RegionPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...data,
-          managerUserId: data.managerUserId ? parseInt(data.managerUserId) : undefined,
+          managerUserId: data.managerUserId && data.managerUserId !== 'none' ? parseInt(data.managerUserId) : undefined,
         }),
         credentials: 'include',
       });
@@ -228,7 +232,7 @@ function RegionPage() {
     form.reset({
       name: region.name,
       description: region.description || '',
-      managerUserId: region.managerUserId?.toString() || '',
+      managerUserId: region.managerUserId ? region.managerUserId.toString() : 'none',
     });
     setDialogOpen(true);
   };
