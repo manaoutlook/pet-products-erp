@@ -59,7 +59,7 @@ A comprehensive Enterprise Resource Planning (ERP) system designed specifically 
 
 6. **Open your browser**
    ```
-   http://localhost:5000
+   http://localhost:5001
    ```
 
 ### Default Login Credentials

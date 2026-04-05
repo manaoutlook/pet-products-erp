@@ -8,5 +8,13 @@ taskkill /IM node.exe /F 2>nul
 REM Start the development server in background
 start "" cmd /c "npm run dev"
 
-REM Display the application access URL
-echo Application started. Access it at: http://localhost:5000
+REM Wait a few seconds for the server to spin up
+timeout /t 5 /nobreak >nul
+
+REM Display the application access URL prominently
+echo.
+echo ========================================================
+echo   Application started. Access it at: http://localhost:5001
+echo ========================================================
+echo.
+pause
