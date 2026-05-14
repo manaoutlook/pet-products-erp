@@ -7,22 +7,16 @@ async function seedRegions() {
   console.log("🗺️ Seeding regions...");
 
   try {
-    // First, get the regional manager user
+    // Try to get the regional manager user (may not exist yet on first run)
     const regionalManager = await db.query.users.findFirst({
       where: eq(users.username, 'regional_boss'),
     });
-
-    if (!regionalManager) {
-      console.log("⚠️  Regional manager user not found. Please run user seeding first.");
-      console.log("Run: npm run seed:users");
-      process.exit(1);
-    }
 
     const regionsData = [
       {
         name: "North Zone",
         description: "Northern region covering Hanoi and surrounding areas",
-        managerUserId: regionalManager.id
+        managerUserId: regionalManager ? regionalManager.id : null
       },
       {
         name: "South Zone",
@@ -37,6 +31,10 @@ async function seedRegions() {
         description: "Eastern region covering Da Nang and central coastal areas"
       }
     ];
+
+    if (!regionalManager) {
+      console.log("ℹ️  Regional manager user not found. Skipping manager assignment (can be assigned later).");
+    }
 
     console.log("📍 Inserting regions...");
     for (const region of regionsData) {
