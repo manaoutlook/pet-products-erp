@@ -22,7 +22,7 @@ async function seedTransfers() {
             {
                 transferNumber: generateTransferNumber(),
                 fromStoreId: 1, // Downtown Store
-                toStoreId: 2, // Uptown Store
+                toStoreId: 2, // Suburban Store
                 requestedByUserId: 1, // john_manager
                 status: 'pending',
                 priority: 'high',
@@ -30,7 +30,7 @@ async function seedTransfers() {
             },
             {
                 transferNumber: generateTransferNumber(),
-                fromStoreId: 2, // Uptown Store
+                fromStoreId: 2, // Suburban Store
                 toStoreId: 3, // Mall Store
                 requestedByUserId: 2, // sarah_manager
                 status: 'approved',
