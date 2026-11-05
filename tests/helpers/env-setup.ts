@@ -9,8 +9,8 @@ export function configureTestEnvironment() {
     if (testUrl) {
         // Ensure we're using the test database
         let finalTestUrl = testUrl;
-        if (!testUrl.includes('pet_erp_test')) {
-            finalTestUrl = testUrl.replace(/(^postgresql?:\/\/.*\/)([^?]+)(\?.*)?$/, '$1pet_erp_test$3');
+        if (!testUrl.includes('smart_erp_test')) {
+            finalTestUrl = testUrl.replace(/(^postgresql?:\/\/.*\/)([^?]+)(\?.*)?$/, '$1smart_erp_test$3');
         }
 
         process.env.DATABASE_URL = finalTestUrl;

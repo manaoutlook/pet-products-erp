@@ -1,5 +1,5 @@
 @echo off
-REM Batch script to stop the pet products ERP application
+REM Batch script to stop the Smart ERP application
 
 echo Stopping the application...
 REM Kill any existing Node.js processes

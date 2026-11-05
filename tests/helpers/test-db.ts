@@ -137,11 +137,11 @@ export async function resetTestDatabase() {
 
         try {
             // Terminate all connections to the test database
-            await sql`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'pet_erp_test' AND pid <> pg_backend_pid()`;
+            await sql`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'smart_erp_test' AND pid <> pg_backend_pid()`;
 
             // Drop and recreate the database
-            await sql`DROP DATABASE IF EXISTS pet_erp_test`;
-            await sql`CREATE DATABASE pet_erp_test`;
+            await sql`DROP DATABASE IF EXISTS smart_erp_test`;
+            await sql`CREATE DATABASE smart_erp_test`;
 
             console.log('Test database recreated successfully.');
         } finally {

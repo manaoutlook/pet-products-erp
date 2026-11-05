@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Shell script to stop the pet products ERP application
+# Shell script to stop the Smart ERP application
 
 echo "Stopping the application..."
 # Kill any existing Node.js processes

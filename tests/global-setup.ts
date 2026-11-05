@@ -20,10 +20,10 @@ export default async function setup() {
             const adminUrl = testUrl.replace(/(^postgresql?:\/\/.*\/)([^?]+)(\?.*)?$/, '$1postgres$3');
             const sql = postgres(adminUrl);
 
-            const dbs = await sql`SELECT datname FROM pg_database WHERE datname = 'pet_erp_test'`;
+            const dbs = await sql`SELECT datname FROM pg_database WHERE datname = 'smart_erp_test'`;
             if (dbs.length === 0) {
-                console.log('Creating test database: pet_erp_test...');
-                await sql`CREATE DATABASE pet_erp_test`;
+                console.log('Creating test database: smart_erp_test...');
+                await sql`CREATE DATABASE smart_erp_test`;
                 console.log('Test database created successfully.');
             } else {
                 console.log('Test database already exists.');

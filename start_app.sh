@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Shell script to start the pet products ERP application
+# Shell script to start the Smart ERP application
 # This script kills any existing Node.js processes and then starts a new one
 
 # Kill any existing Node.js processes to avoid port conflicts

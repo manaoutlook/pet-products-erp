@@ -143,7 +143,7 @@ export function ReceiptPrinter({ receiptData, onPrint, onClose }: ReceiptPrinter
 
       // Header
       doc.setFontSize(14);
-      doc.text('PET PRODUCTS ERP', 40, yPosition, { align: 'center' });
+      doc.text('Smart ERP', 40, yPosition, { align: 'center' });
       yPosition += 6;
 
       if (receiptData.storeName) {
@@ -231,7 +231,7 @@ export function ReceiptPrinter({ receiptData, onPrint, onClose }: ReceiptPrinter
       yPosition += 6;
 
       doc.setFontSize(8);
-      doc.text('PET PRODUCTS ERP', 40, yPosition, { align: 'center' });
+      doc.text('Smart ERP', 40, yPosition, { align: 'center' });
       yPosition += 4;
 
       doc.setFontSize(6);
@@ -286,7 +286,7 @@ export function ReceiptPrinter({ receiptData, onPrint, onClose }: ReceiptPrinter
         >
           {/* Header */}
           <div className="text-center mb-4">
-            <div className="font-bold text-lg">PET PRODUCTS ERP</div>
+            <div className="font-bold text-lg">Smart ERP</div>
             {receiptData.storeName && (
               <div className="text-sm">{receiptData.storeName}</div>
             )}
@@ -358,8 +358,8 @@ export function ReceiptPrinter({ receiptData, onPrint, onClose }: ReceiptPrinter
           <div className="text-center text-xs">
             <div>Thank you for your business!</div>
             <div className="mt-2">Please keep this receipt for your records</div>
-            <div className="mt-4 font-bold">PET PRODUCTS ERP</div>
-            <div>www.petproducts.com</div>
+            <div className="mt-4 font-bold">Smart ERP</div>
+            <div>www.smarterp.com</div>
           </div>
         </div>
 

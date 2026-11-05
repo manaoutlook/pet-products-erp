@@ -311,7 +311,7 @@ function Sidebar() {
   return (
     <div className="flex flex-col w-64 bg-sidebar border-r border-sidebar-border">
       <div className="p-4 border-b border-sidebar-border">
-        <h1 className="text-xl font-bold text-sidebar-foreground">Pet Products ERP</h1>
+        <h1 className="text-xl font-bold text-sidebar-foreground">Smart ERP</h1>
       </div>
 
       <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">

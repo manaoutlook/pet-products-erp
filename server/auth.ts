@@ -171,7 +171,7 @@ export async function setupAdmin() {
 export function setupAuth(app: Express) {
   const MemoryStore = createMemoryStore(session);
   const sessionSettings: session.SessionOptions = {
-    secret: process.env.REPL_ID || "pet-products-erp-secret",
+    secret: process.env.REPL_ID || "smart-erp-secret",
     name: 'sid',
     resave: false,
     saveUninitialized: false,
