@@ -60,7 +60,8 @@ import {
 // Update the product schema to include brandId
 const productSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  description: z.string().optional(),
+  // Description is optional and the API stores it as NULL when omitted.
+  description: z.string().nullable().optional(),
   sku: z.string().min(1, "SKU is required"),
   price: z.number()
     .min(0, "Price must be positive")
@@ -70,9 +71,15 @@ const productSchema = z.object({
       (val) => ({ message: validatePrice(val).error || "Invalid price" })
     ),
   categoryId: z.number().min(1, "Category is required"),
-  brandId: z.number().optional(),
+  // Brands are optional: products may be saved without a brand, so `null`
+  // (returned by the API for brand-less products) must be accepted too.
+  brandId: z.number().nullable().optional(),
   minStock: z.number().int().min(0, "Minimum stock must be positive"),
 });
+
+// Radix Select does not allow an empty string value, so an explicit sentinel
+// item is used to clear the (optional) brand selection.
+const NO_BRAND_VALUE = "none";
 
 type ProductFormData = z.infer<typeof productSchema>;
 
@@ -86,7 +93,7 @@ interface Brand {
 interface Product {
   id: number;
   name: string;
-  description: string;
+  description: string | null;
   sku: string;
   price: string | number;
   categoryId: number;
@@ -98,7 +105,7 @@ interface Product {
   inventory: {
     quantity: number;
   }[];
-  brandId?: number; // Add brandId to Product interface
+  brandId?: number | null; // Brands are optional — API returns null when unset
   brand?: {
     id: number;
     name: string;
@@ -111,6 +118,43 @@ interface Category {
   description: string | null;
 }
 
+// API errors are returned as JSON ({ message, suggestion, errors }), but some
+// endpoints still reply with plain text. Read both shapes and surface a
+// readable message instead of dumping raw JSON into the toast.
+async function getResponseErrorMessage(res: Response, fallback: string): Promise<string> {
+  let raw = "";
+  try {
+    raw = await res.text();
+  } catch {
+    return fallback;
+  }
+
+  if (!raw) return fallback;
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed === "string") return parsed;
+
+    if (parsed && Array.isArray(parsed.errors) && parsed.errors.length > 0) {
+      const details = parsed.errors
+        .map((err: { field?: string; message?: string }) =>
+          err?.message ? (err.field ? `${err.field}: ${err.message}` : err.message) : null
+        )
+        .filter(Boolean)
+        .join("; ");
+      if (details) return details;
+    }
+
+    if (parsed && typeof parsed.message === "string" && parsed.message.trim()) {
+      return parsed.suggestion ? `${parsed.message} ${parsed.suggestion}` : parsed.message;
+    }
+
+    return fallback;
+  } catch {
+    return raw;
+  }
+}
+
 function ProductsPage() {
   const [search, setSearch] = useState("");
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -118,7 +162,8 @@ function ProductsPage() {
   const { hasPermission, isAdmin } = usePermissions();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
-  const [open, setOpen] = useState(false);
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 
 
   const { data: products, isLoading, refetch } = useQuery<Product[]>({
@@ -137,7 +182,7 @@ function ProductsPage() {
         body: JSON.stringify(data),
         credentials: 'include',
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await getResponseErrorMessage(res, "Failed to create product"));
       return res.json();
     },
     onSuccess: () => {
@@ -164,7 +209,7 @@ function ProductsPage() {
         body: JSON.stringify(data),
         credentials: 'include',
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await getResponseErrorMessage(res, "Failed to update product"));
       return res.json();
     },
     onSuccess: () => {
@@ -189,7 +234,7 @@ function ProductsPage() {
         method: 'DELETE',
         credentials: 'include',
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await getResponseErrorMessage(res, "Failed to delete product"));
       return res.json();
     },
     onSuccess: () => {
@@ -229,7 +274,7 @@ function ProductsPage() {
       sku: "",
       price: 0,
       categoryId: 0,
-      brandId: undefined, //Added default value for brandId
+      brandId: null, // Brand is optional
       minStock: 10,
     },
   });
@@ -334,7 +379,8 @@ function ProductsPage() {
 
       form.reset();
       setEditingProduct(null);
-      setOpen(false); // Close the dialog
+      setIsEditDialogOpen(false); // Close the edit dialog
+      setIsCreateDialogOpen(false); // Close the create dialog
     } catch (error) {
       // Error is handled by the mutation
     }
@@ -382,7 +428,7 @@ function ProductsPage() {
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Products</h1>
         {hasPermission('products', 'create') && (
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
             <DialogTrigger asChild>
               <Button onClick={() => {
                 setEditingProduct(null);
@@ -392,10 +438,10 @@ function ProductsPage() {
                   sku: "",
                   price: 0,
                   categoryId: 0,
-                  brandId: undefined,
+                  brandId: null,
                   minStock: 10,
                 });
-                setOpen(true);
+                setIsCreateDialogOpen(true);
               }}>
                 <Plus className="mr-2 h-4 w-4" />
                 Add Product
@@ -427,7 +473,10 @@ function ProductsPage() {
                       <FormItem>
                         <FormLabel>Description</FormLabel>
                         <FormControl>
-                          <Input {...field} />
+                          <Input
+                            {...field}
+                            value={field.value ?? ""}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -471,8 +520,8 @@ function ProductsPage() {
                       <FormItem>
                         <FormLabel>Category</FormLabel>
                         <Select
-                          onValueChange={(value) => field.onChange(parseInt(value))}
-                          defaultValue={field.value.toString()}
+                          value={field.value ? field.value.toString() : ""}
+                          onValueChange={(value) => field.onChange(parseInt(value, 10))}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -503,8 +552,10 @@ function ProductsPage() {
                         <FormLabel>Brand</FormLabel>
                         <div className="flex gap-2">
                           <Select
-                            value={field.value?.toString()}
-                            onValueChange={(value) => field.onChange(parseInt(value))}
+                            value={field.value != null ? field.value.toString() : NO_BRAND_VALUE}
+                            onValueChange={(value) =>
+                              field.onChange(value === NO_BRAND_VALUE ? null : parseInt(value, 10))
+                            }
                           >
                             <FormControl>
                               <SelectTrigger className="flex-1">
@@ -512,6 +563,7 @@ function ProductsPage() {
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
+                              <SelectItem value={NO_BRAND_VALUE}>No brand</SelectItem>
                               {brands?.map((brand) => (
                                 <SelectItem
                                   key={brand.id}
@@ -640,7 +692,13 @@ function ProductsPage() {
                             <Eye className="h-4 w-4" />
                           </Button>
                           {hasPermission('products', 'update') && (
-                            <Dialog open={open} onOpenChange={setOpen}>
+                            <Dialog
+                              open={isEditDialogOpen && editingProduct?.id === product.id}
+                              onOpenChange={(nextOpen) => {
+                                setIsEditDialogOpen(nextOpen);
+                                if (!nextOpen) setEditingProduct(null);
+                              }}
+                            >
                               <DialogTrigger asChild>
                                 <Button
                                   variant="ghost"
@@ -650,14 +708,14 @@ function ProductsPage() {
                                     // Pre-populate the form with the product details
                                     form.reset({
                                       name: product.name,
-                                      description: product.description,
+                                      description: product.description ?? "",
                                       sku: product.sku,
                                       price: normalizePrice(product.price),
                                       categoryId: product.categoryId,
-                                      brandId: product.brandId,
+                                      brandId: product.brandId ?? null,
                                       minStock: product.minStock,
                                     });
-                                    setOpen(true);
+                                    setIsEditDialogOpen(true);
                                   }}
                                 >
                                   <Pencil className="h-4 w-4" />
@@ -690,7 +748,10 @@ function ProductsPage() {
                                         <FormItem>
                                           <FormLabel>Description</FormLabel>
                                           <FormControl>
-                                            <Input {...field} />
+                                            <Input
+                                              {...field}
+                                              value={field.value ?? ""}
+                                            />
                                           </FormControl>
                                           <FormMessage />
                                         </FormItem>
@@ -765,8 +826,10 @@ function ProductsPage() {
                                           <FormLabel>Brand</FormLabel>
                                           <div className="flex space-x-2">
                                       <Select
-                                        value={field.value?.toString()}
-                                        onValueChange={(value) => field.onChange(parseInt(value))}
+                                        value={field.value != null ? field.value.toString() : NO_BRAND_VALUE}
+                                        onValueChange={(value) =>
+                                          field.onChange(value === NO_BRAND_VALUE ? null : parseInt(value, 10))
+                                        }
                                       >
                                               <FormControl>
                                                 <SelectTrigger>
@@ -774,6 +837,7 @@ function ProductsPage() {
                                                 </SelectTrigger>
                                               </FormControl>
                                               <SelectContent>
+                                                <SelectItem value={NO_BRAND_VALUE}>No brand</SelectItem>
                                                 {brands?.map((brand) => (
                                                   <SelectItem
                                                     key={brand.id}
