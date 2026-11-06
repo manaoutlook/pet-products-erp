@@ -1,9 +1,26 @@
 import "dotenv/config";
+import net from "node:net";
 import { sql } from "drizzle-orm";
 import { db } from "@db";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+
+// `tsx watch` and `node dist/index.js` both end silently when the process dies
+// from an unhandled error, and under `tsx watch` the supervisor then just sits
+// there with no child (it only restarts on a file change), which looks like
+// "the dev server vanished". Log the reason and keep the default crash
+// behaviour so the failure is visible in the terminal instead of mysterious.
+if (process.env.NODE_ENV !== "test") {
+  process.on("unhandledRejection", (reason) => {
+    console.error("[fatal] Unhandled promise rejection:", reason);
+    process.exit(1);
+  });
+  process.on("uncaughtException", (err) => {
+    console.error("[fatal] Uncaught exception:", err);
+    process.exit(1);
+  });
+}
 
 export const app = express();
 // Bulk product import posts parsed spreadsheet rows as JSON, which can be far
@@ -83,29 +100,52 @@ if (process.env.NODE_ENV !== 'test') {
       serveStatic(app);
     }
 
-    // Try to serve the app on $PORT (injected by most hosts), falling back to
-    // 5001 for local runs, and probe the next port when it is already taken.
-    // this serves both the API and the client
+    // Serve on $PORT (injected by most hosts), falling back to 5001 for local
+    // runs. Probing a busy port lets local dev survive a leftover process, but
+    // it must be done on a throwaway socket: re-listening on the same http.Server
+    // stacks duplicate 'listening'/'error' listeners, so one process ended up
+    // answering on two ports at once and the browser silently talked to a stale
+    // instance (or to nothing) while the terminal still looked healthy.
     const PORT = Number(process.env.PORT) || 5001;
     const MAX_RETRIES = 3;
 
-    const startServer = (port: number, retries = 0) => {
-      server.listen(port, "0.0.0.0")
-        .on("listening", () => {
-          log(`serving on port ${port}`);
-        })
-        .on("error", (err: any) => {
-          if (err.code === 'EADDRINUSE' && retries < MAX_RETRIES) {
-            log(`Port ${port} is in use, trying port ${port + 1}...`);
-            server.close();
-            startServer(port + 1, retries + 1);
-          } else {
-            log(`Failed to start server: ${err.message}`);
-            throw err;
-          }
-        });
+    const isPortFree = (port: number): Promise<boolean> =>
+      new Promise((resolve) => {
+        const probe = net.createServer();
+        probe.unref();
+        probe.once("error", () => resolve(false));
+        probe.once("listening", () => probe.close(() => resolve(true)));
+        probe.listen(port, "0.0.0.0");
+      });
+
+    const findFreePort = async (start: number, retries: number) => {
+      for (let attempt = 0; attempt <= retries; attempt += 1) {
+        const candidate = start + attempt;
+        if (await isPortFree(candidate)) return candidate;
+        if (attempt < retries) {
+          log(`Port ${candidate} is in use, trying port ${candidate + 1}...`);
+        }
+      }
+      return null;
     };
 
-    startServer(PORT);
+    const port = await findFreePort(PORT, MAX_RETRIES);
+
+    if (port === null) {
+      log(
+        `Failed to start server: ports ${PORT}-${PORT + MAX_RETRIES} are all in use. ` +
+          `Stop the process holding port ${PORT} (e.g. \`lsof -ti:${PORT} | xargs kill\`) and restart.`,
+      );
+      process.exit(1);
+    }
+
+    server.once("listening", () => {
+      log(`serving on port ${port}`);
+    });
+    server.once("error", (err: any) => {
+      log(`Failed to start server: ${err.message}`);
+      process.exit(1);
+    });
+    server.listen(port, "0.0.0.0");
   })();
 }
