@@ -43,13 +43,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, Plus, Pencil, Trash2, Warehouse, Store } from "lucide-react";
+import { usePermissions } from "@/hooks/use-permissions";
+import { readApiError } from "@/lib/apiError";
+import { Loader2, Search, Plus, Pencil, Trash2, Warehouse, Store, AlertCircle } from "lucide-react";
 
 function StorePage() {
   const [search, setSearch] = useState("");
   const [editingStore, setEditingStore] = useState<SelectStore | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const { toast } = useToast();
+  const { hasPermission } = usePermissions();
 
   const { data: stores, isLoading, refetch } = useQuery<SelectStore[]>({
     queryKey: ['/api/stores'],
@@ -57,7 +60,7 @@ function StorePage() {
       const response = await fetch('/api/stores', {
         credentials: 'include'
       });
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) throw new Error(await readApiError(response));
       return response.json();
     }
   });
@@ -80,7 +83,7 @@ function StorePage() {
         body: JSON.stringify(data),
         credentials: 'include',
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await readApiError(res));
       return res.json();
     },
     onSuccess: () => {
@@ -106,7 +109,7 @@ function StorePage() {
         body: JSON.stringify(data),
         credentials: 'include',
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await readApiError(res));
       return res.json();
     },
     onSuccess: () => {
@@ -130,7 +133,7 @@ function StorePage() {
         method: 'DELETE',
         credentials: 'include',
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await readApiError(res));
       return res.json();
     },
     onSuccess: () => {
@@ -199,10 +202,30 @@ function StorePage() {
     store.contactInfo.toLowerCase().includes(search.toLowerCase())
   );
 
+  // If user doesn't have read permission, show access denied
+  if (!hasPermission('stores', 'read')) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
+        <Card className="w-full max-w-md mx-4">
+          <CardContent className="pt-6">
+            <div className="flex mb-4 gap-2">
+              <AlertCircle className="h-8 w-8 text-red-500" />
+              <h1 className="text-2xl font-bold text-gray-900">Access Denied</h1>
+            </div>
+            <p className="mt-4 text-sm text-gray-600">
+              You don't have permission to view stores.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 p-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Stores</h1>
+        {hasPermission('stores', 'create') && (
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button onClick={handleAddStore}>
@@ -302,6 +325,7 @@ function StorePage() {
             </Form>
           </DialogContent>
         </Dialog>
+        )}
       </div>
 
       <Card>
@@ -351,21 +375,25 @@ function StorePage() {
                     <TableCell>{store.contactInfo}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => handleEditStore(store)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="text-destructive"
-                          onClick={() => handleDeleteStore(store)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {hasPermission('stores', 'update') && (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => handleEditStore(store)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {hasPermission('stores', 'delete') && (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="text-destructive"
+                            onClick={() => handleDeleteStore(store)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

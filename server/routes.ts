@@ -18,6 +18,7 @@ import { sql } from "drizzle-orm";
 import { eq, and, or, desc, gte, lt, isNull, gt } from "drizzle-orm";
 import { requireRole, requireAuth, requirePermission } from "./middleware";
 import { importProducts } from "./product-import";
+import { getStoreDeletionBlockers, hasBlockers, buildStoreDeletionError } from "./store-deletion";
 import { z } from "zod";
 import { crypto } from "./auth";
 import { initializeStoreCounter, generateInvoiceNumber } from "./invoice-counter";
@@ -235,13 +236,19 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/stores/:id", requireAuth, async (req, res) => {
-    try {
-      const { id } = req.params;
+  app.delete("/api/stores/:id", requirePermission('stores', 'delete'), async (req, res) => {
+    const storeId = parseInt(req.params.id, 10);
 
-      // Check if store exists
+    if (Number.isNaN(storeId)) {
+      return res.status(400).json({
+        message: "Invalid store ID",
+        suggestion: "Please select a store and try again"
+      });
+    }
+
+    try {
       const store = await db.query.stores.findFirst({
-        where: eq(stores.id, parseInt(id)),
+        where: eq(stores.id, storeId),
       });
 
       if (!store) {
@@ -251,51 +258,42 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      // Check if store has any inventory
-      const inventory = await db.query.inventory.findFirst({
-        where: eq(inventory.storeId, parseInt(id)),
-      });
+      // AI Agent Note: A store is referenced by operational data (inventory,
+      // user assignments) and immutable history (sales, purchase orders,
+      // transfers). Every referencing table is checked explicitly in
+      // getStoreDeletionBlockers because a missed check surfaces either as an
+      // opaque Postgres FK error (23503) or, worse, as silently orphaned rows
+      // (inventory can be linked by the free-text `location` column, which has no
+      // foreign key).
+      const blockers = await getStoreDeletionBlockers(storeId, store.location);
 
-      if (inventory) {
-        return res.status(400).json({
-          message: "Cannot delete store with existing inventory",
-          suggestion: "Please transfer or remove all inventory items first"
-        });
+      if (hasBlockers(blockers)) {
+        return res.status(400).json(buildStoreDeletionError(store.name, store.location, blockers));
       }
 
-      // Check if store has any orders
-      const orders = await db.query.orders.findFirst({
-        where: eq(orders.storeId, parseInt(id)),
+      await db.transaction(async (tx) => {
+        // AI Agent Note: Invoice counters hold numbering state only (no business
+        // history), so they are removed together with the store.
+        await tx.delete(invoiceCounters).where(eq(invoiceCounters.storeId, storeId));
+        await tx.delete(stores).where(eq(stores.id, storeId));
       });
-
-      if (orders) {
-        return res.status(400).json({
-          message: "Cannot delete store with existing orders",
-          suggestion: "Please archive or reassign orders first"
-        });
-      }
-
-      // Check if store has any user assignments
-      const assignments = await db.query.userStoreAssignments.findFirst({
-        where: eq(userStoreAssignments.storeId, parseInt(id)),
-      });
-
-      if (assignments) {
-        return res.status(400).json({
-          message: "Cannot delete store with active user assignments",
-          suggestion: "Please remove all user assignments first"
-        });
-      }
-
-      await db
-        .delete(stores)
-        .where(eq(stores.id, parseInt(id)));
 
       res.json({
         message: "Store deleted successfully"
       });
     } catch (error) {
       console.error('Error deleting store:', error);
+
+      // AI Agent Note: Postgres FK violation (23503) means some other record still
+      // references this store - report it as a client error, not a server failure.
+      const pgError = error as { code?: string };
+      if (pgError?.code === '23503') {
+        return res.status(400).json({
+          message: "Cannot delete this store because other records still reference it",
+          suggestion: "Please remove all inventory, user assignments and related transactions for this store first"
+        });
+      }
+
       res.status(500).json({
         message: "Failed to delete store",
         suggestion: "Please try again later"
@@ -1979,74 +1977,6 @@ export function registerRoutes(app: Express): Server {
       console.error('Error updating store:', error);
       res.status(500).json({
         message: "Failed to update store",
-        suggestion: "Please try again later"
-      });
-    }
-  });
-
-  app.delete("/api/stores/:id", requirePermission('stores', 'delete'), async (req, res) => {
-    try {
-      const { id } = req.params;
-
-      // Check if store exists
-      const store = await db.query.stores.findFirst({
-        where: eq(stores.id, parseInt(id)),
-      });
-
-      if (!store) {
-        return res.status(404).json({
-          message: "Store not found",
-          suggestion: "Please verify the store ID"
-        });
-      }
-
-      // Check if store has any inventory
-      const inventory = await db.query.inventory.findFirst({
-        where: eq(inventory.storeId, parseInt(id)),
-      });
-
-      if (inventory) {
-        return res.status(400).json({
-          message: "Cannot delete store with existing inventory",
-          suggestion: "Please transfer or remove all inventory items first"
-        });
-      }
-
-      // Check if store has any orders
-      const orders = await db.query.orders.findFirst({
-        where: eq(orders.storeId, parseInt(id)),
-      });
-
-      if (orders) {
-        return res.status(400).json({
-          message: "Cannot delete store with existing orders",
-          suggestion: "Please archive or reassign orders first"
-        });
-      }
-
-      // Check if store has any user assignments
-      const assignments = await db.query.userStoreAssignments.findFirst({
-        where: eq(userStoreAssignments.storeId, parseInt(id)),
-      });
-
-      if (assignments) {
-        return res.status(400).json({
-          message: "Cannot delete store with active user assignments",
-          suggestion: "Please remove all user assignments first"
-        });
-      }
-
-      await db
-        .delete(stores)
-        .where(eq(stores.id, parseInt(id)));
-
-      res.json({
-        message: "Store deleted successfully"
-      });
-    } catch (error) {
-      console.error('Error deleting store:', error);
-      res.status(500).json({
-        message: "Failed to delete store",
         suggestion: "Please try again later"
       });
     }
