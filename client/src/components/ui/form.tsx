@@ -86,8 +86,15 @@ FormItem.displayName = "FormItem"
 
 const FormLabel = React.forwardRef<
   React.ElementRef<typeof LabelPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof LabelPrimitive.Root>
->(({ className, ...props }, ref) => {
+  React.ComponentPropsWithoutRef<typeof LabelPrimitive.Root> & {
+    /**
+     * Marks the field as mandatory by appending a red asterisk to the label.
+     * The asterisk is purely presentational (aria-hidden), so the accessible
+     * name of the label stays the plain field name.
+     */
+    required?: boolean
+  }
+>(({ className, children, required, ...props }, ref) => {
   const { error, formItemId } = useFormField()
 
   return (
@@ -96,7 +103,14 @@ const FormLabel = React.forwardRef<
       className={cn(error && "text-destructive", className)}
       htmlFor={formItemId}
       {...props}
-    />
+    >
+      {children}
+      {required && (
+        <span aria-hidden="true" className="ml-0.5 font-semibold text-red-500">
+          *
+        </span>
+      )}
+    </Label>
   )
 })
 FormLabel.displayName = "FormLabel"

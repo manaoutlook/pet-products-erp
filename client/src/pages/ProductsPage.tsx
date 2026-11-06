@@ -12,7 +12,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Card,
@@ -20,32 +19,29 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, Plus, Pencil, Trash2, AlertCircle, Eye } from "lucide-react";
-import { z } from "zod";
-import { validatePrice, formatPrice, normalizePrice } from "@/utils/price";
-import { usePermissions } from "@/hooks/use-permissions";
-import BrandQuickAddModal from "@/components/QuickAdd/BrandQuickAddModal";
+import { Loader2, Search, Plus, Pencil, Trash2, AlertCircle, Eye, Upload, Download } from "lucide-react";
+import { formatPrice } from "@/utils/price";
+import { exportProducts, type ExportFormat } from "@/utils/product-spreadsheet";
+import { ImportProductsDialog } from "@/components/products/ImportProductsDialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { usePermissions } from "@/hooks/use-permissions";
+import {
+  ProductFormDialog,
+  productSchema,
+  toOptionalPrice,
+  type ProductFormData,
+} from "@/components/products/ProductFormDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -57,31 +53,8 @@ import {
   AlertDialogTitle
 } from "@/components/ui/alert-dialog";
 
-// Update the product schema to include brandId
-const productSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  // Description is optional and the API stores it as NULL when omitted.
-  description: z.string().nullable().optional(),
-  sku: z.string().min(1, "SKU is required"),
-  price: z.number()
-    .min(0, "Price must be positive")
-    .transform((val) => normalizePrice(val))
-    .refine(
-      (val) => validatePrice(val).isValid,
-      (val) => ({ message: validatePrice(val).error || "Invalid price" })
-    ),
-  categoryId: z.number().min(1, "Category is required"),
-  // Brands are optional: products may be saved without a brand, so `null`
-  // (returned by the API for brand-less products) must be accepted too.
-  brandId: z.number().nullable().optional(),
-  minStock: z.number().int().min(0, "Minimum stock must be positive"),
-});
-
-// Radix Select does not allow an empty string value, so an explicit sentinel
-// item is used to clear the (optional) brand selection.
-const NO_BRAND_VALUE = "none";
-
-type ProductFormData = z.infer<typeof productSchema>;
+// The product form schema and the shared create/edit dialog live in
+// components/products/ProductFormDialog so both screens share one layout.
 
 interface Brand {
   id: number;
@@ -96,6 +69,10 @@ interface Product {
   description: string | null;
   sku: string;
   price: string | number;
+  // Optional price tiers (NULL in the DB when not set)
+  landingPrice?: string | number | null;
+  b2bPrice?: string | number | null;
+  b2cPrice?: string | number | null;
   categoryId: number;
   category: {
     id: number;
@@ -110,7 +87,21 @@ interface Product {
     id: number;
     name: string;
   }; // Add brand to Product interface
+  supplierId?: number | null; // Suppliers are required for new products; legacy rows may be null
+  supplier?: {
+    id: number;
+    name: string;
+    contactInfo?: string | null;
+  } | null;
 }
+
+interface Supplier {
+  id: number;
+  name: string;
+  contactInfo: string;
+  address: string;
+}
+
 
 interface Category {
   id: number;
@@ -164,6 +155,8 @@ function ProductsPage() {
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
 
   const { data: products, isLoading, refetch } = useQuery<Product[]>({
@@ -266,18 +259,28 @@ function ProductsPage() {
     enabled: hasPermission('products', 'read'),
   });
 
+  // Suppliers power the searchable supplier dropdown of the product form
+  const { data: suppliers } = useQuery<Supplier[]>({
+    queryKey: ['/api/suppliers'],
+    enabled: hasPermission('products', 'read'),
+  });
+
   const form = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
     defaultValues: {
       name: "",
       description: "",
       sku: "",
-      price: 0,
+      landingPrice: null,
+      b2bPrice: null,
+      b2cPrice: null,
       categoryId: 0,
       brandId: null, // Brand is optional
+      supplierId: null, // Supplier is mandatory - the user has to pick one
       minStock: 10,
     },
   });
+
 
   const filteredProducts = products?.filter(product => 
     product.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -290,6 +293,38 @@ function ProductsPage() {
     if (quantity <= 0) return { label: 'Out of Stock', class: 'bg-red-100 text-red-800' };
     if (quantity <= product.minStock) return { label: 'Low Stock', class: 'bg-yellow-100 text-yellow-800' };
     return { label: 'In Stock', class: 'bg-green-100 text-green-800' };
+  };
+
+  // Export the rows currently shown (the search filter is respected) to an
+  // .xlsx or .csv file. SheetJS is loaded lazily by the export helper.
+  const handleExport = async (format: ExportFormat) => {
+    const rows = filteredProducts ?? [];
+
+    if (rows.length === 0) {
+      toast({
+        title: "Nothing to export",
+        description: "No products match the current search.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      const fileName = await exportProducts(rows, format);
+      toast({
+        title: "Export ready",
+        description: `${fileName} · ${rows.length} product${rows.length === 1 ? "" : "s"}`,
+      });
+    } catch {
+      toast({
+        title: "Export failed",
+        description: "The export file could not be created.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const [viewingProduct, setViewingProduct] = useState<Product | null>(null);
@@ -311,7 +346,7 @@ function ProductsPage() {
 
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Product Details</DialogTitle>
           </DialogHeader>
@@ -334,8 +369,26 @@ function ProductsPage() {
                 <p className="mt-1 text-sm text-gray-900">{product.brand?.name || 'Not specified'}</p>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Price</label>
-                <p className="mt-1 text-sm text-gray-900">{formatPrice(product.price)}</p>
+                <label className="text-sm font-medium text-gray-500">Supplier</label>
+                <p className="mt-1 text-sm text-gray-900">{product.supplier?.name || 'Not specified'}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Landing Price</label>
+                <p className="mt-1 text-sm text-gray-900">
+                  {product.landingPrice != null ? formatPrice(product.landingPrice) : 'Not set'}
+                </p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">B2B Price</label>
+                <p className="mt-1 text-sm text-gray-900">
+                  {product.b2bPrice != null ? formatPrice(product.b2bPrice) : 'Not set'}
+                </p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">B2C Price</label>
+                <p className="mt-1 text-sm text-gray-900">
+                  {product.b2cPrice != null ? formatPrice(product.b2cPrice) : 'Not set'}
+                </p>
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-500">Stock Status</label>
@@ -428,205 +481,55 @@ function ProductsPage() {
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Products</h1>
         {hasPermission('products', 'create') && (
-          <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-            <DialogTrigger asChild>
-              <Button onClick={() => {
-                setEditingProduct(null);
-                form.reset({
-                  name: "",
-                  description: "",
-                  sku: "",
-                  price: 0,
-                  categoryId: 0,
-                  brandId: null,
-                  minStock: 10,
-                });
-                setIsCreateDialogOpen(true);
-              }}>
-                <Plus className="mr-2 h-4 w-4" />
-                Add Product
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>{editingProduct ? 'Edit Product' : 'Add New Product'}</DialogTitle>
-              </DialogHeader>
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Name</FormLabel>
-                        <FormControl>
-                          <Input {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="description"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Description</FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            value={field.value ?? ""}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="sku"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>SKU</FormLabel>
-                        <FormControl>
-                          <Input {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="price"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Price</FormLabel>
-                        <FormControl>
-                          <Input 
-                            type="number" 
-                            step="0.01"
-                            {...field}
-                            onChange={(e) => field.onChange(parseFloat(e.target.value))}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="categoryId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Category</FormLabel>
-                        <Select
-                          value={field.value ? field.value.toString() : ""}
-                          onValueChange={(value) => field.onChange(parseInt(value, 10))}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select a category" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {categories?.map((category) => (
-                              <SelectItem
-                                key={category.id}
-                                value={category.id.toString()}
-                              >
-                                {category.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  {/* Add Brand field after category field */}
-                  <FormField
-                    control={form.control}
-                    name="brandId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Brand</FormLabel>
-                        <div className="flex gap-2">
-                          <Select
-                            value={field.value != null ? field.value.toString() : NO_BRAND_VALUE}
-                            onValueChange={(value) =>
-                              field.onChange(value === NO_BRAND_VALUE ? null : parseInt(value, 10))
-                            }
-                          >
-                            <FormControl>
-                              <SelectTrigger className="flex-1">
-                                <SelectValue placeholder="Select a brand" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value={NO_BRAND_VALUE}>No brand</SelectItem>
-                              {brands?.map((brand) => (
-                                <SelectItem
-                                  key={brand.id}
-                                  value={brand.id.toString()}
-                                >
-                                  {brand.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <BrandQuickAddModal
-                            onSuccess={(brand) => {
-                              // Set the newly created brand as the selected brand
-                              field.onChange(brand.id);
-                            }}
-                            trigger={
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="icon"
-                              >
-                                <Plus className="h-4 w-4" />
-                              </Button>
-                            }
-                          />
-                        </div>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="minStock"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Minimum Stock</FormLabel>
-                        <FormControl>
-                          <Input 
-                            type="number" 
-                            {...field}
-                            onChange={(e) => field.onChange(parseInt(e.target.value))}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={form.formState.isSubmitting}
-                  >
-                    {form.formState.isSubmitting && (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    )}
-                    {editingProduct ? 'Update Product' : 'Create Product'}
-                  </Button>
-                </form>
-              </Form>
-            </DialogContent>
-          </Dialog>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setIsImportDialogOpen(true)}>
+              <Download className="mr-2 h-4 w-4" />
+              Import
+            </Button>
+            <ProductFormDialog
+              mode="create"
+              open={isCreateDialogOpen}
+              onOpenChange={setIsCreateDialogOpen}
+              form={form}
+              categories={categories}
+              brands={brands}
+              suppliers={suppliers}
+              isPending={createMutation.isPending}
+
+              onSubmit={onSubmit}
+              trigger={
+                <Button onClick={() => {
+                  setEditingProduct(null);
+                  form.reset({
+                    name: "",
+                    description: "",
+                    sku: "",
+                    landingPrice: null,
+                    b2bPrice: null,
+                    b2cPrice: null,
+                    categoryId: 0,
+                    brandId: null,
+                    supplierId: null,
+                    minStock: 10,
+                  });
+
+                  setIsCreateDialogOpen(true);
+                }}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Product
+                </Button>
+              }
+            />
+          </div>
         )}
       </div>
+
+      {/* CSV / Excel import - opened from the Import button above */}
+      <ImportProductsDialog
+        open={isImportDialogOpen}
+        onOpenChange={setIsImportDialogOpen}
+        onImported={() => refetch()}
+      />
 
       <Card>
         <CardHeader>
@@ -642,7 +545,26 @@ function ProductsPage() {
               />
             </div>
             {hasPermission('products', 'read') && (
-              <Button variant="outline">Export</Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" disabled={isExporting}>
+                    {isExporting ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="mr-2 h-4 w-4" />
+                    )}
+                    Export
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => handleExport("xlsx")}>
+                    Excel (.xlsx)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handleExport("csv")}>
+                    CSV (.csv)
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
           </div>
         </CardHeader>
@@ -692,14 +614,21 @@ function ProductsPage() {
                             <Eye className="h-4 w-4" />
                           </Button>
                           {hasPermission('products', 'update') && (
-                            <Dialog
+                            <ProductFormDialog
+                              mode="edit"
                               open={isEditDialogOpen && editingProduct?.id === product.id}
                               onOpenChange={(nextOpen) => {
                                 setIsEditDialogOpen(nextOpen);
                                 if (!nextOpen) setEditingProduct(null);
                               }}
-                            >
-                              <DialogTrigger asChild>
+                              form={form}
+                              categories={categories}
+                              brands={brands}
+                              suppliers={suppliers}
+                              isPending={updateMutation.isPending}
+
+                              onSubmit={onSubmit}
+                              trigger={
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -710,182 +639,22 @@ function ProductsPage() {
                                       name: product.name,
                                       description: product.description ?? "",
                                       sku: product.sku,
-                                      price: normalizePrice(product.price),
+                                      landingPrice: toOptionalPrice(product.landingPrice),
+                                      b2bPrice: toOptionalPrice(product.b2bPrice),
+                                      b2cPrice: toOptionalPrice(product.b2cPrice),
                                       categoryId: product.categoryId,
                                       brandId: product.brandId ?? null,
+                                      supplierId: product.supplierId ?? null,
                                       minStock: product.minStock,
+
                                     });
                                     setIsEditDialogOpen(true);
                                   }}
                                 >
                                   <Pencil className="h-4 w-4" />
                                 </Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>{editingProduct ? 'Edit Product' : 'Add New Product'}</DialogTitle>
-                                </DialogHeader>
-                                <Form {...form}>
-                                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                                    {/* Form fields (same as in the add product dialog) */}
-                                    <FormField
-                                      control={form.control}
-                                      name="name"
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel>Name</FormLabel>
-                                          <FormControl>
-                                            <Input {...field} />
-                                          </FormControl>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
-                                    <FormField
-                                      control={form.control}
-                                      name="description"
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel>Description</FormLabel>
-                                          <FormControl>
-                                            <Input
-                                              {...field}
-                                              value={field.value ?? ""}
-                                            />
-                                          </FormControl>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
-                                    <FormField
-                                      control={form.control}
-                                      name="sku"
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel>SKU</FormLabel>
-                                          <FormControl>
-                                            <Input {...field} />
-                                          </FormControl>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
-                                    <FormField
-                                      control={form.control}
-                                      name="price"
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel>Price</FormLabel>
-                                          <FormControl>
-                                            <Input
-                                              type="number"
-                                              step="0.01"
-                                              {...field}
-                                              onChange={(e) => field.onChange(parseFloat(e.target.value))}
-                                            />
-                                          </FormControl>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
-                                    <FormField
-                                      control={form.control}
-                                      name="categoryId"
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel>Category</FormLabel>
-                                          <Select
-                                            value={field.value?.toString()}
-                                            onValueChange={(value) => field.onChange(parseInt(value))}
-                                          >
-                                            <FormControl>
-                                              <SelectTrigger>
-                                                <SelectValue placeholder="Select a category" />
-                                              </SelectTrigger>
-                                            </FormControl>
-                                            <SelectContent>
-                                              {categories?.map((category) => (
-                                                <SelectItem
-                                                  key={category.id}
-                                                  value={category.id.toString()}
-                                                >
-                                                  {category.name}
-                                                </SelectItem>
-                                              ))}
-                                            </SelectContent>
-                                          </Select>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
-                                    <FormField
-                                      control={form.control}
-                                      name="brandId"
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel>Brand</FormLabel>
-                                          <div className="flex space-x-2">
-                                      <Select
-                                        value={field.value != null ? field.value.toString() : NO_BRAND_VALUE}
-                                        onValueChange={(value) =>
-                                          field.onChange(value === NO_BRAND_VALUE ? null : parseInt(value, 10))
-                                        }
-                                      >
-                                              <FormControl>
-                                                <SelectTrigger>
-                                                  <SelectValue placeholder="Select a brand" />
-                                                </SelectTrigger>
-                                              </FormControl>
-                                              <SelectContent>
-                                                <SelectItem value={NO_BRAND_VALUE}>No brand</SelectItem>
-                                                {brands?.map((brand) => (
-                                                  <SelectItem
-                                                    key={brand.id}
-                                                    value={brand.id.toString()}
-                                                  >
-                                                    {brand.name}
-                                                  </SelectItem>
-                                                ))}
-                                              </SelectContent>
-                                            </Select>
-                                            <BrandQuickAddModal
-                                              onSuccess={(brand) => {
-                                                refetchBrands();
-                                                field.onChange(brand.id);
-                                              }}
-                                            />
-                                          </div>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
-                                    <FormField
-                                      control={form.control}
-                                      name="minStock"
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel>Minimum Stock</FormLabel>
-                                          <FormControl>
-                                            <Input
-                                              type="number"
-                                              {...field}
-                                              onChange={(e) => field.onChange(Number(e.target.value))}
-                                            />
-                                          </FormControl>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
-                                    <Button type="submit" className="w-full" disabled={updateMutation.isPending}>
-                                      {updateMutation.isPending && (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                      )}
-                                      {editingProduct ? 'Update Product' : 'Create Product'}
-                                    </Button>
-                                  </form>
-                                </Form>
-                              </DialogContent>
-                            </Dialog>
+                              }
+                            />
                           )}
                           {(hasPermission('products', 'delete') || isAdmin) && (
                             <Button

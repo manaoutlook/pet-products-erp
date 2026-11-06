@@ -33,7 +33,8 @@ import { Loader2, Plus } from "lucide-react";
 const productSchema = z.object({
   name: z.string().min(1, "Name is required"),
   sku: z.string().min(1, "SKU is required"),
-  price: z.string().min(1, "Price is required"),
+  // B2C (retail) price is mandatory for products
+  b2cPrice: z.string().min(1, "B2C price is required"),
   categoryId: z.string().min(1, "Category is required"),
   minStock: z.string().optional(),
   description: z.string().optional(),
@@ -56,7 +57,7 @@ export function QuickAddProduct() {
     defaultValues: {
       name: "",
       sku: "",
-      price: "",
+      b2cPrice: "",
       categoryId: "",
       minStock: "10",
       description: "",
@@ -74,7 +75,8 @@ export function QuickAddProduct() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...data,
-          price: parseFloat(data.price),
+          // B2C is the mandatory retail price; the API derives `price` from it
+          b2cPrice: parseFloat(data.b2cPrice),
           minStock: data.minStock ? parseInt(data.minStock) : 10,
           categoryId: parseInt(data.categoryId),
         }),
@@ -131,7 +133,7 @@ export function QuickAddProduct() {
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Name</FormLabel>
+                  <FormLabel required>Name</FormLabel>
                   <FormControl>
                     <Input {...field} />
                   </FormControl>
@@ -145,7 +147,7 @@ export function QuickAddProduct() {
               name="sku"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>SKU</FormLabel>
+                  <FormLabel required>SKU</FormLabel>
                   <FormControl>
                     <Input {...field} />
                   </FormControl>
@@ -156,12 +158,12 @@ export function QuickAddProduct() {
 
             <FormField
               control={methods.control}
-              name="price"
+              name="b2cPrice"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Price</FormLabel>
+                  <FormLabel required>B2C Price</FormLabel>
                   <FormControl>
-                    <Input type="number" min="0" step="0.01" {...field} />
+                    <Input type="number" min="0" step="1" placeholder="Required" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -173,7 +175,7 @@ export function QuickAddProduct() {
               name="categoryId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Category</FormLabel>
+                  <FormLabel required>Category</FormLabel>
                   <Select
                     value={field.value}
                     onValueChange={field.onChange}

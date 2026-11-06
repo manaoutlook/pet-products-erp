@@ -62,29 +62,31 @@ function BrandsPage() {
 
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogHeader>
-          <DialogTitle>Brand Details</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium text-gray-500">Brand Name</label>
-              <p className="mt-1 text-sm text-gray-900">{brand.name}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Description</label>
-              <p className="mt-1 text-sm text-gray-900">{brand.description || 'Not specified'}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Created At</label>
-              <p className="mt-1 text-sm text-gray-900">{new Date(brand.createdAt!).toLocaleString()}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Updated At</label>
-              <p className="mt-1 text-sm text-gray-900">{new Date(brand.updatedAt!).toLocaleString()}</p>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Brand Details</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium text-gray-500">Brand Name</label>
+                <p className="mt-1 text-sm text-gray-900">{brand.name}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Description</label>
+                <p className="mt-1 text-sm text-gray-900">{brand.description || 'Not specified'}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Created At</label>
+                <p className="mt-1 text-sm text-gray-900">{new Date(brand.createdAt!).toLocaleString()}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Updated At</label>
+                <p className="mt-1 text-sm text-gray-900">{new Date(brand.updatedAt!).toLocaleString()}</p>
+              </div>
             </div>
           </div>
-        </div>
+        </DialogContent>
       </Dialog>
     );
   }

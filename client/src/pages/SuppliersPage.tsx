@@ -62,33 +62,35 @@ function SuppliersPage() {
 
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogHeader>
-          <DialogTitle>Supplier Details</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium text-gray-500">Supplier Name</label>
-              <p className="mt-1 text-sm text-gray-900">{supplier.name}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Contact Information</label>
-              <p className="mt-1 text-sm text-gray-900">{supplier.contactInfo}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Address</label>
-              <p className="mt-1 text-sm text-gray-900">{supplier.address}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Created At</label>
-              <p className="mt-1 text-sm text-gray-900">{new Date(supplier.createdAt!).toLocaleString()}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Updated At</label>
-              <p className="mt-1 text-sm text-gray-900">{new Date(supplier.updatedAt!).toLocaleString()}</p>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Supplier Details</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium text-gray-500">Supplier Name</label>
+                <p className="mt-1 text-sm text-gray-900">{supplier.name}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Contact Information</label>
+                <p className="mt-1 text-sm text-gray-900">{supplier.contactInfo}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Address</label>
+                <p className="mt-1 text-sm text-gray-900">{supplier.address}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Created At</label>
+                <p className="mt-1 text-sm text-gray-900">{new Date(supplier.createdAt!).toLocaleString()}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Updated At</label>
+                <p className="mt-1 text-sm text-gray-900">{new Date(supplier.updatedAt!).toLocaleString()}</p>
+              </div>
             </div>
           </div>
-        </div>
+        </DialogContent>
       </Dialog>
     );
   }
