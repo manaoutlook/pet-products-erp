@@ -17,6 +17,7 @@ import {
 import { sql } from "drizzle-orm";
 import { eq, and, or, desc, gte, lt, isNull, gt } from "drizzle-orm";
 import { requireRole, requireAuth, requirePermission } from "./middleware";
+import { importProducts } from "./product-import";
 import { z } from "zod";
 import { crypto } from "./auth";
 import { initializeStoreCounter, generateInvoiceNumber } from "./invoice-counter";
@@ -58,6 +59,32 @@ function generateInventoryBarcode(
   // AI Agent Note: In multiple DC mode, storePrefix should always be populated even for Warehouses.
   const storePrefix = storeId ? storeId.toString().padStart(3, '0') : '000';
   return `${prefix}${storePrefix}${productSku}${randomNum}`;
+}
+
+// AI Agent Note: Builds human readable name lists for validation messages, e.g.
+// ["A"] => "A", ["A", "B"] => "A and B", ["A", "B", "C"] => "A, B and C".
+// Long lists are truncated so the message stays readable in a toast.
+function formatNameList(names: string[], maxNames = 5): string {
+  if (names.length === 0) return "";
+  if (names.length === 1) return names[0];
+
+  const shown = names.slice(0, maxNames);
+  const remaining = names.length - shown.length;
+
+  if (remaining > 0) {
+    return `${shown.join(", ")} and ${remaining} more`;
+  }
+
+  return `${shown.slice(0, -1).join(", ")} and ${shown[shown.length - 1]}`;
+}
+
+// AI Agent Note: Names pasted from documents/PDFs can carry Unicode whitespace
+// variants (U+00A0, U+202F narrow no-break space, ...). Collapse them into plain
+// spaces so lookups, uniqueness checks and searches behave predictably.
+function normalizeWhitespace(value: string): string {
+  return value
+    .replace(/[\s\u00a0\u1680\u2000-\u200f\u2028\u2029\u202f\u205f\u3000]+/g, " ")
+    .trim();
 }
 
 export function registerRoutes(app: Express): Server {
@@ -1426,17 +1453,18 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/categories", requirePermission('masterData', 'create'), async (req, res) => {
+  app.post("/api/categories", requirePermission("masterData", "create"), async (req, res) => {
     try {
-      const { name, description } = req.body;
+      const { name, description, parentId } = req.body;
+      const categoryName = typeof name === "string" ? normalizeWhitespace(name) : "";
 
-      if (!name) {
+      if (!categoryName) {
         return res.status(400).send("Category name is required");
       }
 
       // Check if category exists
       const existingCategory = await db.query.categories.findFirst({
-        where: eq(categories.name, name),
+        where: eq(categories.name, categoryName),
       });
 
       if (existingCategory) {
@@ -1446,8 +1474,9 @@ export function registerRoutes(app: Express): Server {
       const [newCategory] = await db
         .insert(categories)
         .values({
-          name,
+          name: categoryName,
           description,
+          parentId: parentId || null,
         })
         .returning();
 
@@ -1456,24 +1485,25 @@ export function registerRoutes(app: Express): Server {
         category: newCategory,
       });
     } catch (error) {
-      console.error('Error creating category:', error);
+      console.error("Error creating category:", error);
       res.status(500).send("Failed to create category");
     }
   });
 
-  app.put("/api/categories/:id", requirePermission('masterData', 'update'), async (req, res) => {
+  app.put("/api/categories/:id", requirePermission("masterData", "update"), async (req, res) => {
     try {
       const { id } = req.params;
-      const { name, description } = req.body;
+      const { name, description, parentId } = req.body;
+      const categoryName = typeof name === "string" ? normalizeWhitespace(name) : "";
 
-      if (!name) {
+      if (!categoryName) {
         return res.status(400).send("Category name is required");
       }
 
       // Check if category exists
       const existingCategory = await db.query.categories.findFirst({
         where: and(
-          eq(categories.name, name),
+          eq(categories.name, categoryName),
           sql`id != ${id}`
         ),
       });
@@ -1485,8 +1515,9 @@ export function registerRoutes(app: Express): Server {
       const [updatedCategory] = await db
         .update(categories)
         .set({
-          name,
+          name: categoryName,
           description,
+          parentId: parentId || null,
           updatedAt: new Date(),
         })
         .where(eq(categories.id, parseInt(id)))
@@ -1501,33 +1532,90 @@ export function registerRoutes(app: Express): Server {
         category: updatedCategory,
       });
     } catch (error) {
-      console.error('Error updating category:', error);
+      console.error("Error updating category:", error);
       res.status(500).send("Failed to update category");
     }
   });
 
   app.delete("/api/categories/:id", requirePermission('masterData', 'delete'), async (req, res) => {
     try {
-      const { id } = req.params;
+      const categoryId = parseInt(req.params.id, 10);
 
-      // Check if category is used by any products
-      const products = await db.query.products.findMany({
-        where: eq(products.categoryId, parseInt(id)),
-        limit: 1,
+      if (Number.isNaN(categoryId)) {
+        return res.status(400).json({
+          code: "INVALID_CATEGORY_ID",
+          message: "Invalid category id",
+        });
+      }
+
+      const category = await db.query.categories.findFirst({
+        where: eq(categories.id, categoryId),
       });
 
-      if (products.length > 0) {
-        return res.status(400).send("Cannot delete category that is assigned to products");
+      if (!category) {
+        return res.status(404).json({
+          code: "CATEGORY_NOT_FOUND",
+          message: "Category not found",
+        });
+      }
+
+      // Rule 1: a category that has sub categories cannot be deleted
+      const subCategories = await db.query.categories.findMany({
+        where: eq(categories.parentId, categoryId),
+        columns: { name: true },
+        orderBy: [categories.name],
+      });
+
+      if (subCategories.length > 0) {
+        const subCategoryNames = subCategories.map((sub) => sub.name);
+        const quotedNames = subCategoryNames.map((name) => `"${name}"`);
+
+        const message = subCategoryNames.length === 1
+          ? `Cannot delete category "${category.name}" because sub category ${quotedNames[0]} exists. Please delete or move this sub category first.`
+          : `Cannot delete category "${category.name}" because ${subCategoryNames.length} sub categories exist (${formatNameList(quotedNames)}). Please delete or move these sub categories first.`;
+
+        return res.status(409).json({
+          code: "CATEGORY_HAS_SUB_CATEGORIES",
+          message,
+          subCategoryCount: subCategoryNames.length,
+          subCategories: subCategoryNames,
+        });
+      }
+
+      // Rule 2: a category that is assigned to products cannot be deleted
+      const categoryProducts = await db.query.products.findMany({
+        where: eq(products.categoryId, categoryId),
+        columns: { name: true },
+        orderBy: [products.name],
+      });
+
+      if (categoryProducts.length > 0) {
+        const productNames = categoryProducts.map((product) => product.name);
+        const quotedNames = productNames.map((name) => `"${name}"`);
+
+        const message = productNames.length === 1
+          ? `Cannot delete category "${category.name}" because product ${quotedNames[0]} is associated to this category. Please remove the product association first.`
+          : `Cannot delete category "${category.name}" because ${productNames.length} products are associated to this category (${formatNameList(quotedNames)}). Please remove the product associations first.`;
+
+        return res.status(409).json({
+          code: "CATEGORY_HAS_PRODUCTS",
+          message,
+          productCount: productNames.length,
+          products: productNames,
+        });
       }
 
       await db
         .delete(categories)
-        .where(eq(categories.id, parseInt(id)));
+        .where(eq(categories.id, categoryId));
 
       res.json({ message: "Category deleted successfully" });
     } catch (error) {
       console.error('Error deleting category:', error);
-      res.status(500).send("Failed to delete category");
+      res.status(500).json({
+        code: "CATEGORY_DELETE_FAILED",
+        message: "Failed to delete category"
+      });
     }
   });
 
@@ -2155,6 +2243,7 @@ export function registerRoutes(app: Express): Server {
           category: true,
           inventory: true,
           brand: true,
+          supplier: true,
         },
         orderBy: [desc(products.updatedAt)],
       });
@@ -2194,6 +2283,9 @@ export function registerRoutes(app: Express): Server {
           name: products.name,
           sku: products.sku,
           price: products.price,
+          landingPrice: products.landingPrice,
+          b2bPrice: products.b2bPrice,
+          b2cPrice: products.b2cPrice,
           description: products.description,
           categoryId: products.categoryId,
           brandId: products.brandId,
@@ -2240,13 +2332,52 @@ export function registerRoutes(app: Express): Server {
   // Products schema
   const insertProductSchema = z.object({
     name: z.string().min(1, "Product name is required"),
-    description: z.string().optional(),
+    description: z.string().nullable().optional(),
     sku: z.string().min(1, "SKU is required"),
-    price: z.number().min(0, "Price must be positive"),
+    // `price` is no longer entered in the product form. It is kept as the
+    // effective selling price and derived from the price tiers below.
+    price: z.number().min(0, "Price must be positive").optional(),
+    // Optional price tiers - omitted/null when not provided.
+    // B2C (retail) price is mandatory: it is the selling price used by the
+    // product list and POS, and it is what the legacy `price` is derived from.
+    landingPrice: z.number().min(0, "Landing price must be positive").nullable().optional(),
+    b2bPrice: z.number().min(0, "B2B price must be positive").nullable().optional(),
+    b2cPrice: z
+      .number({
+        required_error: "B2C price is required",
+        invalid_type_error: "B2C price is required",
+      })
+      .min(0, "B2C price must be positive"),
     categoryId: z.number().positive("Category ID is required"),
     minStock: z.number().int().min(0, "Minimum stock must be positive").optional(),
-    brandId: z.number().positive("Brand ID is required").optional(),
+    // Brands are optional: the UI sends `null` when "No brand" is selected
+    brandId: z.number().positive("Brand ID is required").nullable().optional(),
+    // Suppliers are optional: the UI sends `null` when "No supplier" is selected
+    supplierId: z.number().positive("Supplier ID is required").nullable().optional(),
   });
+
+
+  // The product form no longer collects a separate price, so the legacy
+  // `price` column (used by POS/sales) is derived from the price tiers,
+  // preferring the retail (B2C) value.
+  const derivePrice = ({
+    price,
+    landingPrice,
+    b2bPrice,
+    b2cPrice,
+  }: {
+    price?: number | null;
+    landingPrice?: number | null;
+    b2bPrice?: number | null;
+    b2cPrice?: number | null;
+  }): number | undefined => {
+    if (price !== undefined && price !== null) return price;
+    return b2cPrice ?? b2bPrice ?? landingPrice ?? undefined;
+  };
+
+  // Decimal columns are stored as strings; null means "not set".
+  const toDecimalOrNull = (value: number | null | undefined) =>
+    value === undefined || value === null ? null : String(value);
 
   // Products API - Create product
   app.post("/api/products", requirePermission('products', 'create'), async (req, res) => {
@@ -2262,7 +2393,8 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { name, sku, price, description, categoryId, minStock, brandId } = result.data;
+      const { name, sku, price, description, categoryId, minStock, brandId, supplierId, landingPrice, b2bPrice, b2cPrice } = result.data;
+
 
       // Check if SKU already exists
       const existingProduct = await db.query.products.findFirst({
@@ -2288,16 +2420,34 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      // Check if brand exists
-      const brand = await db.query.brands.findFirst({
-        where: eq(brands.id, brandId),
-      });
-
-      if (brandId && !brand) {
-        return res.status(400).json({
-          message: "Brand not found",
-          suggestion: "Please select a valid brand"
+      // Check if brand exists (only when a brand was actually selected).
+      // Note: brandId is optional, so we must never query with `undefined` —
+      // postgres-js throws UNDEFINED_VALUE for undefined bind parameters.
+      if (brandId !== undefined && brandId !== null) {
+        const brand = await db.query.brands.findFirst({
+          where: eq(brands.id, brandId),
         });
+
+        if (!brand) {
+          return res.status(400).json({
+            message: "Brand not found",
+            suggestion: "Please select a valid brand"
+          });
+        }
+      }
+
+      // Check if supplier exists (only when a supplier was actually selected).
+      if (supplierId !== undefined && supplierId !== null) {
+        const supplier = await db.query.suppliers.findFirst({
+          where: eq(suppliers.id, supplierId),
+        });
+
+        if (!supplier) {
+          return res.status(400).json({
+            message: "Supplier not found",
+            suggestion: "Please select a valid supplier"
+          });
+        }
       }
 
       const [newProduct] = await db
@@ -2305,20 +2455,25 @@ export function registerRoutes(app: Express): Server {
         .values({
           name,
           sku,
-          price,
-          description,
+          price: String(derivePrice({ price, landingPrice, b2bPrice, b2cPrice }) ?? 0),
+          landingPrice: toDecimalOrNull(landingPrice),
+          b2bPrice: toDecimalOrNull(b2bPrice),
+          b2cPrice: toDecimalOrNull(b2cPrice),
+          description: description ?? null,
           categoryId,
-          minStock: minStock || 0,
-          brandId: brandId || null,
+          minStock: minStock ?? 0,
+          brandId: brandId ?? null,
+          supplierId: supplierId ?? null,
         })
         .returning();
 
-      // Fetch the complete product with category and brand
+      // Fetch the complete product with category, brand and supplier
       const productWithCategoryAndBrand = await db.query.products.findFirst({
         where: eq(products.id, newProduct.id),
         with: {
           category: true,
           brand: true,
+          supplier: true,
         },
       });
 
@@ -2339,10 +2494,20 @@ export function registerRoutes(app: Express): Server {
   app.put("/api/products/:id", requirePermission('products', 'update'), async (req, res) => {
     try {
       const { id } = req.params;
-      const { name, description, sku, price, categoryId, minStock, brandId } = req.body;
+      const { name, description, sku, price, categoryId, minStock, brandId, supplierId, landingPrice, b2bPrice, b2cPrice } = req.body;
 
-      if (!name || !sku || !price || !categoryId) {
-        return res.status(400).send("Name, SKU, price, and category are required");
+
+      if (!name || !sku || !categoryId) {
+        return res.status(400).send("Name, SKU, and category are required");
+      }
+
+      // B2C (retail) price is mandatory, so it can never be cleared. It is
+      // allowed to be omitted (PATCH-like update), but not to be null/negative.
+      if (b2cPrice === null || (b2cPrice !== undefined && (typeof b2cPrice !== 'number' || b2cPrice < 0))) {
+        return res.status(400).json({
+          message: "B2C price is required",
+          suggestion: "Provide a B2C (retail) price of 0 or more",
+        });
       }
 
       // Check if another product has the same SKU
@@ -2373,30 +2538,82 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      // Check if brand exists
-      const brand = await db.query.brands.findFirst({
-        where: eq(brands.id, brandId),
-      });
-
-      if (brandId && !brand) {
-        return res.status(400).json({
-          message: "Brand not found",
-          suggestion: "Please select a valid brand"
+      // Check if brand exists (only when a brand was actually selected).
+      // Querying with `undefined` makes postgres-js throw UNDEFINED_VALUE.
+      if (brandId !== undefined && brandId !== null) {
+        const brand = await db.query.brands.findFirst({
+          where: eq(brands.id, brandId),
         });
+
+        if (!brand) {
+          return res.status(400).json({
+            message: "Brand not found",
+            suggestion: "Please select a valid brand"
+          });
+        }
+      }
+
+      // Check if supplier exists (only when a supplier was actually selected).
+      if (supplierId !== undefined && supplierId !== null) {
+        const supplier = await db.query.suppliers.findFirst({
+          where: eq(suppliers.id, supplierId),
+        });
+
+        if (!supplier) {
+          return res.status(400).json({
+            message: "Supplier not found",
+            suggestion: "Please select a valid supplier"
+          });
+        }
+      }
+
+      // Only include columns that were actually provided — `undefined` values
+      // are rejected by the postgres driver.
+      const updateValues: Partial<typeof products.$inferInsert> = {
+        name,
+        sku,
+        categoryId,
+        brandId: brandId || null,
+        updatedAt: new Date(),
+      };
+
+      // An explicit `null` clears the stored supplier.
+      if (supplierId !== undefined) {
+        updateValues.supplierId = supplierId ?? null;
+      }
+
+      // The form no longer sends `price`; derive it from the tiers when the
+      // client provided any of them (explicit `price` still wins).
+      const derivedPrice = derivePrice({ price, landingPrice, b2bPrice, b2cPrice });
+      if (derivedPrice !== undefined) {
+        updateValues.price = String(derivedPrice);
+      }
+
+      if (description !== undefined) {
+        updateValues.description = description;
+      }
+
+      if (minStock !== undefined) {
+        updateValues.minStock = minStock;
+      }
+
+      // Optional price tiers: only touched when the client sent them, and an
+      // explicit `null` clears the stored value.
+      if (landingPrice !== undefined) {
+        updateValues.landingPrice = toDecimalOrNull(landingPrice);
+      }
+
+      if (b2bPrice !== undefined) {
+        updateValues.b2bPrice = toDecimalOrNull(b2bPrice);
+      }
+
+      if (b2cPrice !== undefined) {
+        updateValues.b2cPrice = toDecimalOrNull(b2cPrice);
       }
 
       const [updatedProduct] = await db
         .update(products)
-        .set({
-          name,
-          description,
-          sku,
-          price,
-          categoryId,
-          minStock,
-          brandId: brandId || null,
-          updatedAt: new Date(),
-        })
+        .set(updateValues)
         .where(eq(products.id, parseInt(id)))
         .returning();
 
@@ -2411,6 +2628,58 @@ export function registerRoutes(app: Express): Server {
     } catch (error) {
       console.error('Error updating product:', error);
       res.status(500).send("Failed to update product");
+    }
+  });
+
+  // Products API - Bulk import (CSV/Excel) used by the Products page.
+  // The file is parsed in the browser and posted as rows of canonical fields.
+  app.post("/api/products/import", requirePermission('products', 'create'), async (req, res) => {
+    try {
+      const importProductsSchema = z.object({
+        rows: z
+          .array(z.record(z.unknown()))
+          .min(1, "At least one row is required")
+          .max(5000, "Too many rows - import 5000 products at a time"),
+        // Update products that already exist (matched by SKU)
+        updateExisting: z.boolean().optional(),
+        // Create categories/brands/suppliers that are not in the database yet
+        createMissing: z.boolean().optional(),
+      });
+
+      const parsed = importProductsSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          message: "Invalid input",
+          errors: parsed.error.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message,
+          })),
+        });
+      }
+
+      const result = await importProducts(parsed.data.rows, {
+        updateExisting: parsed.data.updateExisting,
+        createMissing: parsed.data.createMissing,
+      });
+
+      const parts: string[] = [];
+      if (result.created) parts.push(`${result.created} created`);
+      if (result.updated) parts.push(`${result.updated} updated`);
+      if (result.skipped) parts.push(`${result.skipped} skipped`);
+      if (result.errors.length) parts.push(`${result.errors.length} failed`);
+
+      res.json({
+        message: parts.length
+          ? `Import finished: ${parts.join(', ')}`
+          : 'Nothing to import',
+        ...result,
+      });
+    } catch (error) {
+      console.error('Error importing products:', error);
+      res.status(500).json({
+        message: "Failed to import products",
+        suggestion: "Please check the file format and try again",
+      });
     }
   });
 

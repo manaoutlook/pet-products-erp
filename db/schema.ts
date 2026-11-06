@@ -95,6 +95,7 @@ export const categories = pgTable("categories", {
   id: serial("id").primaryKey(),
   name: text("name").notNull().unique(),
   description: text("description"),
+  parentId: integer("parent_id").references(() => categories.id), // Self-referencing for N-level subcategories
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -106,8 +107,15 @@ export const products = pgTable("products", {
   description: text("description"),
   sku: text("sku").unique().notNull(),
   price: decimal("price", { precision: 15, scale: 2 }).notNull(), // VND amount
+  // Price tiers - all optional (nullable) so existing products can stay unset.
+  // 'landing' cost of landing the goods, 'b2b' wholesale, 'b2c' retail/consumer.
+  landingPrice: decimal("landing_price", { precision: 15, scale: 2 }), // VND amount
+  b2bPrice: decimal("b2b_price", { precision: 15, scale: 2 }), // VND amount
+  b2cPrice: decimal("b2c_price", { precision: 15, scale: 2 }), // VND amount
   categoryId: integer("category_id").references(() => categories.id).notNull(),
   brandId: integer("brand_id").references(() => brands.id),
+  // Preferred/default supplier for the product (optional).
+  supplierId: integer("supplier_id").references(() => suppliers.id),
   minStock: integer("min_stock").notNull().default(10),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -314,9 +322,18 @@ export const brandsRelations = relations(brands, ({ many }) => ({
 export const suppliersRelations = relations(suppliers, ({ many }) => ({
   inventory: many(inventory),
   purchaseOrders: many(purchaseOrders),
+  products: many(products),
 }));
 
-export const categoriesRelations = relations(categories, ({ many }) => ({
+export const categoriesRelations = relations(categories, ({ one, many }) => ({
+  parent: one(categories, {
+    fields: [categories.parentId],
+    references: [categories.id],
+    relationName: 'parent',
+  }),
+  subcategories: many(categories, {
+    relationName: 'subcategories',
+  }),
   products: many(products),
 }));
 
@@ -328,6 +345,10 @@ export const productsRelations = relations(products, ({ one, many }) => ({
   brand: one(brands, {
     fields: [products.brandId],
     references: [brands.id],
+  }),
+  supplier: one(suppliers, {
+    fields: [products.supplierId],
+    references: [suppliers.id],
   }),
   inventory: many(inventory),
   orderItems: many(orderItems),

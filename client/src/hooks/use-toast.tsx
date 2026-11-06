@@ -141,8 +141,8 @@ type Toast = Omit<ToasterToast, "id">
 function toast({ ...props }: Toast) {
   const id = genId()
 
-  // Add copy button for error messages (variant: "destructive")
-  if (props.variant === "destructive" && typeof props.description === "string") {
+  // Add copy button for error messages
+  if (typeof props.description === "string") {
     props = {
       ...props,
       description: React.createElement(ToastDescription, {

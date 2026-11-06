@@ -120,7 +120,7 @@ const ToastDescription = React.forwardRef<
   };
 
   return (
-    <div className="flex items-start justify-between gap-2">
+    <div className="flex items-start justify-between gap-2 max-w-full overflow-y-auto max-h-[200px]">
       <ToastPrimitives.Description
         ref={ref}
         className={cn("text-sm opacity-90", className)}
@@ -128,11 +128,12 @@ const ToastDescription = React.forwardRef<
       >
         {children}
       </ToastPrimitives.Description>
-      {showCopy && typeof children === 'string' && (
+      {showCopy && typeof children === "string" && (
         <button
           onClick={handleCopy}
-          className="rounded p-1 hover:bg-background/10 focus:outline-none focus:ring-2 focus:ring-ring"
+          className="rounded p-1 hover:bg-background/10 focus:outline-none focus:ring-2 focus:ring-ring flex items-center"
           title={copied ? "Copied!" : "Copy error message"}
+          style={{ zIndex: 1000 }}
         >
           <Copy className="h-4 w-4" />
         </button>

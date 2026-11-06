@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Table,
   TableBody,
@@ -29,6 +29,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
@@ -42,14 +43,59 @@ import { usePermissions } from "@/hooks/use-permissions";
 const categorySchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
+  parentId: z.string().optional(),
 });
 
 type CategoryFormData = z.infer<typeof categorySchema>;
+
+// Blank values for the "Add Category" form. Kept as a constant so every reset
+// goes back to a truly empty form.
+const emptyCategoryForm: CategoryFormData = {
+  name: "",
+  description: "",
+  parentId: "",
+};
+
+// AI Agent Note: Category names are sometimes copy-pasted from documents/PDFs and
+// end up with Unicode whitespace variants (U+00A0, U+202F narrow no-break space, ...)
+// instead of a regular space. Collapse every whitespace variant into a single plain
+// space so "Smart G" still matches "Smart\u202FGadgets".
+function normalizeSearchText(value: string | null | undefined): string {
+  return (value || "")
+    .replace(/[\s\u00a0\u1680\u2000-\u200f\u2028\u2029\u202f\u205f\u3000]+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+// API errors are returned as JSON ({ code, message, ... }), but some endpoints
+// still reply with plain text, so read both shapes and surface a readable message.
+async function getResponseErrorMessage(res: Response, fallback: string): Promise<string> {
+  let raw = "";
+  try {
+    raw = await res.text();
+  } catch {
+    return fallback;
+  }
+
+  if (!raw) return fallback;
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed === "string") return parsed;
+    if (parsed && typeof parsed.message === "string" && parsed.message.trim()) {
+      return parsed.message;
+    }
+    return fallback;
+  } catch {
+    return raw;
+  }
+}
 
 interface Category {
   id: number;
   name: string;
   description: string | null;
+  parentId: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -57,10 +103,13 @@ interface Category {
 function CategoryPage() {
   const [search, setSearch] = useState("");
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [viewingCategory, setViewingCategory] = useState<Category | null>(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const { toast } = useToast();
   const { hasPermission } = usePermissions();
+  const queryClient = useQueryClient();
 
   // View Category Dialog Component
   function ViewCategoryDialog({
@@ -110,6 +159,11 @@ function CategoryPage() {
     enabled: hasPermission('masterData', 'read'),
   });
 
+  const categoryMap = categories?.reduce((map, category) => {
+    map[category.id] = category.name;
+    return map;
+  }, {} as Record<number, string>);
+
   const createMutation = useMutation({
     mutationFn: async (data: CategoryFormData) => {
       if (!hasPermission('masterData', 'create')) {
@@ -121,7 +175,7 @@ function CategoryPage() {
         body: JSON.stringify(data),
         credentials: 'include',
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await getResponseErrorMessage(res, "Failed to create category"));
       return res.json();
     },
     onSuccess: () => {
@@ -148,10 +202,20 @@ function CategoryPage() {
         body: JSON.stringify(data),
         credentials: 'include',
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await getResponseErrorMessage(res, "Failed to update category"));
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (response: { message?: string; category?: Category }) => {
+      // Keep the cached list in sync with the saved record so the table (and the
+      // Parent Category column) reflects the change immediately
+      const updatedCategory = response?.category;
+      if (updatedCategory) {
+        queryClient.setQueryData<Category[]>(['/api/categories'], (previous) =>
+          previous?.map((category) =>
+            category.id === updatedCategory.id ? { ...category, ...updatedCategory } : category
+          )
+        );
+      }
       refetch();
       toast({ title: "Success", description: "Category updated successfully" });
     },
@@ -173,7 +237,7 @@ function CategoryPage() {
         method: 'DELETE',
         credentials: 'include',
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await getResponseErrorMessage(res, "Failed to delete category"));
       return res.json();
     },
     onSuccess: () => {
@@ -182,25 +246,28 @@ function CategoryPage() {
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
+        title: "Cannot Delete Category",
         description: error.message,
-        variant: "destructive"
+        variant: "destructive",
       });
     },
   });
 
   const form = useForm<CategoryFormData>({
     resolver: zodResolver(categorySchema),
-    defaultValues: {
-      name: "",
-      description: "",
-    },
+    defaultValues: { ...emptyCategoryForm },
   });
 
-  const filteredCategories = categories?.filter(category =>
-    category.name.toLowerCase().includes(search.toLowerCase()) ||
-    (category.description?.toLowerCase() || "").includes(search.toLowerCase())
-  );
+  const normalizedSearch = normalizeSearchText(search);
+
+  const filteredCategories = categories?.filter((category) => {
+    if (!normalizedSearch) return true;
+
+    return (
+      normalizeSearchText(category.name).includes(normalizedSearch) ||
+      normalizeSearchText(category.description).includes(normalizedSearch)
+    );
+  });
 
   const onSubmit = async (data: CategoryFormData) => {
     try {
@@ -209,15 +276,30 @@ function CategoryPage() {
           id: editingCategory.id,
           data: data
         });
+
+        // Sync the form with the values that were just saved (instead of the stale
+        // `editingCategory` snapshot), otherwise the fields - the Parent Category
+        // dropdown in particular - fall back to the old values in the UI.
+        // keepDefaultValues stops these values becoming the form defaults, which
+        // would leak into the next "Add Category" dialog.
+        form.reset(
+          {
+            name: data.name,
+            description: data.description || "",
+            parentId: data.parentId || "",
+          },
+          { keepDefaultValues: true }
+        );
+
+        // Close the edit dialog through its controlled state
+        setEditingCategory(null);
+        setIsEditDialogOpen(false);
       } else {
         await createMutation.mutateAsync(data);
-      }
-
-      form.reset();
-      // Close dialog using our standard implementation
-      const dialogCloseButton = document.querySelector('[data-state="open"] button[type="button"]');
-      if (dialogCloseButton instanceof HTMLElement) {
-        dialogCloseButton.click();
+        // Clear the fields and close the dialog through its controlled state so the
+        // next "Add Category" always starts from a blank form
+        form.reset(emptyCategoryForm);
+        setIsCreateDialogOpen(false);
       }
     } catch (error) {
       // Error is handled by the mutation
@@ -248,19 +330,26 @@ function CategoryPage() {
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Categories</h1>
         {hasPermission('masterData', 'create') && (
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button onClick={() => {
+          <Dialog
+            open={isCreateDialogOpen}
+            onOpenChange={(open) => {
+              setIsCreateDialogOpen(open);
+              if (open) {
+                // Always start the Add dialog from a blank form
                 setEditingCategory(null);
-                form.reset();
-              }}>
+                form.reset(emptyCategoryForm);
+              }
+            }}
+          >
+            <DialogTrigger asChild>
+              <Button>
                 <Plus className="mr-2 h-4 w-4" />
                 Add Category
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>{editingCategory ? 'Edit Category' : 'Add New Category'}</DialogTitle>
+                <DialogTitle>Add New Category</DialogTitle>
               </DialogHeader>
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -286,6 +375,41 @@ function CategoryPage() {
                         <FormControl>
                           <Input {...field} />
                         </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="parentId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Parent Category</FormLabel>
+                        <Select
+                          onValueChange={(value) =>
+                            field.onChange(value === "root" ? "" : value)
+                          }
+                          value={field.value || "root"}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select parent category" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="root">No parent (Root category)</SelectItem>
+                            {isLoading ? (
+                              <div className="h-20 w-full flex items-center justify-center">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              </div>
+                            ) : categories?.map((category) => (
+                              <SelectItem
+                                key={category.id}
+                                value={category.id.toString()}
+                              >
+                                {category.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -333,6 +457,7 @@ function CategoryPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Description</TableHead>
+                  <TableHead>Parent Category</TableHead>
                   <TableHead>Created At</TableHead>
                   <TableHead>Updated At</TableHead>
                   <TableHead>Actions</TableHead>
@@ -343,6 +468,7 @@ function CategoryPage() {
                   <TableRow key={category.id}>
                     <TableCell>{category.name}</TableCell>
                     <TableCell>{category.description}</TableCell>
+                    <TableCell>{category.parentId ? categoryMap?.[category.parentId] || 'Parent Category' : 'Root category'}</TableCell>
                     <TableCell>{new Date(category.createdAt).toLocaleString()}</TableCell>
                     <TableCell>{new Date(category.updatedAt).toLocaleString()}</TableCell>
                     <TableCell>
@@ -358,17 +484,29 @@ function CategoryPage() {
                           <Eye className="h-4 w-4" />
                         </Button>
                         {hasPermission('masterData', 'update') && (
-                          <Dialog>
+                          <Dialog
+                            open={isEditDialogOpen && editingCategory?.id === category.id}
+                            onOpenChange={(open) => {
+                              setIsEditDialogOpen(open);
+                              if (!open) setEditingCategory(null);
+                            }}
+                          >
                             <DialogTrigger asChild>
                               <Button
                                 variant="outline"
                                 size="icon"
                                 onClick={() => {
                                   setEditingCategory(category);
-                                  form.reset({
-                                    name: category.name,
-                                    description: category.description || "",
-                                  });
+                                  // keepDefaultValues keeps the Add form defaults blank
+                                  form.reset(
+                                    {
+                                      name: category.name,
+                                      description: category.description || "",
+                                      parentId: category.parentId?.toString() || "",
+                                    },
+                                    { keepDefaultValues: true }
+                                  );
+                                  setIsEditDialogOpen(true);
                                 }}
                               >
                                 <Pencil className="h-4 w-4" />
@@ -402,6 +540,41 @@ function CategoryPage() {
                                         <FormControl>
                                           <Input {...field} />
                                         </FormControl>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+                                  <FormField
+                                    control={form.control}
+                                    name="parentId"
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormLabel>Parent Category</FormLabel>
+                                        <Select
+                                          onValueChange={(value) =>
+                                            field.onChange(value === "root" ? "" : value)
+                                          }
+                                          value={field.value || "root"}
+                                        >
+                                          <SelectTrigger>
+                                            <SelectValue placeholder="Select parent category" />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="root">No parent (Root category)</SelectItem>
+                                            {isLoading ? (
+                                              <div className="h-20 w-full flex items-center justify-center">
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                              </div>
+                                            ) : categories?.map((category) => (
+                                              <SelectItem
+                                                key={category.id}
+                                                value={category.id.toString()}
+                                              >
+                                                {category.name}
+                                              </SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
                                         <FormMessage />
                                       </FormItem>
                                     )}

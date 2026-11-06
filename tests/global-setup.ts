@@ -1,6 +1,15 @@
 import postgres from 'postgres';
 import { configureTestEnvironment } from './helpers/env-setup';
 
+/**
+ * Extract the database name from a postgres connection string.
+ * `postgres://user:pass@host:5432/pet_erp_test?sslmode=require` -> `pet_erp_test`
+ */
+function databaseNameFromUrl(url: string): string {
+    const match = url.match(/\/([^/?]+)(\?.*)?$/);
+    return match ? decodeURIComponent(match[1]) : 'smart_erp_test';
+}
+
 export default async function setup() {
     console.log('Running global test setup...');
 
@@ -16,14 +25,19 @@ export default async function setup() {
         console.log('Using test database:', testUrl.replace(/:[^:@]+@/, ':***@'));
 
         try {
-            // Ensure test database exists
+            // Ensure test database exists. The name has to come from the
+            // configured URL (.env.test / CI env) instead of being hardcoded:
+            // probing "smart_erp_test" while connecting to "pet_erp_test" made
+            // the connection fail with CONNECTION_ENDED because the database
+            // that was actually used had never been created.
             const adminUrl = testUrl.replace(/(^postgresql?:\/\/.*\/)([^?]+)(\?.*)?$/, '$1postgres$3');
             const sql = postgres(adminUrl);
+            const dbName = databaseNameFromUrl(testUrl);
 
-            const dbs = await sql`SELECT datname FROM pg_database WHERE datname = 'smart_erp_test'`;
+            const dbs = await sql`SELECT datname FROM pg_database WHERE datname = ${dbName}`;
             if (dbs.length === 0) {
-                console.log('Creating test database: smart_erp_test...');
-                await sql`CREATE DATABASE smart_erp_test`;
+                console.log(`Creating test database: ${dbName}...`);
+                await sql.unsafe(`CREATE DATABASE "${dbName.replace(/"/g, '""')}"`);
                 console.log('Test database created successfully.');
             } else {
                 console.log('Test database already exists.');

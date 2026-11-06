@@ -168,10 +168,32 @@ export async function setupAdmin() {
   }
 }
 
+/**
+ * Session secret resolution.
+ *
+ * The previous hard-coded fallback was fine while the app only ran on Replit
+ * (which injects REPL_ID), but on any other host that variable is undefined,
+ * so every deployment would have signed session cookies with the same
+ * publicly known string. Production therefore demands an explicit secret while
+ * development keeps a stable default so `npm run dev` works out of the box.
+ */
+function resolveSessionSecret(): string {
+  const secret = process.env.SESSION_SECRET || process.env.REPL_ID;
+  if (secret) return secret;
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "SESSION_SECRET must be set in production - sessions would otherwise be signed with a public default.",
+    );
+  }
+
+  return "smart-erp-secret";
+}
+
 export function setupAuth(app: Express) {
   const MemoryStore = createMemoryStore(session);
   const sessionSettings: session.SessionOptions = {
-    secret: process.env.REPL_ID || "smart-erp-secret",
+    secret: resolveSessionSecret(),
     name: 'sid',
     resave: false,
     saveUninitialized: false,
