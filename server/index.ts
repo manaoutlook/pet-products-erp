@@ -1,11 +1,32 @@
 import "dotenv/config";
+import { sql } from "drizzle-orm";
+import { db } from "@db";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
 export const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+// Bulk product import posts parsed spreadsheet rows as JSON, which can be far
+// larger than the 100kb default (a 1000 row file is several hundred KB).
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: false, limit: "10mb" }));
+
+// Liveness/readiness probe for hosting platforms and uptime monitors. It is
+// registered before the Vite/static catch-all so it always answers with JSON,
+// and it verifies the database because a boot with a bad DATABASE_URL looks
+// "up" otherwise (static assets still serve, every API call fails).
+app.get("/api/health", async (_req, res) => {
+  try {
+    await db.execute(sql`select 1`);
+    res.json({ status: "ok", db: "up", uptime: process.uptime() });
+  } catch (error) {
+    res.status(503).json({
+      status: "error",
+      db: "down",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -62,9 +83,10 @@ if (process.env.NODE_ENV !== 'test') {
       serveStatic(app);
     }
 
-    // Try to serve the app on port 5001, fall back to alternative ports if needed
+    // Try to serve the app on $PORT (injected by most hosts), falling back to
+    // 5001 for local runs, and probe the next port when it is already taken.
     // this serves both the API and the client
-    const PORT = 5001;
+    const PORT = Number(process.env.PORT) || 5001;
     const MAX_RETRIES = 3;
 
     const startServer = (port: number, retries = 0) => {

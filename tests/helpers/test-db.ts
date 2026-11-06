@@ -52,36 +52,35 @@ export async function runMigrations() {
 }
 
 /**
- * Clean all test data from database
+ * Empty every application table.
+ *
+ * Deleting table-by-table silently skipped anything that still had rows
+ * pointing at it (the per-table delete list also went stale as soon as a new
+ * table was added), so data leaked from one test file into the next and suites
+ * only passed in isolation. A single TRUNCATE ... RESTART IDENTITY CASCADE
+ * removes everything in one statement and resets the id sequences, which also
+ * makes `resetSequences` redundant.
  */
 export async function cleanDatabase() {
-    // Delete in order to respect foreign key constraints
-    // Use try-catch for each delete to handle missing tables gracefully
-    const tablesToClean = [
-        salesTransactionItems,
-        salesTransactions,
-        transferRequestItems,
-        transferRequests,
-        purchaseOrderItems,
-        purchaseOrders,
-        inventory,
-        userStoreAssignments,
-        products,
-        categories,
-        brands,
-        suppliers,
-        stores,
-        users,
-        roles,
-        invoiceCounters,
-    ];
+    try {
+        const result = await db.execute(
+            sql.raw(
+                `SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> '__drizzle_migrations'`,
+            ),
+        );
 
-    for (const table of tablesToClean) {
-        try {
-            await db.delete(table);
-        } catch (error) {
-            // Ignore errors for missing tables
-        }
+        const tables = (result as unknown as { tablename: string }[]).map(
+            (row) => `"public"."${row.tablename}"`,
+        );
+
+        if (tables.length === 0) return;
+
+        await db.execute(
+            sql.raw(`TRUNCATE TABLE ${tables.join(', ')} RESTART IDENTITY CASCADE`),
+        );
+    } catch (error) {
+        console.error('Failed to clean the test database:', error);
+        throw error;
     }
 }
 
@@ -118,49 +117,27 @@ export async function resetSequences() {
 }
 
 /**
- * Seed basic test data
+ * Put the shared test database into a known-empty state.
+ *
+ * This used to close the shared `db` client and DROP/CREATE the database.
+ * That broke every backend suite: `await import('../../db/index')` returns the
+ * module from the ESM cache, so the tests kept using the *ended* client and the
+ * first query failed with `write CONNECTION_ENDED localhost:5432`.
+ * Truncating instead keeps the pool usable (postgres.js reconnects on demand)
+ * and is considerably faster than dropping the database.
  */
 export async function resetTestDatabase() {
     try {
-        console.log('Resetting test database completely...');
+        console.log('Resetting test database...');
 
-        // Close current database connection to avoid conflicts
-        await db.$client.end();
-
-        // Use postgres library to recreate database completely
-        const postgres = (await import('postgres')).default;
-        const testUrl = process.env.DATABASE_URL!;
-
-        // Get admin connection URL
-        const adminUrl = testUrl.replace(/(^postgresql?:\/\/.*\/)([^?]+)(\?.*)?$/, '$1postgres$3');
-        const sql = postgres(adminUrl);
-
-        try {
-            // Terminate all connections to the test database
-            await sql`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'smart_erp_test' AND pid <> pg_backend_pid()`;
-
-            // Drop and recreate the database
-            await sql`DROP DATABASE IF EXISTS smart_erp_test`;
-            await sql`CREATE DATABASE smart_erp_test`;
-
-            console.log('Test database recreated successfully.');
-        } finally {
-            await sql.end();
-        }
-
-        // Reconnect to the fresh database
-        // Import db again to get new connection
-        const { db: newDb } = await import('../../db/index');
-
-        // Run migrations on the fresh database
-        console.log('Running migrations...');
+        // A brand new database (CI, or the first local run) has no tables yet.
         await runMigrations();
 
-        // Re-seed with fresh test data
-        console.log('Seeding fresh test data...');
-        await seedTestData();
+        // Empty every table and restart the id sequences.
+        await cleanDatabase();
+        await resetSequences();
 
-        console.log('Database reset completed successfully.');
+        console.log('Test database reset completed successfully.');
     } catch (error) {
         console.error('Failed to reset test database:', error);
         throw error;

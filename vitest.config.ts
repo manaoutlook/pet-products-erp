@@ -13,6 +13,11 @@ export default defineConfig({
         exclude: ['node_modules', 'dist', 'build', '.git'],
         // Ensure test isolation
         isolate: true,
+        // Backend suites share one Postgres database (see tests/helpers/test-db.ts),
+        // so files must not run at the same time - otherwise one file truncates the
+        // tables while another is asserting on them. Frontend suites are fast enough
+        // that serializing them costs little.
+        fileParallelism: false,
         // Run tests sequentially to avoid database conflicts
         pool: 'threads',
         // Longer timeout for database operations
@@ -34,15 +39,16 @@ export default defineConfig({
         },
         alias: {
             '@': path.resolve(__dirname, './client/src'),
-            '@db': path.resolve(__dirname, './db/index.ts'),
+            // Keep the more specific alias first - '@db' must not swallow '@db/schema'
             '@db/schema': path.resolve(__dirname, './db/schema.ts'),
+            '@db': path.resolve(__dirname, './db/index.ts'),
         },
     },
     resolve: {
         alias: {
             '@': path.resolve(__dirname, './client/src'),
-            '@db': path.resolve(__dirname, './db/index.ts'),
             '@db/schema': path.resolve(__dirname, './db/schema.ts'),
+            '@db': path.resolve(__dirname, './db/index.ts'),
         },
     },
 });
