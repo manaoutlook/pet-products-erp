@@ -28,6 +28,7 @@ import {
 import { getStoreDeletionBlockers, hasBlockers, buildStoreDeletionError } from "./store-deletion";
 import { z } from "zod";
 import { validateBody, validateParams, idParamSchema } from "./validate";
+import { resolveScope, scopeDenies, scopeStoreFilter } from "./scoping";
 import { crypto } from "./auth";
 import { initializeStoreCounter } from "./invoice-counter";
 import { createSale, refundSale, cancelSale, SaleError } from "./sales";
@@ -400,7 +401,18 @@ export function registerRoutes(app: Express): Server {
   // Purchase Orders endpoints
   app.get("/api/purchase-orders", requireAuth, async (req, res) => {
     try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      // AI Agent Note: this used to be findMany() with no filter at all, so every
+      // user saw every region's purchase orders.
+      const scope = await resolveScope(user);
+      const storeFilter = scopeStoreFilter(scope, purchaseOrders.destinationStoreId);
+
       const allPurchaseOrders = await db.query.purchaseOrders.findMany({
+        where: storeFilter,
         with: {
           supplier: true,
           items: {
@@ -2268,6 +2280,16 @@ export function registerRoutes(app: Express): Server {
   // Stats API
   app.get("/api/stats", requirePermission('users', 'read'), async (req, res) => {
     try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      // AI Agent Note: aggregates need the same store filter as the lists, otherwise
+      // a manager's revenue tile still sums every store's orders.
+      const scope = await resolveScope(user);
+      const storeFilter = scopeStoreFilter(scope, orders.storeId);
+
       const [orderStats] = await db
         .select({
           totalOrders: sql<number>`count(*)`,
@@ -2277,7 +2299,8 @@ export function registerRoutes(app: Express): Server {
         .where(
           and(
             gte(orders.createdAt, new Date(new Date().setDate(new Date().getDate() - 30))),
-            lt(orders.createdAt, new Date())
+            lt(orders.createdAt, new Date()),
+            storeFilter
           )
         );
 
@@ -2295,12 +2318,21 @@ export function registerRoutes(app: Express): Server {
 
   //// Orders trend for chart
   app.get("/api/stats/orders-trend", requirePermission('users', 'read'), async (req, res) => {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const scope = await resolveScope(user);
+    const storeFilter = scopeStoreFilter(scope, orders.storeId);
+
     const trend = await db
       .select({
         date: sql<string>`date_trunc('day', created_at)::date`,
         orders: sql<number>`count(*)`,
       })
       .from(orders)
+      .where(storeFilter)
       .groupBy(sql`date_trunc('day', created_at)`)
       .orderBy(sql`date_trunc('day', created_at)`)
       .limit(30);
@@ -2935,19 +2967,21 @@ export function registerRoutes(app: Express): Server {
         return res.status(401).send("Unauthorized");
       }
 
-      console.log(`Fetching inventory for user ${user.username} (Admin: ${user.role?.isSystemAdmin})`);
+      // AI Agent Note: the list was unfiltered, so a cashier assigned to one store
+      // could read every store's stock. DC (warehouse) rows have a NULL store_id and
+      // are shared company stock the POS sells from, so they stay visible; other
+      // stores' rows do not.
+      const scope = await resolveScope(user);
+      const storeFilter = scopeStoreFilter(scope, inventory.storeId);
 
-      let inventoryQuery = db.query.inventory.findMany({
+      const inventoryItems = await db.query.inventory.findMany({
+        where: storeFilter ? or(storeFilter, isNull(inventory.storeId)) : undefined,
         with: {
           product: true,
           store: true,
           supplier: true, // Add supplier relation
         },
       });
-
-      const inventoryItems = await inventoryQuery;
-
-      console.log(`Found ${inventoryItems.length} inventory items for admin user ${user.username}`);
 
       res.json(inventoryItems);
     } catch (error) {
@@ -3648,30 +3682,33 @@ export function registerRoutes(app: Express): Server {
       // Build where conditions
       const whereConditions = [];
 
-      // Store filtering based on user permissions
-      if (store_id) {
-        const storeIdNum = parseInt(store_id);
-        if (!isNaN(storeIdNum)) {
-          whereConditions.push(eq(salesTransactions.storeId, storeIdNum));
-        }
-      } else {
-        // Get user's assigned stores for filtering
-        const userAssignments = await db.query.userStoreAssignments.findMany({
-          where: eq(userStoreAssignments.userId, user.id),
-        });
+      // Store filtering: the user's scope decides what is visible, and an explicit
+      // ?store_id= may only narrow it - it must never replace it.
+      const scope = await resolveScope(user);
 
-        if (userAssignments.length > 0) {
-          const storeIds = userAssignments.map(assignment => assignment.storeId);
-          // Users can see transactions from their assigned stores OR transactions they created
-          whereConditions.push(
-            or(
-              sql`${salesTransactions.storeId} IN ${storeIds}`,
-              eq(salesTransactions.cashierUserId, user.id)
-            )
-          );
-        } else {
-          // If user has no store assignments, they can only see transactions they created
-          whereConditions.push(eq(salesTransactions.cashierUserId, user.id));
+      if (store_id) {
+        const storeIdNum = parseInt(store_id, 10);
+        if (Number.isNaN(storeIdNum)) {
+          return res.status(400).json({
+            message: "Invalid store filter",
+            suggestion: "store_id must be a number"
+          });
+        }
+        // AI Agent Note: ?store_id= used to replace the user's scope entirely, so any
+        // cashier could read another store's receipts by editing the URL.
+        if (scopeDenies(scope, storeIdNum)) {
+          return res.status(403).json({
+            message: "You do not have access to that store",
+            suggestion: "Choose one of your assigned stores"
+          });
+        }
+        whereConditions.push(eq(salesTransactions.storeId, storeIdNum));
+      } else {
+        // Outside global scope a cashier still sees the sales they rang up themselves,
+        // but the store filter is always applied - it is never dropped.
+        const storeFilter = scopeStoreFilter(scope, salesTransactions.storeId);
+        if (storeFilter) {
+          whereConditions.push(or(storeFilter, eq(salesTransactions.cashierUserId, user.id)));
         }
       }
 
@@ -3783,6 +3820,17 @@ export function registerRoutes(app: Express): Server {
         return res.status(404).json({
           message: "Sales transaction not found",
           suggestion: "Verify the transaction ID or invoice number"
+        });
+      }
+
+      // AI Agent Note: guessing an id/invoice number used to return another store's
+      // receipt. The scope is checked after the lookup so a foreign receipt is a
+      // clear 403 instead of a misleading 404.
+      const scope = await resolveScope(req.user!);
+      if (scopeDenies(scope, transaction.storeId) && transaction.cashierUserId !== req.user!.id) {
+        return res.status(403).json({
+          message: "You do not have access to this transaction",
+          suggestion: "Ask an administrator to assign you to the store"
         });
       }
 
@@ -4286,21 +4334,17 @@ export function registerRoutes(app: Express): Server {
         whereConditions.push(eq(transferRequests.status, status));
       }
 
-      // Store filters - users can only see transfers involving their stores
-      const userAssignment = await db.query.userStoreAssignments.findFirst({
-        where: eq(userStoreAssignments.userId, user.id),
-      });
+      // Store filters - a transfer is visible when either end is inside the user's scope.
+      const scope = await resolveScope(user);
+      const fromFilter = scopeStoreFilter(scope, transferRequests.fromStoreId);
+      const toFilter = scopeStoreFilter(scope, transferRequests.toStoreId);
 
-      if (userAssignment) {
-        // Regular users see transfers from/to their store
-        whereConditions.push(
-          or(
-            eq(transferRequests.fromStoreId, userAssignment.storeId),
-            eq(transferRequests.toStoreId, userAssignment.storeId)
-          )
-        );
+      if (fromFilter || toFilter) {
+        // AI Agent Note: this used to look only at the user's *first* assignment, and
+        // "no assignment" meant no filter at all - i.e. every transfer. Now an empty
+        // scope yields an always-false predicate instead of a missing one.
+        whereConditions.push(or(fromFilter, toFilter));
       }
-      // Admins can see all transfers (no additional filter)
 
       // Additional filters
       if (from_store_id) {
