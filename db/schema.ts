@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, date, varchar, decimal } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, date, varchar, decimal, index } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -116,6 +116,13 @@ export const products = pgTable("products", {
   brandId: integer("brand_id").references(() => brands.id),
   // Preferred/default supplier for the product (optional).
   supplierId: integer("supplier_id").references(() => suppliers.id),
+  // Physical attributes - all optional (nullable) so existing products stay valid.
+  // Weight is stored in kilograms (decimal, so 350 g is 0.35); length/width/height
+  // in centimetres.
+  weightKg: decimal("weight_kg", { precision: 10, scale: 3 }),
+  lengthCm: decimal("length_cm", { precision: 10, scale: 2 }),
+  widthCm: decimal("width_cm", { precision: 10, scale: 2 }),
+  heightCm: decimal("height_cm", { precision: 10, scale: 2 }),
   minStock: integer("min_stock").notNull().default(10),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -704,3 +711,16 @@ export const insertTransferHistorySchema = createInsertSchema(transferHistory);
 export const selectTransferHistorySchema = createSelectSchema(transferHistory);
 export type InsertTransferHistory = typeof transferHistory.$inferInsert;
 export type SelectTransferHistory = typeof transferHistory.$inferSelect;
+
+// Session store - see server/session-store.ts.
+//
+// AI Agent Note: sessions live in the database so a restart/hot reload does not log
+// everybody out and so several app instances can share one session. Column names are
+// read by DrizzleSessionStore; do not rename without updating it.
+export const userSessions = pgTable("user_sessions", {
+  sid: varchar("sid", { length: 255 }).primaryKey(),
+  sess: jsonb("sess").notNull(),
+  expire: timestamp("expire", { precision: 6 }).notNull(),
+}, (table) => ({
+  expireIdx: index("user_sessions_expire_idx").on(table.expire),
+}));

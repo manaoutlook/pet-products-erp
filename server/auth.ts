@@ -2,7 +2,7 @@ import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import { type Express } from "express";
 import session from "express-session";
-import createMemoryStore from "memorystore";
+import { DrizzleSessionStore } from "./session-store";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { users, roles } from "@db/schema";
@@ -179,7 +179,6 @@ function resolveSessionSecret(): string {
 }
 
 export function setupAuth(app: Express) {
-  const MemoryStore = createMemoryStore(session);
   const sessionSettings: session.SessionOptions = {
     secret: resolveSessionSecret(),
     name: 'sid',
@@ -192,9 +191,9 @@ export function setupAuth(app: Express) {
       sameSite: 'lax',
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     },
-    store: new MemoryStore({
-      checkPeriod: 86400000, // prune expired entries every 24h
-    }),
+    // AI Agent Note: sessions must outlive the process - a MemoryStore logged every
+    // user out on each restart and could not be shared between instances.
+    store: new DrizzleSessionStore({ ttlMs: 24 * 60 * 60 * 1000 }),
   };
 
   if (app.get("env") === "production") {
