@@ -88,3 +88,7 @@ index on `(store_id, idempotency_key)`; offline queue is a larger follow-up.
 | 8 | `info.info` scratch note committed at repo root | delete it |
 | 9 | `server/routes.ts` is 5,355 lines | split by domain (`routes/products.ts`, `routes/sales.ts`, …) as each domain is touched, one domain per PR |
 | 10 | CI runs the test suite twice | one `npm test` invocation in `.github/workflows/test.yml` |
+| 11 | `migrations/meta/_journal.json` only lists `0000`-`0003`, so `migrate()` silently skips `0004`-`0009` (including the new `0009_user_sessions.sql`); `drizzle-kit generate` hangs because it tries to reconcile the whole drifted schema | regenerate the journal from the current schema (or drop the journal entirely) and keep `npm run db:push` as the single mechanism until then |
+| 12 | `memorystore` is still a dependency after step 04 removed its only use | `npm uninstall memorystore` |
+| 13 | `POST /api/stores` and `PUT /api/stores/:id` are each registered **twice** (`routes.ts` ~174/243 with `requireAuth`, ~2007/2066 with `requirePermission('stores', …)`); only the first registration ever runs, so the second pair is dead code with different permission semantics | delete the dead pair, keep the permission-checked one |
+| 14 | Backend suites must never run concurrently — two `vitest` processes on one test database produce dozens of duplicate-key failures that look like real regressions | `reuseExistingServer: false`-style guard, or a Postgres advisory lock in `tests/global-setup.ts` |

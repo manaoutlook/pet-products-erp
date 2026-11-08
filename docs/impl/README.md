@@ -16,6 +16,27 @@ npx vite build 2>&1 | tail -3                  # must stay "✓ built"
 
 > Record the three numbers in a scratch note. Every step must leave them equal or better.
 
+## Status — all seven steps executed
+
+Measured on `main` after step 07:
+
+| Metric | Baseline | After P0 |
+| --- | --- | --- |
+| `npx tsc --noEmit` errors | 76 | **72** (4 removed with the rewritten POS handlers) |
+| backend suite | 12 files / 168 tests, 8 pre-existing failures | **18 files / 191 tests, same 8 failures** (`customers`, `master-data`, `inventory` FK/seed fixtures) |
+| frontend suite | 22 files / 144 tests passed | **22 files / 144 tests passed** |
+| `vite build` | ✓ built | ✓ built |
+
+Commits (one per step): `p0(01)` … `p0(07)`, plus `chore(deps)` for the pruned
+`@testing-library/dom` peer dependency. New modules: `server/error-handler.ts`,
+`server/sales.ts`, `server/db-types.ts`, `server/session-store.ts`, `server/rate-limit.ts`,
+`server/validate.ts`, `server/scoping.ts`; new table `user_sessions`.
+
+Deliberate behaviour changes: cancel restores stock, cancelled/voided sales cannot be
+refunded, login failures are generic (`Invalid username or password`) and rate-limited,
+`?store_id=` can only narrow the caller's scope, inventory hides other stores' rows but
+keeps DC (NULL store) stock visible for the POS.
+
 ## Order and why
 
 | Step | File | P0 item | Risk | Touches |
