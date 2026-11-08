@@ -2,9 +2,10 @@ import "dotenv/config";
 import net from "node:net";
 import { sql } from "drizzle-orm";
 import { db } from "@db";
-import express, { type Request, Response, NextFunction } from "express";
+import express from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { errorHandler } from "./error-handler";
 
 // `tsx watch` and `node dist/index.js` both end silently when the process dies
 // from an unhandled error, and under `tsx watch` the supervisor then just sits
@@ -79,14 +80,8 @@ app.use((req, res, next) => {
 // We move this outside the async block so it runs when imported by tests
 const server = registerRoutes(app);
 
-// Error handling middleware
-app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-  const status = err.status || err.statusCode || 500;
-  const message = err.message || "Internal Server Error";
-
-  res.status(status).json({ message });
-  throw err;
-});
+// Error handling middleware - must stay the last app.use(...) registration.
+app.use(errorHandler);
 
 // Only start the server if not running in test mode
 if (process.env.NODE_ENV !== 'test') {
