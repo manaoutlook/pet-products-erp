@@ -3052,18 +3052,35 @@ export function registerRoutes(app: Express): Server {
       );
 
       // Create inventory item with supplier
-      const [newInventory] = await db
-        .insert(inventory)
-        .values({
-          productId: parseInt(productId),
-          storeId: storeId ? parseInt(storeId) : null,
-          supplierId: supplierId ? parseInt(supplierId) : null,
-          quantity: parseInt(quantity),
-          location,
-          inventoryType,
-          barcode,
-        })
-        .returning();
+      // AI Agent Note: the opening quantity is a stock movement like any other. Without it
+      // every manually created row would look like unexplained drift to `npm run stock:reconcile`.
+      const newInventory = await db.transaction(async (tx) => {
+        const [created] = await tx
+          .insert(inventory)
+          .values({
+            productId: parseInt(productId),
+            storeId: storeId ? parseInt(storeId) : null,
+            supplierId: supplierId ? parseInt(supplierId) : null,
+            quantity: parseInt(quantity),
+            location,
+            inventoryType,
+            barcode,
+          })
+          .returning();
+
+        await recordOpeningStock(tx, {
+          inventoryId: created.id,
+          quantity: created.quantity,
+          reason: 'adjustment',
+          productId: created.productId,
+          storeId: created.storeId,
+          refType: 'inventory_create',
+          refId: created.id,
+          userId: req.user?.id ?? null,
+        });
+
+        return created;
+      });
 
       // Fetch complete inventory item with relations
       const inventoryWithRelations = await db.query.inventory.findFirst({
