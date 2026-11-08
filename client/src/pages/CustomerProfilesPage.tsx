@@ -28,7 +28,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { formatDate } from "@/lib/utils";
+import { formatDate } from "@/utils/format";
 import { CreateCustomerProfileDialog } from "@/components/CustomerProfiles/CreateCustomerProfileDialog";
 import { EditCustomerProfileDialog } from "@/components/CustomerProfiles/EditCustomerProfileDialog";
 import { useToast } from "@/hooks/use-toast";

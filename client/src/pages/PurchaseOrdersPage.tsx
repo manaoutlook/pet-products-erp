@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { formatCurrency, formatDate, formatDateTime, formatNumber } from "@/utils/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -35,7 +36,6 @@ import {
   Eye
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { formatDate } from "@/lib/utils";
 import { CreatePurchaseOrderDialog } from "@/components/PurchaseOrders/CreatePurchaseOrderDialog";
 
 interface Supplier {
@@ -146,7 +146,7 @@ function PurchaseOrdersPage() {
     // Simple print functionality - in a real app you'd generate a proper document
     const printContent = `
       Purchase Order: ${orderNumber}
-      Printed on: ${new Date().toLocaleDateString()}
+      Printed on: ${formatDate(new Date())}
     `;
     const printWindow = window.open('', '_blank');
     printWindow?.document.write(printContent);
@@ -272,7 +272,7 @@ function PurchaseOrdersPage() {
                     <TableCell>{order.supplier?.name}</TableCell>
                     <TableCell>{formatDate(order.createdAt)}</TableCell>
                     <TableCell>{formatDate(order.deliveryDate)}</TableCell>
-                    <TableCell>{Number(order.totalAmount).toLocaleString()}</TableCell>
+                    <TableCell>{formatNumber(order.totalAmount)}</TableCell>
                     <TableCell className="capitalize">{order.status}</TableCell>
                     <TableCell>
                       <div className="flex gap-1 flex-wrap">
@@ -384,7 +384,7 @@ function PurchaseOrdersPage() {
                                     <h4 className="font-semibold mb-2">Supplier Information</h4>
                                     <div className="space-y-1 text-sm">
                                       <div><strong>Name:</strong> {selectedOrderDetails.supplier?.name}</div>
-                                      <div><strong>Total Amount:</strong> {Number(selectedOrderDetails.totalAmount).toLocaleString()} VND</div>
+                                      <div><strong>Total Amount:</strong> {formatCurrency(selectedOrderDetails.totalAmount)}</div>
                                       <div><strong>Delivery Location:</strong> {selectedOrderDetails.destinationStore?.name || 'Main Warehouse'}</div>
                                     </div>
                                   </div>
@@ -410,8 +410,8 @@ function PurchaseOrdersPage() {
                                           <TableCell>{item.product.name}</TableCell>
                                           <TableCell className="font-mono text-sm">{item.product.sku}</TableCell>
                                           <TableCell className="text-right">{item.quantity}</TableCell>
-                                          <TableCell className="text-right">{Number(item.unitPrice).toLocaleString()}</TableCell>
-                                          <TableCell className="text-right">{Number(item.totalPrice).toLocaleString()}</TableCell>
+                                          <TableCell className="text-right">{formatNumber(item.unitPrice)}</TableCell>
+                                          <TableCell className="text-right">{formatNumber(item.totalPrice)}</TableCell>
                                           <TableCell className="text-right">
                                             <span className={item.deliveredQuantity === item.quantity ? "text-green-600" : "text-orange-600"}>
                                               {item.deliveredQuantity}/{item.quantity}
@@ -515,14 +515,7 @@ function PurchaseOrdersPage() {
                                           </div>
                                           <div className="flex items-center gap-1 text-xs text-muted-foreground ml-4">
                                             <Clock className="h-3 w-3" />
-                                            {new Date(action.performedAt).toLocaleString('en-US', {
-                                              year: 'numeric',
-                                              month: 'short',
-                                              day: 'numeric',
-                                              hour: '2-digit',
-                                              minute: '2-digit',
-                                              second: '2-digit'
-                                            })}
+                                            {formatDateTime(action.performedAt)}
                                           </div>
                                         </div>
                                       </div>

@@ -26,6 +26,7 @@ import { useTableControls } from "@/hooks/use-table-controls";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
+import { formatDate } from "@/utils/format";
 
 interface OrderItem {
   id: number;
@@ -159,7 +160,7 @@ function OrdersPage() {
                         {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
                       </div>
                     </TableCell>
-                    <TableCell>{new Date(order.createdAt).toLocaleDateString()}</TableCell>
+                    <TableCell>{formatDate(order.createdAt)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

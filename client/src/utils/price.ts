@@ -1,6 +1,12 @@
 /**
  * Price validation and formatting utilities
+ *
+ * Formatting itself lives in utils/format.ts (`formatCurrency`); this module keeps the
+ * price-specific validation and parsing and delegates the rendering, so a product price
+ * and a dashboard total cannot drift apart.
  */
+
+import { formatCurrency } from './format';
 
 // Constants for price validation
 export const PRICE_CONSTRAINTS = {
@@ -47,25 +53,8 @@ export function formatPrice(
     maximumFractionDigits?: number;
   } = {}
 ): string {
-  const numericPrice = typeof price === 'string' ? parseFloat(price) : price;
-
-  if (isNaN(numericPrice)) {
-    return '0 ₫';
-  }
-
-  const {
-    currency = 'VND',
-    locale = 'vi-VN',
-    minimumFractionDigits = PRICE_CONSTRAINTS.DECIMAL_PLACES,
-    maximumFractionDigits = PRICE_CONSTRAINTS.DECIMAL_PLACES,
-  } = options;
-
-  return new Intl.NumberFormat(locale, {
-    style: 'currency',
-    currency,
-    minimumFractionDigits,
-    maximumFractionDigits,
-  }).format(numericPrice);
+  // Delegated so a product price and a dashboard total use one implementation.
+  return formatCurrency(price, options);
 }
 
 /**

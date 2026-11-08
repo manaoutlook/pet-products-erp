@@ -55,6 +55,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { exportMasterData, type SpreadsheetFormat } from "@/utils/master-data-spreadsheet";
+import { formatDateTime } from "@/utils/format";
 
 // Category schema for form validation
 const categorySchema = z.object({
@@ -161,11 +162,11 @@ function CategoryPage() {
               </div>
               <div>
                 <label className="text-sm font-medium text-muted-foreground">Created At</label>
-                <p className="mt-1 text-sm text-foreground">{new Date(category.createdAt).toLocaleString()}</p>
+                <p className="mt-1 text-sm text-foreground">{formatDateTime(category.createdAt)}</p>
               </div>
               <div>
                 <label className="text-sm font-medium text-muted-foreground">Updated At</label>
-                <p className="mt-1 text-sm text-foreground">{new Date(category.updatedAt).toLocaleString()}</p>
+                <p className="mt-1 text-sm text-foreground">{formatDateTime(category.updatedAt)}</p>
               </div>
             </div>
           </div>
@@ -626,8 +627,8 @@ function CategoryPage() {
                     <TableCell>{category.name}</TableCell>
                     <TableCell>{category.description}</TableCell>
                     <TableCell>{category.parentId ? categoryMap?.[category.parentId] || 'Parent Category' : 'Root category'}</TableCell>
-                    <TableCell>{new Date(category.createdAt).toLocaleString()}</TableCell>
-                    <TableCell>{new Date(category.updatedAt).toLocaleString()}</TableCell>
+                    <TableCell>{formatDateTime(category.createdAt)}</TableCell>
+                    <TableCell>{formatDateTime(category.updatedAt)}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Button

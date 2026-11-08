@@ -55,6 +55,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { exportMasterData, type SpreadsheetFormat } from "@/utils/master-data-spreadsheet";
+import { formatDateTime } from "@/utils/format";
 
 function BrandsPage() {
   const [search, setSearch] = useState("");
@@ -98,11 +99,11 @@ function BrandsPage() {
               </div>
               <div>
                 <label className="text-sm font-medium text-muted-foreground">Created At</label>
-                <p className="mt-1 text-sm text-foreground">{new Date(brand.createdAt!).toLocaleString()}</p>
+                <p className="mt-1 text-sm text-foreground">{formatDateTime(brand.createdAt)}</p>
               </div>
               <div>
                 <label className="text-sm font-medium text-muted-foreground">Updated At</label>
-                <p className="mt-1 text-sm text-foreground">{new Date(brand.updatedAt!).toLocaleString()}</p>
+                <p className="mt-1 text-sm text-foreground">{formatDateTime(brand.updatedAt)}</p>
               </div>
             </div>
           </div>

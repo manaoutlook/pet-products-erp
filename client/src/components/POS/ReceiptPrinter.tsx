@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { formatDateTime } from "@/utils/format";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -167,7 +168,7 @@ export function ReceiptPrinter({ receiptData, onPrint, onClose }: ReceiptPrinter
       doc.text(`Invoice: ${receiptData.invoiceNumber}`, 5, yPosition);
       yPosition += 4;
 
-      const date = new Date(receiptData.transactionDate).toLocaleString();
+      const date = formatDateTime(receiptData.transactionDate);
       doc.text(`Date: ${date}`, 5, yPosition);
       yPosition += 4;
 
@@ -305,7 +306,7 @@ export function ReceiptPrinter({ receiptData, onPrint, onClose }: ReceiptPrinter
             </div>
             <div className="flex justify-between">
               <span>Date:</span>
-              <span>{new Date(receiptData.transactionDate).toLocaleString()}</span>
+              <span>{formatDateTime(receiptData.transactionDate)}</span>
             </div>
             <div className="flex justify-between">
               <span>Cashier:</span>

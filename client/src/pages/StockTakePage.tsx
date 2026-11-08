@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { formatDateTime } from "@/utils/format";
 import {
   Table,
   TableBody,
@@ -76,7 +77,7 @@ function VarianceBadge({ variance }: { variance: number | null }) {
 
 function formatCountedAt(value: string | null) {
   if (!value) return "never counted";
-  return new Date(value).toLocaleString();
+  return formatDateTime(value);
 }
 
 export default function StockTakePage() {

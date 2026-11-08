@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { formatDate } from "@/utils/format";
 
 /** Direction of a column sort. */
 export type SortDirection = "asc" | "desc";
@@ -73,7 +74,7 @@ export function normalizeText(value: string): string {
 
 function toSearchText(value: ColumnValue): string {
   if (value === null || value === undefined) return "";
-  if (value instanceof Date) return value.toLocaleDateString();
+  if (value instanceof Date) return formatDate(value);
   // Booleans are searchable both as words and as raw flag text.
   if (typeof value === "boolean") return value ? "yes true" : "no false";
   return String(value);

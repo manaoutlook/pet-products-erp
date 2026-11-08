@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
 import { usePermissions } from "@/hooks/use-permissions";
+import { formatDate, formatDateTime } from "@/utils/format";
 
 const createTransferSchema = z.object({
   fromStoreId: z.string().min(1, "Source store is required"),
@@ -747,7 +748,7 @@ function TransferPage() {
                     </TableCell>
                     <TableCell>{transfer.requestedByUser.username}</TableCell>
                     <TableCell>
-                      {new Date(transfer.requestedAt).toLocaleDateString()}
+                      {formatDate(transfer.requestedAt)}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
@@ -819,7 +820,7 @@ function TransferPage() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Requested At:</span>
-                      <span>{new Date(selectedTransfer.requestedAt).toLocaleString()}</span>
+                      <span>{formatDateTime(selectedTransfer.requestedAt)}</span>
                     </div>
                   </div>
                 </div>

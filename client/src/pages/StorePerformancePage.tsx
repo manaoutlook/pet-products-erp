@@ -19,6 +19,7 @@ import {
   ResponsiveContainer
 } from "recharts";
 import { Loader2 } from "lucide-react";
+import { formatCurrency, formatDate, formatMonthLabel, formatPercent } from "@/utils/format";
 
 interface StoreMetrics {
   storeId: number;
@@ -66,16 +67,9 @@ function StorePerformancePage() {
   const historicalData = data?.historicalData || [];
   const inventoryStatus = data?.inventoryStatus || [];
 
-  // Format currency for VND
-  const formatCurrency = (value: number) => 
-    new Intl.NumberFormat('vi-VN', {
-      style: 'currency',
-      currency: 'VND'
-    }).format(value);
-
-  // Format percentage
-  const formatPercentage = (value: number) => 
-    `${(value * 100).toFixed(1)}%`;
+  // Amounts and percentages come from utils/format.ts: this page used to build its own
+  // Intl.NumberFormat here and format percentages with toFixed, so it disagreed with
+  // the rest of the app (grouping and decimal places).
 
   return (
     <div className="p-6 space-y-6">
@@ -98,8 +92,6 @@ function StorePerformancePage() {
                   formatter={(value: number) => formatCurrency(value)}
                   labelFormatter={(label) => `Store: ${label}`}
                 />
-                <Legend />
-                <Bar dataKey="revenue" name="Revenue" fill="hsl(var(--primary))" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -162,8 +154,8 @@ function StorePerformancePage() {
                 <BarChart data={currentMetrics}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="storeName" />
-                  <YAxis tickFormatter={(value) => formatPercentage(value)} />
-                  <Tooltip formatter={(value: number) => formatPercentage(value)} />
+                  <YAxis tickFormatter={(value) => formatPercent(value)} />
+                  <Tooltip formatter={(value: number) => formatPercent(value)} />
                   <Bar dataKey="fulfillmentRate" name="Fulfillment Rate" fill="hsl(var(--primary))" />
                 </BarChart>
               </ResponsiveContainer>
@@ -187,16 +179,13 @@ function StorePerformancePage() {
                   dataKey="month" 
                   tickFormatter={(value) => {
                     const date = new Date(value);
-                    return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+                    return formatMonthLabel(date);
                   }}
                 />
                 <YAxis tickFormatter={(value) => formatCurrency(value)} />
                 <Tooltip 
                   formatter={(value: number) => formatCurrency(value)}
-                  labelFormatter={(label) => new Date(label).toLocaleDateString('en-US', { 
-                    month: 'long',
-                    year: 'numeric'
-                  })}
+                  labelFormatter={(label) => formatDate(label, { month: 'long', year: 'numeric' })}
                 />
                 <Legend />
                 {currentMetrics.map((store) => (

@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { formatDateTime } from "@/utils/format";
 import {
   Table,
   TableBody,
@@ -102,11 +103,11 @@ function SuppliersPage() {
               </div>
               <div>
                 <label className="text-sm font-medium text-muted-foreground">Created At</label>
-                <p className="mt-1 text-sm text-foreground">{new Date(supplier.createdAt!).toLocaleString()}</p>
+                <p className="mt-1 text-sm text-foreground">{formatDateTime(supplier.createdAt)}</p>
               </div>
               <div>
                 <label className="text-sm font-medium text-muted-foreground">Updated At</label>
-                <p className="mt-1 text-sm text-foreground">{new Date(supplier.updatedAt!).toLocaleString()}</p>
+                <p className="mt-1 text-sm text-foreground">{formatDateTime(supplier.updatedAt)}</p>
               </div>
             </div>
           </div>

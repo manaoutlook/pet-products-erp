@@ -2,6 +2,7 @@ import * as React from "react"
 import * as RechartsPrimitive from "recharts"
 
 import { cn } from "@/lib/utils"
+import { formatNumber } from "@/utils/format"
 
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: "", dark: ".dark" } as const
@@ -238,7 +239,11 @@ const ChartTooltipContent = React.forwardRef<
                       </div>
                       {item.value && (
                         <span className="font-mono font-medium tabular-nums text-foreground">
-                          {item.value.toLocaleString()}
+                          {formatNumber(
+                            // recharts types this as ValueType (number | string | array); the
+                            // tooltip only ever shows a single measure here.
+                            Array.isArray(item.value) ? item.value.join(', ') : (item.value as number | string),
+                          )}
                         </span>
                       )}
                     </div>

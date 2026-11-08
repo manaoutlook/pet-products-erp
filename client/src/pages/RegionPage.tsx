@@ -59,6 +59,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { formatDate } from "@/utils/format";
 
 const createRegionSchema = z.object({
   name: z.string().min(1, "Region name is required"),
@@ -439,7 +440,7 @@ function RegionPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {new Date(region.createdAt).toLocaleDateString()}
+                      {formatDate(region.createdAt)}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
