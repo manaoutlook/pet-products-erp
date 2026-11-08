@@ -47,23 +47,19 @@ export const crypto = {
       }
 
       const salt = randomBytes(16).toString("hex");
-      console.log(`Generating hash for password with salt: ${salt}`);
 
       const derivedKey = (await scryptAsync(password, salt, 64)) as Buffer;
       const hashedPassword = `${derivedKey.toString("hex")}.${salt}`;
 
-      console.log(`Successfully generated password hash. Length: ${hashedPassword.length}`);
       return hashedPassword;
     } catch (error) {
-      console.error('Error in password hashing:', error);
+      console.error('Error in password hashing:', error instanceof Error ? error.message : 'unknown error');
       throw new Error('Failed to secure password. Please try again.');
     }
   },
 
   compare: async (suppliedPassword: string, storedPassword: string) => {
     try {
-      console.log('Starting password comparison...');
-
       // Validate inputs
       if (!suppliedPassword || !storedPassword) {
         throw new Error('Both supplied and stored passwords are required');
@@ -72,11 +68,11 @@ export const crypto = {
       // Split stored password into hash and salt
       const [storedHash, salt] = storedPassword.split(".");
       if (!storedHash || !salt) {
-        console.error('Invalid stored password format:', { storedPassword });
+        // Never log the stored value - it is the password hash and salt.
+        console.error('Stored password has an unexpected format (expected "hash.salt")');
         throw new Error('Invalid stored password format');
       }
 
-      console.log('Generating hash with stored salt for comparison');
       const derivedKey = (await scryptAsync(suppliedPassword, salt, 64)) as Buffer;
       const suppliedHash = derivedKey.toString("hex");
 
@@ -84,17 +80,11 @@ export const crypto = {
       const storedBuffer = Buffer.from(storedHash, "hex");
       const suppliedBuffer = Buffer.from(suppliedHash, "hex");
 
-      console.log('Comparing password hashes...', {
-        storedHashLength: storedHash.length,
-        suppliedHashLength: suppliedHash.length
-      });
-
       const isMatch = timingSafeEqual(storedBuffer, suppliedBuffer);
-      console.log(`Password comparison result: ${isMatch}`);
 
       return isMatch;
     } catch (error: any) {
-      console.error('Error comparing passwords:', error);
+      console.error('Error comparing passwords:', error instanceof Error ? error.message : 'unknown error');
       if (error.message === 'Invalid stored password format') {
         throw error;
       }
@@ -140,8 +130,6 @@ export async function setupAdmin() {
       throw new Error('Failed to create or find admin role');
     }
 
-    console.log('Admin role:', role);
-
     // Create admin user if it doesn't exist
     const [existingAdmin] = await db
       .select()
@@ -163,7 +151,7 @@ export async function setupAdmin() {
       console.log('Admin user created successfully');
     }
   } catch (error) {
-    console.error('Error setting up admin user:', error);
+    console.error('Error setting up admin user:', error instanceof Error ? error.message : 'unknown error');
     throw error;
   }
 }
@@ -220,8 +208,6 @@ export function setupAuth(app: Express) {
   passport.use(
     new LocalStrategy(async (username, password, done) => {
       try {
-        console.log(`Attempting login for user: ${username}`);
-
         // Convert username to lowercase for consistency
         const normalizedUsername = username.toLowerCase();
 
@@ -245,37 +231,31 @@ export function setupAuth(app: Express) {
           .limit(1);
 
         if (!user) {
-          console.log('User not found in database');
-          return done(null, false, { message: "Username not found" });
+          return done(null, false, { message: "Invalid username or password" });
         }
 
-        console.log('Found user, verifying password...');
         const isMatch = await crypto.compare(password, user.password);
 
         if (!isMatch) {
-          console.log('Password verification failed');
-          return done(null, false, { message: "Incorrect password" });
+          return done(null, false, { message: "Invalid username or password" });
         }
 
         // Don't include password in the user object
         const { password: _, ...userWithoutPassword } = user;
-        console.log('Login successful:', userWithoutPassword);
         return done(null, userWithoutPassword as Express.User);
       } catch (err) {
-        console.error('Login error:', err);
+        console.error('Login error:', err instanceof Error ? err.message : 'unknown error');
         return done(err);
       }
     })
   );
 
   passport.serializeUser((user, done) => {
-    console.log('Serializing user:', { id: user.id, username: user.username, role: user.role });
     done(null, { id: user.id, username: user.username, role: user.role });
   });
 
   passport.deserializeUser(async (serializedUser: Express.User, done) => {
     try {
-      console.log('Deserializing user:', serializedUser);
       // Include role information in deserialization query
       const [user] = await db
         .select({
@@ -298,26 +278,17 @@ export function setupAuth(app: Express) {
         return done(new Error("User not found"));
       }
 
-      console.log('User deserialized:', user);
       done(null, user as Express.User);
     } catch (err) {
-      console.error('Deserialization error:', err);
+      console.error('Deserialization error:', err instanceof Error ? err.message : 'unknown error');
       done(err);
     }
   });
 
   app.post("/api/login", (req, res, next) => {
-    console.log('Login request received:', {
-      username: req.body.username,
-      hasPassword: !!req.body.password
-    });
-
     passport.authenticate("local", (err: any, user: Express.User | false, info: any) => {
       if (err) {
-        console.error('Login authentication error:', {
-          error: err.message,
-          stack: err.stack
-        });
+        console.error('Login authentication error:', err instanceof Error ? err.message : 'unknown error');
         return res.status(500).json({
           message: "Internal server error",
           suggestion: "Please try again later. If the problem persists, contact support."
@@ -325,36 +296,26 @@ export function setupAuth(app: Express) {
       }
 
       if (!user) {
-        console.log('Login failed:', {
-          reason: info.message,
-          username: req.body.username
-        });
+        // AI Agent Note: log only the attempted username. The reason ("username
+        // not found" vs "incorrect password") must never reach the logs or the
+        // client - it is a free account-enumeration oracle.
+        console.warn('[auth] login failed for username:', req.body?.username);
         return res.status(400).json({
-          message: info.message || "Invalid credentials",
-          suggestion: info.message?.includes("password")
-            ? "Please check your password and try again"
-            : "Please check your username and try again"
+          message: "Invalid username or password",
+          suggestion: "Please check your credentials and try again"
         });
       }
 
       req.logIn(user, (err) => {
         if (err) {
-          console.error('Login session error:', {
-            error: err.message,
-            stack: err.stack,
-            userId: user.id
-          });
+          console.error('Login session error:', err instanceof Error ? err.message : 'unknown error');
           return res.status(500).json({
             message: "Failed to create session",
             suggestion: "Please try again. If the problem persists, clear your browser cookies."
           });
         }
 
-        console.log('Login successful:', {
-          userId: user.id,
-          username: user.username,
-          role: user.role.name
-        });
+        console.log('[auth] login ok for user', user.id);
 
         return res.json({
           message: "Login successful",
@@ -389,11 +350,6 @@ export function setupAuth(app: Express) {
   });
 
   app.get("/api/user", (req, res) => {
-    console.log('User info request:', {
-      isAuthenticated: req.isAuthenticated(),
-      user: req.user
-    });
-
     if (req.isAuthenticated()) {
       const { id, username, role } = req.user;
       return res.json({ id, username, role });
