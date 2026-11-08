@@ -89,7 +89,7 @@ export function QuickAddProduct() {
       queryClient.invalidateQueries({ queryKey: ['/api/products'] });
       setOpen(false);
       methods.reset();
-      toast({ title: "Success", description: "Product created successfully" });
+      toast({ title: "Success", description: "Product created successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -226,7 +226,7 @@ export function QuickAddProduct() {
               )}
             />
 
-            <Button
+            <Button variant="create"
               type="submit"
               className="w-full"
               disabled={createProductMutation.isPending}

@@ -116,6 +116,7 @@ export function ReceiptPrinter({ receiptData, onPrint, onClose }: ReceiptPrinter
       toast({
         title: "Receipt Downloaded",
         description: "Receipt has been saved to your downloads",
+        variant: "success",
       });
     }
   };
@@ -243,6 +244,7 @@ export function ReceiptPrinter({ receiptData, onPrint, onClose }: ReceiptPrinter
       toast({
         title: "PDF Downloaded",
         description: "Receipt PDF has been saved to your downloads",
+        variant: "success",
       });
     } catch (error) {
       console.error('PDF generation error:', error);
@@ -325,7 +327,7 @@ export function ReceiptPrinter({ receiptData, onPrint, onClose }: ReceiptPrinter
                     <span className="flex-1">{item.product.name}</span>
                     <span>${Number(item.unitPrice).toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between text-xs text-gray-600">
+                  <div className="flex justify-between text-xs text-muted-foreground">
                     <span>Qty: {item.quantity}</span>
                     <span>Total: ${Number(item.totalPrice).toFixed(2)}</span>
                   </div>

@@ -7,9 +7,9 @@ interface MainLayoutProps {
 
 function MainLayout({ children }: MainLayoutProps) {
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen flex bg-background text-foreground">
       <Sidebar />
-      <main className="flex-1 bg-background overflow-y-auto">
+      <main className="flex-1 overflow-y-auto bg-background">
         {children}
       </main>
     </div>

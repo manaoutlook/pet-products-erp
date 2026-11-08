@@ -28,6 +28,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
+import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
+import { useTableControls } from "@/hooks/use-table-controls";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -43,7 +46,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import type { InsertUser, SelectUser, SelectRole } from "@db/schema";
 import { insertUserSchema } from "@db/schema";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2 } from "lucide-react";
 import { FC } from 'react';
 
 interface UserWithRole extends Omit<SelectUser, 'roleId'> {
@@ -79,7 +82,7 @@ function UsersPage() {
     onSuccess: () => {
       refetch();
       setDialogOpen(false);
-      toast({ title: "Success", description: "User created successfully" });
+      toast({ title: "Success", description: "User created successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -110,7 +113,7 @@ function UsersPage() {
     onSuccess: () => {
       refetch();
       setDialogOpen(false);
-      toast({ title: "Success", description: "User updated successfully" });
+      toast({ title: "Success", description: "User updated successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -132,7 +135,7 @@ function UsersPage() {
     },
     onSuccess: () => {
       refetch();
-      toast({ title: "Success", description: "User deleted successfully" });
+      toast({ title: "Success", description: "User deleted successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -152,11 +155,26 @@ function UsersPage() {
     },
   });
 
-  const filteredUsers = users?.filter((user: UserWithRole) => {
-    const matchesSearch = user.username.toLowerCase().includes(search.toLowerCase());
-    const matchesRole = roleFilter === "all" || user.role.id.toString() === roleFilter;
-    return matchesSearch && matchesRole;
-  });
+  // Header controls: click a column header to sort it (asc -> desc -> none) and
+  // use the small input under a header to filter that single column.
+  const usersTable = useTableControls(
+    users,
+    {
+      username: (user) => user.username,
+      role: (user) => `${user.role.name}${user.role.isSystemAdmin ? ' (Admin)' : ''}`,
+    },
+    {
+      // The page level search box and role filter stay the primary filters.
+      filter: (user) => {
+        const matchesSearch = user.username.toLowerCase().includes(search.toLowerCase());
+        const matchesRole = roleFilter === "all" || user.role.id.toString() === roleFilter;
+        return matchesSearch && matchesRole;
+      },
+    }
+  );
+
+  // Rows currently visible (search + role filter + column filters + sorting).
+  const filteredUsers: UserWithRole[] = usersTable.rows;
 
   const onSubmit = async (data: InsertUser) => {
     try {
@@ -193,7 +211,7 @@ function UsersPage() {
         <h1 className="text-3xl font-bold tracking-tight">Users</h1>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button onClick={() => {
+            <Button variant="create" onClick={() => {
               setEditingUser(null);
               form.reset({
                 username: "",
@@ -264,7 +282,7 @@ function UsersPage() {
                     </FormItem>
                   )}
                 />
-                <Button
+                <Button variant={editingUser ? 'update' : 'create'}
                   type="submit"
                   className="w-full"
                   disabled={form.formState.isSubmitting}
@@ -284,15 +302,12 @@ function UsersPage() {
         <CardHeader>
           <CardTitle>User List</CardTitle>
           <div className="flex items-center gap-4">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search users..."
-                className="pl-8"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
+            <SearchInput
+              containerClassName="flex-1 max-w-sm"
+              placeholder="Search users..."
+              value={search}
+              onValueChange={setSearch}
+            />
             <Select value={roleFilter} onValueChange={setRoleFilter}>
               <SelectTrigger className="w-48">
                 <SelectValue placeholder="Filter by role" />
@@ -314,12 +329,14 @@ function UsersPage() {
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
           ) : (
+            <>
+            <TableControlsBar controls={usersTable} noun="users" />
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Username</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <ColumnHeader controls={usersTable} columnKey="username" label="Username" filterPlaceholder="Filter username" />
+                  <ColumnHeader controls={usersTable} columnKey="role" label="Role" filterPlaceholder="Filter role" />
+                  <TableHead className="align-top">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -357,6 +374,7 @@ function UsersPage() {
                 ))}
               </TableBody>
             </Table>
+            </>
           )}
         </CardContent>
       </Card>

@@ -109,6 +109,23 @@ describe('Product Import', () => {
                 .where(eq(products.sku, 'IMP-001'));
             expect(product.minStock).toBe(10);
         });
+
+        it('stores the weight in kilograms, including sub-kilo decimals', async () => {
+            await importProducts([{ ...validRow, weightKg: '0.35' }]);
+
+            const [product] = await db
+                .select()
+                .from(products)
+                .where(eq(products.sku, 'IMP-001'));
+            expect(Number(product.weightKg)).toBeCloseTo(0.35, 3);
+        });
+
+        it('rejects a negative weight', async () => {
+            const result = await importProducts([{ ...validRow, weightKg: '-1' }]);
+
+            expect(result.created).toBe(0);
+            expect(result.errors[0]?.message).toMatch(/Weight must be a positive number of kilograms/i);
+        });
     });
 
     describe('Updating existing products', () => {

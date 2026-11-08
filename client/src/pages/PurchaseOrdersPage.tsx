@@ -10,7 +10,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
+import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
+import { useTableControls } from "@/hooks/use-table-controls";
 import {
   Dialog,
   DialogContent,
@@ -30,7 +32,6 @@ import {
   History,
   Clock,
   User,
-  Search,
   Eye
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -129,6 +130,7 @@ function PurchaseOrdersPage() {
       toast({
         title: "Success",
         description: "Action logged successfully",
+        variant: "success",
       });
     },
     onError: (error: Error) => {
@@ -201,12 +203,30 @@ function PurchaseOrdersPage() {
   };
 
   // Filter purchase orders based on search term
-  const filteredPurchaseOrders = purchaseOrders?.filter((order: PurchaseOrder) =>
-    order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    order.supplier?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    order.status.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    order.totalAmount.toString().includes(searchTerm)
+  // Header controls: click a column header to sort it (asc -> desc -> none) and
+  // use the small input under a header to filter that single column.
+  const purchaseOrdersTable = useTableControls(
+    purchaseOrders,
+    {
+      orderNumber: (order) => order.orderNumber,
+      supplier: (order) => order.supplier?.name,
+      orderDate: (order) => (order.createdAt ? new Date(order.createdAt) : null),
+      deliveryDate: (order) => (order.deliveryDate ? new Date(order.deliveryDate) : null),
+      totalAmount: (order) => Number(order.totalAmount),
+      status: (order) => order.status,
+    },
+    {
+      // The page level search box stays the primary, whole row search.
+      filter: (order) =>
+        order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        order.supplier?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        order.status.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        order.totalAmount.toString().includes(searchTerm),
+    }
   );
+
+  // Rows currently visible (search + column filters + sorting).
+  const filteredPurchaseOrders = purchaseOrdersTable.rows;
 
   return (
     <div className="space-y-6 p-6">
@@ -219,31 +239,30 @@ function PurchaseOrdersPage() {
         <CardHeader>
           <CardTitle>Purchase Order List</CardTitle>
           <div className="flex items-center gap-4">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search purchase orders..."
-                className="pl-8"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
+            <SearchInput
+              containerClassName="flex-1 max-w-sm"
+              placeholder="Search purchase orders..."
+              value={searchTerm}
+              onValueChange={setSearchTerm}
+            />
           </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <div className="text-center py-4">Loading purchase orders...</div>
           ) : (
+            <>
+            <TableControlsBar controls={purchaseOrdersTable} noun="purchase orders" />
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Order Number</TableHead>
-                  <TableHead>Supplier</TableHead>
-                  <TableHead>Order Date</TableHead>
-                  <TableHead>Delivery Date</TableHead>
-                  <TableHead>Total Amount (VND)</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <ColumnHeader controls={purchaseOrdersTable} columnKey="orderNumber" label="Order Number" filterPlaceholder="Filter order no." />
+                  <ColumnHeader controls={purchaseOrdersTable} columnKey="supplier" label="Supplier" filterPlaceholder="Filter supplier" />
+                  <ColumnHeader controls={purchaseOrdersTable} columnKey="orderDate" label="Order Date" filterPlaceholder="Filter order date" />
+                  <ColumnHeader controls={purchaseOrdersTable} columnKey="deliveryDate" label="Delivery Date" filterPlaceholder="Filter delivery date" />
+                  <ColumnHeader controls={purchaseOrdersTable} columnKey="totalAmount" label="Total Amount (VND)" filterPlaceholder="Filter total" />
+                  <ColumnHeader controls={purchaseOrdersTable} columnKey="status" label="Status" filterPlaceholder="Filter status" />
+                  <TableHead className="align-top">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -519,6 +538,7 @@ function PurchaseOrdersPage() {
                 ))}
               </TableBody>
             </Table>
+            </>
           )}
         </CardContent>
       </Card>

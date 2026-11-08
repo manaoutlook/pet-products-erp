@@ -20,10 +20,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
+import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
+import { useTableControls } from "@/hooks/use-table-controls";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
-import { Loader2, Search } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 interface OrderItem {
   id: number;
@@ -53,19 +55,37 @@ function OrdersPage() {
     queryKey: ['/api/orders'],
   });
 
-  const filteredOrders = orders?.filter(order => 
-    (order.customerName.toLowerCase().includes(search.toLowerCase()) ||
-     order.customerEmail.toLowerCase().includes(search.toLowerCase())) &&
-    (statusFilter === "all" || order.status === statusFilter)
+  // Header controls: click a column header to sort it (asc -> desc -> none) and
+  // use the small input under a header to filter that single column.
+  const ordersTable = useTableControls(
+    orders,
+    {
+      orderId: (order) => order.id,
+      customer: (order) => `${order.customerName} ${order.customerEmail}`,
+      items: (order) => order.items.length,
+      total: (order) => order.total,
+      status: (order) => order.status,
+      date: (order) => new Date(order.createdAt),
+    },
+    {
+      // The page level search box and status filter stay the primary filters.
+      filter: (order) =>
+        (order.customerName.toLowerCase().includes(search.toLowerCase()) ||
+          order.customerEmail.toLowerCase().includes(search.toLowerCase())) &&
+        (statusFilter === "all" || order.status === statusFilter),
+    }
   );
+
+  // Rows currently visible (search + status filter + column filters + sorting).
+  const filteredOrders = ordersTable.rows;
 
   const getStatusColor = (status: Order['status']) => {
     const colors = {
-      pending: 'bg-yellow-100 text-yellow-800',
-      processing: 'bg-blue-100 text-blue-800',
-      shipped: 'bg-purple-100 text-purple-800',
-      delivered: 'bg-green-100 text-green-800',
-      cancelled: 'bg-red-100 text-red-800'
+      pending: 'bg-warning-subtle text-warning-subtle-foreground',
+      processing: 'bg-info-subtle text-info-subtle-foreground',
+      shipped: 'bg-primary-subtle text-primary-subtle-foreground',
+      delivered: 'bg-success-subtle text-success-subtle-foreground',
+      cancelled: 'bg-destructive-subtle text-destructive-subtle-foreground'
     };
     return colors[status];
   };
@@ -80,15 +100,12 @@ function OrdersPage() {
         <CardHeader>
           <CardTitle>Order List</CardTitle>
           <div className="flex items-center gap-4">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search orders..."
-                className="pl-8"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
+            <SearchInput
+              containerClassName="flex-1 max-w-sm"
+              placeholder="Search orders..."
+              value={search}
+              onValueChange={setSearch}
+            />
             <Select
               value={statusFilter}
               onValueChange={setStatusFilter}
@@ -114,15 +131,17 @@ function OrdersPage() {
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
           ) : (
+            <>
+            <TableControlsBar controls={ordersTable} noun="orders" />
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Order ID</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Items</TableHead>
-                  <TableHead>Total</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Date</TableHead>
+                  <ColumnHeader controls={ordersTable} columnKey="orderId" label="Order ID" filterPlaceholder="Filter order ID" />
+                  <ColumnHeader controls={ordersTable} columnKey="customer" label="Customer" filterPlaceholder="Filter customer" />
+                  <ColumnHeader controls={ordersTable} columnKey="items" label="Items" filterPlaceholder="Filter items" />
+                  <ColumnHeader controls={ordersTable} columnKey="total" label="Total" filterPlaceholder="Filter total" />
+                  <ColumnHeader controls={ordersTable} columnKey="status" label="Status" filterPlaceholder="Filter status" />
+                  <ColumnHeader controls={ordersTable} columnKey="date" label="Date" filterPlaceholder="Filter date" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -145,6 +164,7 @@ function OrdersPage() {
                 ))}
               </TableBody>
             </Table>
+            </>
           )}
         </CardContent>
       </Card>

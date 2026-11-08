@@ -23,7 +23,11 @@ export type ProductImportFieldKey =
   | "landingPrice"
   | "b2bPrice"
   | "b2cPrice"
-  | "minStock";
+  | "minStock"
+  | "weightKg"
+  | "lengthCm"
+  | "widthCm"
+  | "heightCm";
 
 interface ImportFieldDefinition {
   key: ProductImportFieldKey;
@@ -47,6 +51,10 @@ export const PRODUCT_IMPORT_FIELDS: ImportFieldDefinition[] = [
   { key: "b2bPrice", label: "B2B Price", aliases: ["b2bprice", "b2b", "wholesaleprice", "wholesale"] },
   { key: "b2cPrice", label: "B2C Price", aliases: ["b2cprice", "b2c", "retailprice", "retail", "sellingprice", "saleprice", "price"], required: true },
   { key: "minStock", label: "Min Stock", aliases: ["minstock", "minstocklevel", "minimumstock", "reorderlevel", "reorderpoint", "minlevel"] },
+  { key: "weightKg", label: "Weight (kg)", aliases: ["weightkg", "weightkgs", "weightkilogram", "weightkilograms", "weight", "grossweight", "itemweight"] },
+  { key: "lengthCm", label: "Length (cm)", aliases: ["lengthcm", "length", "itemlength"] },
+  { key: "widthCm", label: "Width (cm)", aliases: ["widthcm", "width", "itemwidth"] },
+  { key: "heightCm", label: "Height (cm)", aliases: ["heightcm", "height", "itemheight"] },
 ];
 
 /** Header text -> lookup key: lower case, letters/digits only. */
@@ -187,6 +195,10 @@ export interface ExportableProduct {
   b2bPrice?: string | number | null;
   b2cPrice?: string | number | null;
   minStock?: number | null;
+  weightKg?: string | number | null;
+  lengthCm?: string | number | null;
+  widthCm?: string | number | null;
+  heightCm?: string | number | null;
   category?: { name: string } | null;
   brand?: { name: string } | null;
   supplier?: { name: string } | null;
@@ -217,6 +229,10 @@ export const EXPORT_COLUMNS: {
   { header: "B2B Price", value: (product) => toNumberOrBlank(product.b2bPrice) },
   { header: "B2C Price", value: (product) => toNumberOrBlank(product.b2cPrice ?? product.price) },
   { header: "Min Stock", value: (product) => product.minStock ?? 0 },
+  { header: "Weight (kg)", value: (product) => toNumberOrBlank(product.weightKg) },
+  { header: "Length (cm)", value: (product) => toNumberOrBlank(product.lengthCm) },
+  { header: "Width (cm)", value: (product) => toNumberOrBlank(product.widthCm) },
+  { header: "Height (cm)", value: (product) => toNumberOrBlank(product.heightCm) },
   { header: "Current Stock", value: (product) => stockOf(product) },
   {
     header: "Status",
@@ -304,9 +320,16 @@ export async function downloadImportTemplate(format: ExportFormat = "xlsx"): Pro
     "B2B Price": 24000,
     "B2C Price": 32000,
     "Min Stock": 10,
+    "Weight (kg)": 0.012,
+    "Length (cm)": 14,
+    "Width (cm)": 1,
+    "Height (cm)": 1,
   };
 
-  const headers = EXPORT_COLUMNS.slice(0, 10).map((column) => column.header);
+  // The template columns mirror exactly the importable fields (the same list the
+  // importer parses headers against), so every header it understands - including
+  // weight/dimensions - is always present in the downloaded file.
+  const headers = PRODUCT_IMPORT_FIELDS.map((field) => field.label);
   const sheet = XLSX.utils.json_to_sheet([sample], { header: headers });
   sheet["!cols"] = headers.map((header) => ({ wch: Math.max(header.length + 2, 14) }));
 

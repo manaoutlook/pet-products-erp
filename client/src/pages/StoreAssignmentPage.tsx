@@ -28,6 +28,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
+import { useTableControls } from "@/hooks/use-table-controls";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Plus, Trash2 } from "lucide-react";
@@ -91,6 +93,13 @@ function StoreAssignmentPage() {
     }
   });
 
+  // Header controls: click a column header to sort it (asc -> desc -> none) and
+  // use the small input under a header to filter that single column.
+  const assignmentsTable = useTableControls(assignments, {
+    user: (assignment: StoreAssignment) => assignment.user.username,
+    store: (assignment: StoreAssignment) => assignment.store.name,
+  });
+
   const createAssignmentMutation = useMutation({
     mutationFn: async (data: { userId: number; storeId: number }) => {
       const res = await fetch('/api/store-assignments', {
@@ -105,7 +114,7 @@ function StoreAssignmentPage() {
     onSuccess: () => {
       refetchAssignments();
       setDialogOpen(false);
-      toast({ title: "Success", description: "Store assignment created successfully" });
+      toast({ title: "Success", description: "Store assignment created successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -127,7 +136,7 @@ function StoreAssignmentPage() {
     },
     onSuccess: () => {
       refetchAssignments();
-      toast({ title: "Success", description: "Store assignment deleted successfully" });
+      toast({ title: "Success", description: "Store assignment deleted successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -235,16 +244,18 @@ function StoreAssignmentPage() {
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
           ) : (
+            <>
+            <TableControlsBar controls={assignmentsTable} noun="assignments" />
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>User</TableHead>
-                  <TableHead>Store</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <ColumnHeader controls={assignmentsTable} columnKey="user" label="User" filterPlaceholder="Filter user" />
+                  <ColumnHeader controls={assignmentsTable} columnKey="store" label="Store" filterPlaceholder="Filter store" />
+                  <TableHead className="align-top">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {assignments?.map((assignment: StoreAssignment) => (
+                {assignmentsTable.rows.map((assignment: StoreAssignment) => (
                   <TableRow key={assignment.id}>
                     <TableCell>{assignment.user.username}</TableCell>
                     <TableCell>{assignment.store.name}</TableCell>
@@ -266,6 +277,7 @@ function StoreAssignmentPage() {
                 ))}
               </TableBody>
             </Table>
+            </>
           )}
         </CardContent>
       </Card>

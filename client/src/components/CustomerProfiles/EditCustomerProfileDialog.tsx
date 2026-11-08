@@ -110,6 +110,7 @@ export function EditCustomerProfileDialog({ profile, open, onOpenChange }: EditC
       toast({
         title: "Success",
         description: "Customer profile updated successfully",
+        variant: "success",
       });
       onOpenChange(false);
     },
@@ -251,7 +252,7 @@ export function EditCustomerProfileDialog({ profile, open, onOpenChange }: EditC
               >
                 Cancel
               </Button>
-              <Button
+              <Button variant="update"
                 type="submit"
                 disabled={updateCustomerProfile.isPending}
               >

@@ -60,6 +60,7 @@ function AuthPage() {
       toast({
         title: "Success",
         description: "Logged in successfully",
+        variant: "success",
       });
     } catch (error: any) {
       console.error('Authentication error:', error);

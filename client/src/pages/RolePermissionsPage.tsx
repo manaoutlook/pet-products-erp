@@ -83,7 +83,7 @@ function RolePermissionsPage() {
             : role
         );
       });
-      toast({ title: "Success", description: "Permissions updated successfully" });
+      toast({ title: "Success", description: "Permissions updated successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({

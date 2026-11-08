@@ -15,7 +15,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
+import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
+import { useTableControls } from "@/hooks/use-table-controls";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,7 +33,7 @@ import { CreateCustomerProfileDialog } from "@/components/CustomerProfiles/Creat
 import { EditCustomerProfileDialog } from "@/components/CustomerProfiles/EditCustomerProfileDialog";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
-import { Pencil, Trash2, Search, Eye } from "lucide-react";
+import { Pencil, Trash2, Eye } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -71,35 +73,35 @@ function ViewCustomerProfileDialog({
         <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-sm font-medium text-gray-500">Phone Number</label>
-              <p className="mt-1 text-sm text-gray-900">{profile.phoneNumber}</p>
+              <label className="text-sm font-medium text-muted-foreground">Phone Number</label>
+              <p className="mt-1 text-sm text-foreground">{profile.phoneNumber}</p>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500">Name</label>
-              <p className="mt-1 text-sm text-gray-900">{profile.name}</p>
+              <label className="text-sm font-medium text-muted-foreground">Name</label>
+              <p className="mt-1 text-sm text-foreground">{profile.name}</p>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500">Email</label>
-              <p className="mt-1 text-sm text-gray-900">{profile.email}</p>
+              <label className="text-sm font-medium text-muted-foreground">Email</label>
+              <p className="mt-1 text-sm text-foreground">{profile.email}</p>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500">Pet Type</label>
-              <p className="mt-1 text-sm text-gray-900 capitalize">{profile.petType.toLowerCase()}</p>
+              <label className="text-sm font-medium text-muted-foreground">Pet Type</label>
+              <p className="mt-1 text-sm text-foreground capitalize">{profile.petType.toLowerCase()}</p>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500">Pet Birthday</label>
-              <p className="mt-1 text-sm text-gray-900">
+              <label className="text-sm font-medium text-muted-foreground">Pet Birthday</label>
+              <p className="mt-1 text-sm text-foreground">
                 {profile.petBirthday ? formatDate(profile.petBirthday) : 'Not specified'}
               </p>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500">Address</label>
-              <p className="mt-1 text-sm text-gray-900">{profile.address || 'Not specified'}</p>
+              <label className="text-sm font-medium text-muted-foreground">Address</label>
+              <p className="mt-1 text-sm text-foreground">{profile.address || 'Not specified'}</p>
             </div>
           </div>
           {profile.photo && (
             <div>
-              <label className="text-sm font-medium text-gray-500">Photo</label>
+              <label className="text-sm font-medium text-muted-foreground">Photo</label>
               <div className="mt-2">
                 <img
                   src={profile.photo}
@@ -132,13 +134,30 @@ function CustomerProfilesPage() {
   const canUpdate = hasPermission('customerProfiles', 'update');
   const canDelete = hasPermission('customerProfiles', 'delete');
 
-  const filteredProfiles = customerProfiles.filter(profile =>
-    profile.phoneNumber.toLowerCase().includes(search.toLowerCase()) ||
-    profile.name.toLowerCase().includes(search.toLowerCase()) ||
-    profile.email.toLowerCase().includes(search.toLowerCase()) ||
-    profile.petType.toLowerCase().includes(search.toLowerCase()) ||
-    (profile.address?.toLowerCase() || "").includes(search.toLowerCase())
+  // Header controls: click a column header to sort it (asc -> desc -> none) and
+  // use the small input under a header to filter that single column.
+  const profilesTable = useTableControls(
+    customerProfiles,
+    {
+      phoneNumber: (profile) => profile.phoneNumber,
+      name: (profile) => profile.name,
+      email: (profile) => profile.email,
+      petType: (profile) => profile.petType,
+      petBirthday: (profile) => profile.petBirthday,
+    },
+    {
+      // The page level search box stays the primary, whole row search.
+      filter: (profile) =>
+        profile.phoneNumber.toLowerCase().includes(search.toLowerCase()) ||
+        profile.name.toLowerCase().includes(search.toLowerCase()) ||
+        profile.email.toLowerCase().includes(search.toLowerCase()) ||
+        profile.petType.toLowerCase().includes(search.toLowerCase()) ||
+        (profile.address?.toLowerCase() || "").includes(search.toLowerCase()),
+    }
   );
+
+  // Rows currently visible (search + column filters + sorting).
+  const filteredProfiles = profilesTable.rows;
 
   const handleDelete = async (id: number) => {
     try {
@@ -155,6 +174,7 @@ function CustomerProfilesPage() {
       toast({
         title: "Success",
         description: "Customer profile deleted successfully",
+        variant: "success",
       });
 
       refetch();
@@ -181,30 +201,29 @@ function CustomerProfilesPage() {
         <CardHeader>
           <CardTitle>Customer Profile List</CardTitle>
           <div className="flex items-center gap-4">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search customers..."
-                className="pl-8"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
+            <SearchInput
+              containerClassName="flex-1 max-w-sm"
+              placeholder="Search customers..."
+              value={search}
+              onValueChange={setSearch}
+            />
           </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <div className="text-center py-4">Loading customer profiles...</div>
           ) : (
+            <>
+            <TableControlsBar controls={profilesTable} noun="customer profiles" />
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Phone Number</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Pet Type</TableHead>
-                  <TableHead>Pet Birthday</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <ColumnHeader controls={profilesTable} columnKey="phoneNumber" label="Phone Number" filterPlaceholder="Filter phone" />
+                  <ColumnHeader controls={profilesTable} columnKey="name" label="Name" filterPlaceholder="Filter name" />
+                  <ColumnHeader controls={profilesTable} columnKey="email" label="Email" filterPlaceholder="Filter email" />
+                  <ColumnHeader controls={profilesTable} columnKey="petType" label="Pet Type" filterPlaceholder="Filter pet type" />
+                  <ColumnHeader controls={profilesTable} columnKey="petBirthday" label="Pet Birthday" filterPlaceholder="Filter birthday" />
+                  <TableHead className="align-top">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -257,6 +276,7 @@ function CustomerProfilesPage() {
                 ))}
               </TableBody>
             </Table>
+            </>
           )}
         </CardContent>
       </Card>

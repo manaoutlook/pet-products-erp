@@ -22,6 +22,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
+import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
+import { useTableControls } from "@/hooks/use-table-controls";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -32,7 +35,7 @@ import {
 } from "@/components/ui/card";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Plus, Search, Eye, CheckCircle, XCircle, Clock, ArrowRight, Package } from "lucide-react";
+import { Loader2, Plus, Eye, CheckCircle, XCircle, Clock, ArrowRight, Package } from "lucide-react";
 import { useForm, FormProvider } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -181,7 +184,7 @@ function TransferPage() {
       refetchTransfers();
       setDialogOpen(false);
       form.reset();
-      toast({ title: "Success", description: "Transfer request created successfully" });
+      toast({ title: "Success", description: "Transfer request created successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -216,7 +219,7 @@ function TransferPage() {
       refetchTransfers();
       setDetailsDialogOpen(false);
       setSelectedTransfer(null);
-      toast({ title: "Success", description: "Transfer approved successfully" });
+      toast({ title: "Success", description: "Transfer approved successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -250,7 +253,7 @@ function TransferPage() {
       refetchTransfers();
       setDetailsDialogOpen(false);
       setSelectedTransfer(null);
-      toast({ title: "Success", description: "Transfer rejected" });
+      toast({ title: "Success", description: "Transfer rejected", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -276,7 +279,7 @@ function TransferPage() {
       refetchTransfers();
       setDetailsDialogOpen(false);
       setSelectedTransfer(null);
-      toast({ title: "Success", description: "Transfer executed successfully" });
+      toast({ title: "Success", description: "Transfer executed successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -302,7 +305,7 @@ function TransferPage() {
       refetchTransfers();
       setDetailsDialogOpen(false);
       setSelectedTransfer(null);
-      toast({ title: "Success", description: "Transfer cancelled" });
+      toast({ title: "Success", description: "Transfer cancelled", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -368,13 +371,33 @@ function TransferPage() {
     );
   };
 
-  const filteredTransfers = transfers?.filter(transfer =>
-    search.trim() === '' ||
-    transfer.transferNumber.toLowerCase().includes(search.toLowerCase()) ||
-    (transfer.fromStore?.name || 'DC (Distribution Center)').toLowerCase().includes(search.toLowerCase()) ||
-    (transfer.toStore?.name || 'DC (Distribution Center)').toLowerCase().includes(search.toLowerCase()) ||
-    transfer.requestedByUser.username.toLowerCase().includes(search.toLowerCase())
+  // Header controls: click a column header to sort it (asc -> desc -> none) and
+  // use the small input under a header to filter that single column.
+  const transfersTable = useTableControls(
+    transfers,
+    {
+      transferNumber: (transfer) => transfer.transferNumber,
+      route: (transfer) =>
+        `${transfer.fromStore?.name || 'DC (Distribution Center)'} -> ${transfer.toStore?.name || 'DC (Distribution Center)'}`,
+      priority: (transfer) => transfer.priority,
+      status: (transfer) => transfer.status,
+      items: (transfer) => transfer.items.length,
+      requestedBy: (transfer) => transfer.requestedByUser.username,
+      requestedAt: (transfer) => new Date(transfer.requestedAt),
+    },
+    {
+      // The page level search box stays the primary, whole row search.
+      filter: (transfer) =>
+        search.trim() === '' ||
+        transfer.transferNumber.toLowerCase().includes(search.toLowerCase()) ||
+        (transfer.fromStore?.name || 'DC (Distribution Center)').toLowerCase().includes(search.toLowerCase()) ||
+        (transfer.toStore?.name || 'DC (Distribution Center)').toLowerCase().includes(search.toLowerCase()) ||
+        transfer.requestedByUser.username.toLowerCase().includes(search.toLowerCase()),
+    }
   );
+
+  // Rows currently visible (search + column filters + sorting).
+  const filteredTransfers = transfersTable.rows;
 
   // Handler functions for transfer actions
   const handleApproveTransfer = async (transfer: TransferRequest) => {
@@ -440,7 +463,7 @@ function TransferPage() {
               }
             }}>
               <DialogTrigger asChild>
-                <Button>
+                <Button variant="create">
                   <Plus className="mr-2 h-4 w-4" />
                   New Transfer Request
                 </Button>
@@ -651,7 +674,7 @@ function TransferPage() {
                       >
                         Cancel
                       </Button>
-                      <Button type="submit" disabled={isPending}>
+                      <Button variant="create" type="submit" disabled={isPending}>
                         {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         Create Transfer Request
                       </Button>
@@ -668,15 +691,12 @@ function TransferPage() {
         <CardHeader>
           <CardTitle>Transfer Requests</CardTitle>
           <div className="flex items-center gap-4">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search transfers..."
-                className="pl-8"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
+            <SearchInput
+              containerClassName="flex-1 max-w-sm"
+              placeholder="Search transfers..."
+              value={search}
+              onValueChange={setSearch}
+            />
           </div>
         </CardHeader>
         <CardContent>
@@ -685,17 +705,19 @@ function TransferPage() {
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
           ) : (
+            <>
+            <TableControlsBar controls={transfersTable} noun="transfers" />
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Transfer #</TableHead>
-                  <TableHead>From → To</TableHead>
-                  <TableHead>Priority</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Items</TableHead>
-                  <TableHead>Requested By</TableHead>
-                  <TableHead>Requested At</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <ColumnHeader controls={transfersTable} columnKey="transferNumber" label="Transfer #" filterPlaceholder="Filter transfer #" />
+                  <ColumnHeader controls={transfersTable} columnKey="route" label="From → To" filterPlaceholder="Filter store" />
+                  <ColumnHeader controls={transfersTable} columnKey="priority" label="Priority" filterPlaceholder="Filter priority" />
+                  <ColumnHeader controls={transfersTable} columnKey="status" label="Status" filterPlaceholder="Filter status" />
+                  <ColumnHeader controls={transfersTable} columnKey="items" label="Items" filterPlaceholder="Filter items" />
+                  <ColumnHeader controls={transfersTable} columnKey="requestedBy" label="Requested By" filterPlaceholder="Filter user" />
+                  <ColumnHeader controls={transfersTable} columnKey="requestedAt" label="Requested At" filterPlaceholder="Filter date" />
+                  <TableHead className="align-top">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -756,6 +778,7 @@ function TransferPage() {
                 ))}
               </TableBody>
             </Table>
+            </>
           )}
         </CardContent>
       </Card>

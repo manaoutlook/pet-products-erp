@@ -22,6 +22,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
+import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
+import { useTableControls } from "@/hooks/use-table-controls";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -32,7 +35,7 @@ import {
 } from "@/components/ui/card";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Plus, Search, MapPin, User, Trash2, Edit } from "lucide-react";
+import { Loader2, Plus, MapPin, User, Trash2, Edit } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -150,7 +153,7 @@ function RegionPage() {
       refetchRegions();
       setDialogOpen(false);
       form.reset();
-      toast({ title: "Success", description: "Region created successfully" });
+      toast({ title: "Success", description: "Region created successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -180,7 +183,7 @@ function RegionPage() {
       setDialogOpen(false);
       setEditingRegion(null);
       form.reset();
-      toast({ title: "Success", description: "Region updated successfully" });
+      toast({ title: "Success", description: "Region updated successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -204,7 +207,7 @@ function RegionPage() {
       refetchRegions();
       setDeleteDialogOpen(false);
       setRegionToDelete(null);
-      toast({ title: "Success", description: "Region deleted successfully" });
+      toast({ title: "Success", description: "Region deleted successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -248,12 +251,28 @@ function RegionPage() {
     }
   };
 
-  const filteredRegions = regions?.filter(region =>
-    search.trim() === '' ||
-    region.name.toLowerCase().includes(search.toLowerCase()) ||
-    (region.description && region.description.toLowerCase().includes(search.toLowerCase())) ||
-    (region.managerUser && region.managerUser.username.toLowerCase().includes(search.toLowerCase()))
+  // Header controls: click a column header to sort it (asc -> desc -> none) and
+  // use the small input under a header to filter that single column.
+  const regionsTable = useTableControls(
+    regions,
+    {
+      name: (region) => region.name,
+      description: (region) => region.description,
+      manager: (region) => region.managerUser?.username,
+      createdAt: (region) => new Date(region.createdAt),
+    },
+    {
+      // The page level search box stays the primary, whole row search.
+      filter: (region) =>
+        search.trim() === '' ||
+        region.name.toLowerCase().includes(search.toLowerCase()) ||
+        Boolean(region.description?.toLowerCase().includes(search.toLowerCase())) ||
+        Boolean(region.managerUser?.username.toLowerCase().includes(search.toLowerCase())),
+    }
   );
+
+  // Rows currently visible (search + column filters + sorting).
+  const filteredRegions = regionsTable.rows;
 
   const isPending = createRegionMutation.isPending || updateRegionMutation.isPending;
 
@@ -276,7 +295,7 @@ function RegionPage() {
               }
             }}>
               <DialogTrigger asChild>
-                <Button>
+                <Button variant="create">
                   <Plus className="mr-2 h-4 w-4" />
                   Add Region
                 </Button>
@@ -354,7 +373,7 @@ function RegionPage() {
                       >
                         Cancel
                       </Button>
-                      <Button type="submit" disabled={isPending}>
+                      <Button variant={editingRegion ? 'update' : 'create'} type="submit" disabled={isPending}>
                         {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         {editingRegion ? 'Update Region' : 'Create Region'}
                       </Button>
@@ -371,15 +390,12 @@ function RegionPage() {
         <CardHeader>
           <CardTitle>Regions</CardTitle>
           <div className="flex items-center gap-4">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search regions..."
-                className="pl-8"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
+            <SearchInput
+              containerClassName="flex-1 max-w-sm"
+              placeholder="Search regions..."
+              value={search}
+              onValueChange={setSearch}
+            />
           </div>
         </CardHeader>
         <CardContent>
@@ -388,14 +404,16 @@ function RegionPage() {
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
           ) : (
+            <>
+            <TableControlsBar controls={regionsTable} noun="regions" />
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Region Name</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Regional Manager</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <ColumnHeader controls={regionsTable} columnKey="name" label="Region Name" filterPlaceholder="Filter region" />
+                  <ColumnHeader controls={regionsTable} columnKey="description" label="Description" filterPlaceholder="Filter description" />
+                  <ColumnHeader controls={regionsTable} columnKey="manager" label="Regional Manager" filterPlaceholder="Filter manager" />
+                  <ColumnHeader controls={regionsTable} columnKey="createdAt" label="Created" filterPlaceholder="Filter created" />
+                  <TableHead className="align-top">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -451,6 +469,7 @@ function RegionPage() {
                 ))}
               </TableBody>
             </Table>
+            </>
           )}
         </CardContent>
       </Card>

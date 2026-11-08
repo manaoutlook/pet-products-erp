@@ -21,6 +21,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
+import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
+import { useTableControls } from "@/hooks/use-table-controls";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -33,8 +36,9 @@ import {
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { InsertStore, SelectStore } from "@db/schema";
+import type { SelectStore } from "@db/schema";
 import { insertStoreSchema } from "@db/schema";
+import { z } from "zod";
 import {
   Select,
   SelectContent,
@@ -45,7 +49,24 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
 import { readApiError } from "@/lib/apiError";
-import { Loader2, Search, Plus, Pencil, Trash2, Warehouse, Store, AlertCircle } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, Warehouse, Store, AlertCircle } from "lucide-react";
+
+// AI Agent Note: The base insert schema allows regionId to be null, which is
+// exactly how stores ended up with NULL region_id. The form requires a region
+// so every store is tied to a region for hierarchical access control.
+const storeFormSchema = insertStoreSchema.extend({
+  regionId: z
+    .number({ required_error: "Please select a region", invalid_type_error: "Please select a region" })
+    .int("Please select a region")
+    .positive("Please select a region"),
+});
+
+type StoreFormValues = z.infer<typeof storeFormSchema>;
+
+interface RegionOption {
+  id: number;
+  name: string;
+}
 
 function StorePage() {
   const [search, setSearch] = useState("");
@@ -65,18 +86,30 @@ function StorePage() {
     }
   });
 
-  const form = useForm<InsertStore>({
-    resolver: zodResolver(insertStoreSchema),
+  const { data: regions } = useQuery<RegionOption[]>({
+    queryKey: ['/api/regions'],
+    queryFn: async () => {
+      const response = await fetch('/api/regions', {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error(await readApiError(response));
+      return response.json();
+    }
+  });
+
+  const form = useForm<StoreFormValues>({
+    resolver: zodResolver(storeFormSchema),
     defaultValues: {
       name: "",
       type: "RETAIL", // AI Agent Note: Default type is RETAIL for standard stores.
+      regionId: undefined,
       location: "",
       contactInfo: "",
     },
   });
 
   const createMutation = useMutation({
-    mutationFn: async (data: InsertStore) => {
+    mutationFn: async (data: StoreFormValues) => {
       const res = await fetch('/api/stores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -90,7 +123,7 @@ function StorePage() {
       refetch();
       setDialogOpen(false);
       form.reset();
-      toast({ title: "Success", description: "Store created successfully" });
+      toast({ title: "Success", description: "Store created successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -102,7 +135,7 @@ function StorePage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: InsertStore }) => {
+    mutationFn: async ({ id, data }: { id: number; data: StoreFormValues }) => {
       const res = await fetch(`/api/stores/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -116,7 +149,7 @@ function StorePage() {
       refetch();
       setDialogOpen(false);
       form.reset();
-      toast({ title: "Success", description: "Store updated successfully" });
+      toast({ title: "Success", description: "Store updated successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -138,7 +171,7 @@ function StorePage() {
     },
     onSuccess: () => {
       refetch();
-      toast({ title: "Success", description: "Store deleted successfully" });
+      toast({ title: "Success", description: "Store deleted successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -149,7 +182,7 @@ function StorePage() {
     },
   });
 
-  const onSubmit = async (data: InsertStore) => {
+  const onSubmit = async (data: StoreFormValues) => {
     try {
       if (editingStore) {
         await updateMutation.mutateAsync({
@@ -169,6 +202,7 @@ function StorePage() {
     form.reset({
       name: "",
       type: "RETAIL",
+      regionId: undefined,
       location: "",
       contactInfo: "",
     });
@@ -180,6 +214,7 @@ function StorePage() {
     form.reset({
       name: store.name,
       type: store.type as "RETAIL" | "WAREHOUSE",
+      regionId: store.regionId ?? undefined,
       location: store.location,
       contactInfo: store.contactInfo,
     });
@@ -196,23 +231,40 @@ function StorePage() {
     }
   };
 
-  const filteredStores = stores?.filter((store: SelectStore) =>
-    store.name.toLowerCase().includes(search.toLowerCase()) ||
-    store.location.toLowerCase().includes(search.toLowerCase()) ||
-    store.contactInfo.toLowerCase().includes(search.toLowerCase())
+  // Header controls: click a column header to sort it (asc -> desc -> none) and
+  // use the small input under a header to filter that single column.
+  const storesTable = useTableControls(
+    stores,
+    {
+      name: (store) => store.name,
+      type: (store) => (store.type === 'WAREHOUSE' ? 'Warehouse / DC' : 'Retail Store'),
+      region: (store) => regions?.find((region) => region.id === store.regionId)?.name,
+      location: (store) => store.location,
+      contactInfo: (store) => store.contactInfo,
+    },
+    {
+      // The page level search box stays the primary, whole row search.
+      filter: (store) =>
+        store.name.toLowerCase().includes(search.toLowerCase()) ||
+        store.location.toLowerCase().includes(search.toLowerCase()) ||
+        store.contactInfo.toLowerCase().includes(search.toLowerCase()),
+    }
   );
+
+  // Rows currently visible (search + column filters + sorting).
+  const filteredStores: SelectStore[] = storesTable.rows;
 
   // If user doesn't have read permission, show access denied
   if (!hasPermission('stores', 'read')) {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen w-full flex items-center justify-center bg-background">
         <Card className="w-full max-w-md mx-4">
           <CardContent className="pt-6">
             <div className="flex mb-4 gap-2">
               <AlertCircle className="h-8 w-8 text-red-500" />
-              <h1 className="text-2xl font-bold text-gray-900">Access Denied</h1>
+              <h1 className="text-2xl font-bold text-foreground">Access Denied</h1>
             </div>
-            <p className="mt-4 text-sm text-gray-600">
+            <p className="mt-4 text-sm text-muted-foreground">
               You don't have permission to view stores.
             </p>
           </CardContent>
@@ -228,7 +280,7 @@ function StorePage() {
         {hasPermission('stores', 'create') && (
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button onClick={handleAddStore}>
+            <Button variant="create" onClick={handleAddStore}>
               <Plus className="mr-2 h-4 w-4" />
               Add Store
             </Button>
@@ -281,6 +333,33 @@ function StorePage() {
                 />
                 <FormField
                   control={form.control}
+                  name="regionId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Region</FormLabel>
+                      <Select
+                        onValueChange={(value) => field.onChange(Number(value))}
+                        value={field.value != null ? String(field.value) : undefined}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a region" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {regions?.map((region) => (
+                            <SelectItem key={region.id} value={String(region.id)}>
+                              {region.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
                   name="location"
                   render={({ field }) => (
                     <FormItem>
@@ -311,7 +390,7 @@ function StorePage() {
                     </FormItem>
                   )}
                 />
-                <Button
+                <Button variant={editingStore ? 'update' : 'create'}
                   type="submit"
                   className="w-full"
                   disabled={form.formState.isSubmitting}
@@ -332,15 +411,12 @@ function StorePage() {
         <CardHeader>
           <CardTitle>Store List</CardTitle>
           <div className="flex items-center gap-4">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search stores..."
-                className="pl-8"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
+            <SearchInput
+              containerClassName="flex-1 max-w-sm"
+              placeholder="Search stores..."
+              value={search}
+              onValueChange={setSearch}
+            />
           </div>
         </CardHeader>
         <CardContent>
@@ -349,14 +425,17 @@ function StorePage() {
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
           ) : (
+            <>
+            <TableControlsBar controls={storesTable} noun="stores" />
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Store Name</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Contact Information</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <ColumnHeader controls={storesTable} columnKey="name" label="Store Name" filterPlaceholder="Filter store" />
+                  <ColumnHeader controls={storesTable} columnKey="type" label="Type" filterPlaceholder="Filter type" />
+                  <ColumnHeader controls={storesTable} columnKey="region" label="Region" filterPlaceholder="Filter region" />
+                  <ColumnHeader controls={storesTable} columnKey="location" label="Location" filterPlaceholder="Filter location" />
+                  <ColumnHeader controls={storesTable} columnKey="contactInfo" label="Contact Information" filterPlaceholder="Filter contact" />
+                  <TableHead className="align-top">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -370,6 +449,9 @@ function StorePage() {
                     </TableCell>
                     <TableCell>
                       {store.type === 'WAREHOUSE' ? 'Warehouse / DC' : 'Retail Store'}
+                    </TableCell>
+                    <TableCell>
+                      {regions?.find((region) => region.id === store.regionId)?.name ?? '—'}
                     </TableCell>
                     <TableCell>{store.location}</TableCell>
                     <TableCell>{store.contactInfo}</TableCell>
@@ -400,6 +482,7 @@ function StorePage() {
                 ))}
               </TableBody>
             </Table>
+            </>
           )}
         </CardContent>
       </Card>

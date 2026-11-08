@@ -93,6 +93,7 @@ export function CreateCustomerProfileDialog() {
       toast({
         title: "Success",
         description: "Customer profile created successfully",
+        variant: "success",
       });
       setOpen(false);
       form.reset();
@@ -113,7 +114,7 @@ export function CreateCustomerProfileDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button>
+        <Button variant="create">
           <Plus className="mr-2 h-4 w-4" />
           Add Customer Profile
         </Button>
@@ -241,7 +242,7 @@ export function CreateCustomerProfileDialog() {
               >
                 Cancel
               </Button>
-              <Button
+              <Button variant="create"
                 type="submit"
                 disabled={createCustomerProfile.isPending}
               >

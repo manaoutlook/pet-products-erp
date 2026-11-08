@@ -3,6 +3,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
+import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
+import { useTableControls } from "@/hooks/use-table-controls";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -139,6 +142,18 @@ function ReceiptsPage() {
     enabled: hasPermission('receipts', 'read'),
   });
 
+  // Header controls: click a column header to sort it (asc -> desc -> none) and
+  // use the small input under a header to filter that single column. The search
+  // term itself is handled server side by the receipts query.
+  const receiptsTable = useTableControls(receiptsQuery.data ?? [], {
+    invoiceNumber: (transaction: SalesTransaction) => transaction.invoiceNumber,
+    transactionDate: (transaction: SalesTransaction) => new Date(transaction.transactionDate),
+    cashier: (transaction: SalesTransaction) => transaction.cashierUser?.username || 'Unknown',
+    store: (transaction: SalesTransaction) => transaction.store?.name || 'DC',
+    total: (transaction: SalesTransaction) => parseFloat(transaction.totalAmount),
+    status: (transaction: SalesTransaction) => transaction.status,
+  });
+
   // Cancel transaction mutation
   const cancelMutation = useMutation({
     mutationFn: async (transactionId: number) => {
@@ -161,6 +176,7 @@ function ReceiptsPage() {
       toast({
         title: "Transaction Cancelled",
         description: "The transaction has been cancelled successfully",
+        variant: "success",
       });
     },
     onError: (error: Error) => {
@@ -203,6 +219,7 @@ function ReceiptsPage() {
       toast({
         title: "Refund Processed",
         description: "The refund has been processed successfully",
+        variant: "success",
       });
     },
     onError: (error: Error) => {
@@ -245,6 +262,7 @@ function ReceiptsPage() {
     toast({
       title: "Receipt Printed",
       description: "Receipt has been sent to printer",
+      variant: "success",
     });
   };
 
@@ -263,11 +281,11 @@ function ReceiptsPage() {
   const getStatusBadge = (status: string) => {
     switch (status.toLowerCase()) {
       case 'completed':
-        return <Badge variant="default" className="bg-green-100 text-green-800"><CheckCircle className="h-3 w-3 mr-1" />Completed</Badge>;
+        return <Badge variant="success"><CheckCircle className="h-3 w-3 mr-1" />Completed</Badge>;
       case 'cancelled':
         return <Badge variant="secondary"><Ban className="h-3 w-3 mr-1" />Cancelled</Badge>;
       case 'refunded':
-        return <Badge variant="outline" className="border-orange-200 text-orange-800"><RotateCcw className="h-3 w-3 mr-1" />Refunded</Badge>;
+        return <Badge variant="warning"><RotateCcw className="h-3 w-3 mr-1" />Refunded</Badge>;
       default:
         return <Badge variant="outline"><Clock className="h-3 w-3 mr-1" />{status}</Badge>;
     }
@@ -294,14 +312,14 @@ function ReceiptsPage() {
 
   if (!hasPermission('receipts', 'read')) {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen w-full flex items-center justify-center bg-background">
         <Card className="w-full max-w-md mx-4">
           <CardContent className="pt-6">
             <div className="flex mb-4 gap-2">
               <AlertTriangle className="h-8 w-8 text-red-500" />
-              <h1 className="text-2xl font-bold text-gray-900">Access Denied</h1>
+              <h1 className="text-2xl font-bold text-foreground">Access Denied</h1>
             </div>
-            <p className="mt-4 text-sm text-gray-600">
+            <p className="mt-4 text-sm text-muted-foreground">
               You don't have permission to view receipts and transactions.
             </p>
           </CardContent>
@@ -341,12 +359,12 @@ function ReceiptsPage() {
           <div className="flex gap-4">
             <div className="flex-1">
               <Label htmlFor="search">Search by Invoice Number, Transaction ID, or Customer</Label>
-              <Input
+              <SearchInput
                 id="search"
+                containerClassName="mt-1"
                 placeholder="e.g., STR001-20241210-0001, 123, or customer name"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="mt-1"
+                onValueChange={setSearchTerm}
               />
             </div>
             <div className="flex items-end">
@@ -377,20 +395,22 @@ function ReceiptsPage() {
               <p className="text-muted-foreground">Loading receipts...</p>
             </div>
           ) : receiptsQuery.data && receiptsQuery.data.length > 0 ? (
+            <>
+            <TableControlsBar controls={receiptsTable} noun="receipts" />
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Invoice #</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Cashier</TableHead>
-                  <TableHead>Store</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <ColumnHeader controls={receiptsTable} columnKey="invoiceNumber" label="Invoice #" filterPlaceholder="Filter invoice #" />
+                  <ColumnHeader controls={receiptsTable} columnKey="transactionDate" label="Date" filterPlaceholder="Filter date" />
+                  <ColumnHeader controls={receiptsTable} columnKey="cashier" label="Cashier" filterPlaceholder="Filter cashier" />
+                  <ColumnHeader controls={receiptsTable} columnKey="store" label="Store" filterPlaceholder="Filter store" />
+                  <ColumnHeader controls={receiptsTable} columnKey="total" label="Amount" filterPlaceholder="Filter amount" />
+                  <ColumnHeader controls={receiptsTable} columnKey="status" label="Status" filterPlaceholder="Filter status" />
+                  <TableHead className="align-top text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {receiptsQuery.data.map((transaction: SalesTransaction) => (
+                {receiptsTable.rows.map((transaction: SalesTransaction) => (
                   <TableRow key={transaction.id}>
                     <TableCell className="font-medium">
                       {transaction.invoiceNumber}
@@ -505,8 +525,8 @@ function ReceiptsPage() {
                                     Cancel
                                   </Button>
                                   <Button
+                                    variant="create"
                                     onClick={() => handleRefundTransaction(transaction.id)}
-                                    className="bg-green-600 hover:bg-green-700"
                                   >
                                     Process Refund
                                   </Button>
@@ -521,6 +541,7 @@ function ReceiptsPage() {
                 ))}
               </TableBody>
             </Table>
+            </>
           ) : (
             <div className="text-center py-8 text-muted-foreground">
               <Receipt className="h-12 w-12 mx-auto mb-4 opacity-50" />

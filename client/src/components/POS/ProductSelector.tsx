@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Search, Plus, Minus, Package } from "lucide-react";
+import { Plus, Minus, Package } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface Product {
@@ -156,6 +156,7 @@ export function ProductSelector({ onAddToCart, cartItems, storeId }: ProductSele
     toast({
       title: "Added to Cart",
       description: `${quantity}x ${product.name} added to cart`,
+      variant: "success",
     });
   };
 
@@ -166,15 +167,11 @@ export function ProductSelector({ onAddToCart, cartItems, storeId }: ProductSele
           <Package className="h-5 w-5" />
           Product Selection
         </CardTitle>
-        <div className="relative">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search products..."
-            className="pl-8"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
+        <SearchInput
+          placeholder="Search products..."
+          value={search}
+          onValueChange={setSearch}
+        />
       </CardHeader>
       <CardContent className="space-y-4">
         {isLoading ? (
@@ -240,7 +237,7 @@ export function ProductSelector({ onAddToCart, cartItems, storeId }: ProductSele
                           <Plus className="h-3 w-3" />
                         </Button>
                       </div>
-                      <Button
+                      <Button variant="create"
                         onClick={() => handleAddToCart(product)}
                         disabled={selectedQuantity <= 0}
                         className="flex-1"

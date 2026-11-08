@@ -30,6 +30,9 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
+import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
+import { useTableControls } from "@/hooks/use-table-controls";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -39,7 +42,7 @@ import {
 } from "@/components/ui/card";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Plus, Search, Pencil, Trash2 } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, Download, Upload } from "lucide-react";
 import { useForm, FormProvider } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -57,6 +60,14 @@ import {
   Filter,
   RefreshCw,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { exportInventory, type ExportFormat } from "@/utils/inventory-spreadsheet";
+import { ImportInventoryDialog } from "@/components/inventory/ImportInventoryDialog";
 
 const inventorySchema = z.object({
   productId: z.string().min(1, "Product is required"),
@@ -98,6 +109,8 @@ interface InventoryItem {
   inventoryType: 'DC' | 'STORE';
   centerId: string | null;
   barcode: string;
+  purchaseDate?: string | null;
+  expiryDate?: string | null;
   product: Product;
   store: Store | null;
   supplier: Supplier | null;
@@ -114,6 +127,8 @@ function InventoryPage() {
   const [search, setSearch] = useState("");
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const { toast } = useToast();
   const { hasPermission } = usePermissions();
   const [filters, setFilters] = useState<FilterState>({
@@ -188,7 +203,7 @@ function InventoryPage() {
       refetchInventory();
       setDialogOpen(false);
       form.reset();
-      toast({ title: "Success", description: "Inventory item created successfully" });
+      toast({ title: "Success", description: "Inventory item created successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -224,7 +239,7 @@ function InventoryPage() {
       setDialogOpen(false);
       setSelectedItem(null);
       form.reset();
-      toast({ title: "Success", description: "Inventory item updated successfully" });
+      toast({ title: "Success", description: "Inventory item updated successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -249,7 +264,7 @@ function InventoryPage() {
     },
     onSuccess: () => {
       refetchInventory();
-      toast({ title: "Success", description: "Inventory item deleted successfully" });
+      toast({ title: "Success", description: "Inventory item deleted successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -317,23 +332,77 @@ function InventoryPage() {
     }
   };
 
-  const filteredInventory = inventory?.filter(item => {
-    const matchesSearch = search.toLowerCase().trim() === '' ||
-      item.product.name.toLowerCase().includes(search.toLowerCase()) ||
-      item.product.sku.toLowerCase().includes(search.toLowerCase()) ||
-      item.location?.toLowerCase().includes(search.toLowerCase()) ||
-      item.store?.name.toLowerCase().includes(search.toLowerCase()) ||
-      item.supplier?.name.toLowerCase().includes(search.toLowerCase());
+  // Header controls: click a column header to sort it (asc -> desc -> none) and
+  // use the small input under a header to filter that single column.
+  const inventoryTable = useTableControls(
+    inventory,
+    {
+      type: (item) => (item.inventoryType === 'DC' ? 'Warehouse / DC' : 'Retail Store'),
+      product: (item) => `${item.product.name} ${item.product.sku}`,
+      location: (item) => item.location,
+      store: (item) => item.store?.name,
+      supplier: (item) => item.supplier?.name,
+      quantity: (item) => item.quantity,
+      status: (item) => (item.quantity <= item.product.minStock ? 'Low Stock' : 'In Stock'),
+      barcode: (item) => item.barcode,
+    },
+    {
+      // The page level search and the dropdown filters stay the primary filters.
+      filter: (item) => {
+        const matchesSearch = search.toLowerCase().trim() === '' ||
+          item.product.name.toLowerCase().includes(search.toLowerCase()) ||
+          item.product.sku.toLowerCase().includes(search.toLowerCase()) ||
+          Boolean(item.location?.toLowerCase().includes(search.toLowerCase())) ||
+          Boolean(item.store?.name.toLowerCase().includes(search.toLowerCase())) ||
+          Boolean(item.supplier?.name.toLowerCase().includes(search.toLowerCase()));
 
-    const matchesType = !filters.inventoryType || item.inventoryType === filters.inventoryType;
-    const matchesStore = !filters.storeId || item.storeId?.toString() === filters.storeId;
-    const matchesSupplier = !filters.supplierId || item.supplierId?.toString() === filters.supplierId;
-    const matchesStockStatus = !filters.stockStatus ||
-      (filters.stockStatus === 'low' && item.quantity <= item.product.minStock) ||
-      (filters.stockStatus === 'inStock' && item.quantity > item.product.minStock);
+        const matchesType = !filters.inventoryType || item.inventoryType === filters.inventoryType;
+        const matchesStore = !filters.storeId || item.storeId?.toString() === filters.storeId;
+        const matchesSupplier = !filters.supplierId || item.supplierId?.toString() === filters.supplierId;
+        const matchesStockStatus = !filters.stockStatus ||
+          (filters.stockStatus === 'low' && item.quantity <= item.product.minStock) ||
+          (filters.stockStatus === 'inStock' && item.quantity > item.product.minStock);
 
-    return matchesSearch && matchesType && matchesStore && matchesSupplier && matchesStockStatus;
-  });
+        return matchesSearch && matchesType && matchesStore && matchesSupplier && matchesStockStatus;
+      },
+    }
+  );
+
+  // Rows currently visible (search/filters + column filters + sorting).
+  const filteredInventory = inventoryTable.rows;
+
+  // Export the rows currently shown (the search/filter state is respected) to an
+  // .xlsx or .csv file. SheetJS is loaded lazily by the export helper.
+  const handleExport = async (format: ExportFormat) => {
+    const rows = filteredInventory ?? [];
+
+    if (rows.length === 0) {
+      toast({
+        title: "Nothing to export",
+        description: "No inventory items match the current filters.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      const fileName = await exportInventory(rows, format);
+      toast({
+        title: "Export ready",
+        description: `${fileName} · ${rows.length} item${rows.length === 1 ? "" : "s"}`,
+        variant: "success",
+      });
+    } catch {
+      toast({
+        title: "Export failed",
+        description: "The export file could not be created.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const handleFilterChange = (key: keyof FilterState, value: string) => {
     const actualValue = value === 'all' ? '' : value;
@@ -366,6 +435,32 @@ function InventoryPage() {
           <QuickAddProduct />
           <QuickAddSupplier />
           {canCreate && (
+            <Button variant="outline" onClick={() => setIsImportDialogOpen(true)}>
+              <Download className="mr-2 h-4 w-4" />
+              Import
+            </Button>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" disabled={isExporting}>
+                {isExporting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="mr-2 h-4 w-4" />
+                )}
+                Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => handleExport("xlsx")}>
+                Excel (.xlsx)
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => handleExport("csv")}>
+                CSV (.csv)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {canCreate && (
             <Dialog open={dialogOpen} onOpenChange={(open) => {
               setDialogOpen(open);
               if (!open) {
@@ -374,7 +469,7 @@ function InventoryPage() {
               }
             }}>
               <DialogTrigger asChild>
-                <Button>
+                <Button variant="create">
                   <Plus className="mr-2 h-4 w-4" />
                   Add Inventory
                 </Button>
@@ -520,7 +615,7 @@ function InventoryPage() {
                       name="location"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Location</FormLabel>
+                          <FormLabel>Location (Physical Rack #, Shelf #, ..)</FormLabel>
                           <FormControl>
                             <Input {...field} />
                           </FormControl>
@@ -529,7 +624,7 @@ function InventoryPage() {
                       )}
                     />
 
-                    <Button
+                    <Button variant={selectedItem ? 'update' : 'create'}
                       type="submit"
                       className="w-full"
                       disabled={isPending}
@@ -546,6 +641,13 @@ function InventoryPage() {
           )}
         </div>
       </div>
+
+      {/* CSV / Excel import - opened from the Import button above */}
+      <ImportInventoryDialog
+        open={isImportDialogOpen}
+        onOpenChange={setIsImportDialogOpen}
+        onImported={() => refetchInventory()}
+      />
 
       <Card>
         <CardHeader>
@@ -705,15 +807,12 @@ function InventoryPage() {
             </FormProvider>
 
             <div className="flex items-center gap-4">
-              <div className="relative flex-1 max-w-sm">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search inventory..."
-                  className="pl-8"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
+              <SearchInput
+                containerClassName="flex-1 max-w-sm"
+                placeholder="Search inventory..."
+                value={search}
+                onValueChange={setSearch}
+              />
             </div>
           </div>
         </CardHeader>
@@ -723,18 +822,20 @@ function InventoryPage() {
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
           ) : (
+            <>
+            <TableControlsBar controls={inventoryTable} noun="inventory items" />
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Store</TableHead>
-                  <TableHead>Supplier</TableHead>
-                  <TableHead>Quantity</TableHead>
-                  <TableHead>Status</TableHead>
-                  {(canUpdate || canDelete) && <TableHead>Actions</TableHead>}
-                  <TableHead>Barcode</TableHead>
+                  <ColumnHeader controls={inventoryTable} columnKey="type" label="Type" filterPlaceholder="Filter type" />
+                  <ColumnHeader controls={inventoryTable} columnKey="product" label="Product" filterPlaceholder="Filter product" />
+                  <ColumnHeader controls={inventoryTable} columnKey="location" label="Location" filterPlaceholder="Filter location" />
+                  <ColumnHeader controls={inventoryTable} columnKey="store" label="Store" filterPlaceholder="Filter store" />
+                  <ColumnHeader controls={inventoryTable} columnKey="supplier" label="Supplier" filterPlaceholder="Filter supplier" />
+                  <ColumnHeader controls={inventoryTable} columnKey="quantity" label="Quantity" filterPlaceholder="Filter quantity" />
+                  <ColumnHeader controls={inventoryTable} columnKey="status" label="Status" filterPlaceholder="Filter status" />
+                  {(canUpdate || canDelete) && <TableHead className="align-top">Actions</TableHead>}
+                  <ColumnHeader controls={inventoryTable} columnKey="barcode" label="Barcode" filterPlaceholder="Filter barcode" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -748,8 +849,8 @@ function InventoryPage() {
                     <TableCell>{item.quantity}</TableCell>
                     <TableCell>
                       <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${item.quantity <= item.product.minStock
-                          ? 'bg-red-100 text-red-800'
-                          : 'bg-green-100 text-green-800'
+                          ? 'bg-destructive-subtle text-destructive-subtle-foreground'
+                          : 'bg-success-subtle text-success-subtle-foreground'
                         }`}>
                         {item.quantity <= item.product.minStock ? 'Low Stock' : 'In Stock'}
                       </div>
@@ -786,6 +887,7 @@ function InventoryPage() {
                 ))}
               </TableBody>
             </Table>
+            </>
           )}
         </CardContent>
       </Card>

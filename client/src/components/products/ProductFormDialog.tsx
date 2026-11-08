@@ -27,6 +27,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { Textarea } from "@/components/ui/textarea";
+import { RichText } from "@/components/RichText";
+import { isHtml } from "@/utils/rich-text";
 import BrandQuickAddModal from "@/components/QuickAdd/BrandQuickAddModal";
 import { validatePrice, normalizePrice } from "@/utils/price";
 
@@ -84,6 +87,13 @@ export const productSchema = z
     // still accepted by the types because the form starts without a selection.
     supplierId: z.number().nullable().optional(),
     minStock: z.number().int().min(0, "Minimum stock must be positive"),
+    // Optional physical attributes. Weight is entered in kilograms (decimals
+    // allowed, e.g. 0.35) and the three dimensions in centimetres; `null` means
+    // "not specified".
+    weightKg: z.number().min(0, "Weight must be positive").nullable().optional(),
+    lengthCm: z.number().min(0, "Length must be positive").nullable().optional(),
+    widthCm: z.number().min(0, "Width must be positive").nullable().optional(),
+    heightCm: z.number().min(0, "Height must be positive").nullable().optional(),
   })
   // Mandatory-field checks are collected in one place so that a missing B2C
   // price and a missing supplier are both reported on the same submit.
@@ -212,11 +222,26 @@ export function ProductFormDialog({
                     <FormItem className="sm:col-span-2">
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Input
+                        <Textarea
                           {...field}
                           value={field.value ?? ""}
+                          rows={4}
+                          placeholder="Plain text or HTML, e.g. <p><strong>450 g</strong> aluminium body</p>"
                         />
                       </FormControl>
+                      <p className="text-xs text-muted-foreground">
+                        Accepts plain text or HTML. Line breaks are kept for plain text and
+                        HTML is rendered (sanitised) on the product details page.
+                      </p>
+                      {/* Live preview so authors can check pasted HTML looks right. */}
+                      {field.value?.trim() ? (
+                        <div className="mt-1 rounded-md border bg-muted/40 p-3">
+                          <p className="mb-1 text-xs font-medium text-muted-foreground">
+                            Preview{isHtml(field.value) ? " (HTML)" : ""}
+                          </p>
+                          <RichText value={field.value} />
+                        </div>
+                      ) : null}
                       <FormMessage />
                     </FormItem>
                   )}
@@ -341,6 +366,105 @@ export function ProductFormDialog({
                     </FormItem>
                   )}
                 />
+                {/* Optional physical attributes: weight (kg) + L/W/H (cm) */}
+                <div className="grid grid-cols-2 gap-3 sm:col-span-2 sm:grid-cols-4">
+                  <FormField
+                    control={form.control}
+                    name="weightKg"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Weight (kg)</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.001"
+                            placeholder="Kilograms"
+                            value={field.value ?? ""}
+                            onChange={(e) =>
+                              field.onChange(
+                                e.target.value === "" ? null : parseFloat(e.target.value)
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="lengthCm"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Length (cm)</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            placeholder="Optional"
+                            value={field.value ?? ""}
+                            onChange={(e) =>
+                              field.onChange(
+                                e.target.value === "" ? null : parseFloat(e.target.value)
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="widthCm"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Width (cm)</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            placeholder="Optional"
+                            value={field.value ?? ""}
+                            onChange={(e) =>
+                              field.onChange(
+                                e.target.value === "" ? null : parseFloat(e.target.value)
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="heightCm"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Height (cm)</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            placeholder="Optional"
+                            value={field.value ?? ""}
+                            onChange={(e) =>
+                              field.onChange(
+                                e.target.value === "" ? null : parseFloat(e.target.value)
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
                 {/* Optional price tiers */}
                 <div className="grid grid-cols-1 gap-3 sm:col-span-2 sm:grid-cols-3">
                   <FormField
@@ -418,7 +542,7 @@ export function ProductFormDialog({
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={isBusy}>
+              <Button variant={mode === "create" ? "create" : "update"} type="submit" disabled={isBusy}>
                 {isBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {mode === "create" ? "Create Product" : "Update Product"}
               </Button>

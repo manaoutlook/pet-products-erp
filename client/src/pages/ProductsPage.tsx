@@ -19,16 +19,21 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
+import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
+import { useTableControls } from "@/hooks/use-table-controls";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, Plus, Pencil, Trash2, AlertCircle, Eye, Upload, Download } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, AlertCircle, Eye, Upload, Download } from "lucide-react";
 import { formatPrice } from "@/utils/price";
 import { exportProducts, type ExportFormat } from "@/utils/product-spreadsheet";
 import { ImportProductsDialog } from "@/components/products/ImportProductsDialog";
+import { RichText } from "@/components/RichText";
+import { toPlainText } from "@/utils/rich-text";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -93,6 +98,12 @@ interface Product {
     name: string;
     contactInfo?: string | null;
   } | null;
+  // Optional physical attributes (NULL when not set). Weight is in kilograms,
+  // length/width/height in centimetres (stored as decimal strings by the API).
+  weightKg?: string | number | null;
+  lengthCm?: string | number | null;
+  widthCm?: string | number | null;
+  heightCm?: string | number | null;
 }
 
 interface Supplier {
@@ -157,6 +168,11 @@ function ProductsPage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  // Multi-select state for the bulk delete action. Only ids of rows the user can
+  // see are ever added, so switching the search filter never deletes surprises.
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
+  const canDeleteProducts = hasPermission('products', 'delete') || isAdmin;
 
 
   const { data: products, isLoading, refetch } = useQuery<Product[]>({
@@ -178,9 +194,16 @@ function ProductsPage() {
       if (!res.ok) throw new Error(await getResponseErrorMessage(res, "Failed to create product"));
       return res.json();
     },
-    onSuccess: () => {
+    // Name the saved product in the confirmation so it is obvious which row the
+    // toast refers to, and show it on the green (success) toast style.
+    onSuccess: (created: Product | undefined, variables) => {
       refetch();
-      toast({ title: "Success", description: "Product created successfully" });
+      const name = created?.name ?? variables.name;
+      toast({
+        title: "Success",
+        description: `Product "${name}" created successfully`,
+        variant: "success",
+      });
     },
     onError: (error: Error) => {
       toast({ 
@@ -205,9 +228,16 @@ function ProductsPage() {
       if (!res.ok) throw new Error(await getResponseErrorMessage(res, "Failed to update product"));
       return res.json();
     },
-    onSuccess: () => {
+    // The API replies with the saved product, so the toast can name the product
+    // that was modified (falling back to the submitted form data).
+    onSuccess: (updated: Product | undefined, variables) => {
       refetch();
-      toast({ title: "Success", description: "Product updated successfully" });
+      const name = updated?.name ?? variables.data.name;
+      toast({
+        title: "Success",
+        description: `Product "${name}" updated successfully`,
+        variant: "success",
+      });
     },
     onError: (error: Error) => {
       toast({ 
@@ -232,7 +262,13 @@ function ProductsPage() {
     },
     onSuccess: () => {
       refetch();
-      toast({ title: "Success", description: "Product deleted successfully" });
+      toast({
+        title: "Success",
+        description: productToDelete?.name
+          ? `Product "${productToDelete.name}" deleted successfully`
+          : "Product deleted successfully",
+        variant: "success",
+      });
       setIsDeleteDialogOpen(false); // Close the dialog after successful deletion
       setProductToDelete(null); //Reset product to delete
     },
@@ -244,6 +280,61 @@ function ProductsPage() {
       });
       setIsDeleteDialogOpen(false); // Close the dialog after failed deletion
       setProductToDelete(null); //Reset product to delete
+    },
+  });
+
+  // Bulk delete used by the checkbox selection in the product list. The API
+  // deletes what it can and reports the products it had to skip (e.g. ones used
+  // in orders) so the toast can explain the partial result.
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      if (!hasPermission('products', 'delete') && !isAdmin) {
+        throw new Error("You don't have permission to delete products");
+      }
+      const res = await fetch('/api/products/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(await getResponseErrorMessage(res, "Failed to delete products"));
+      return (await res.json()) as {
+        message: string;
+        deletedCount: number;
+        failedCount: number;
+        deleted: number[];
+        failed: { id: number; name: string | null; message: string }[];
+      };
+    },
+    onSuccess: (result) => {
+      refetch();
+      // Keep the ids that could not be deleted selected so the user can retry.
+      const deleted = new Set(result.deleted);
+      setSelectedIds((prev) => prev.filter((id) => !deleted.has(id)));
+      setIsBulkDeleteDialogOpen(false);
+
+      if (result.failedCount > 0) {
+        const details = result.failed
+          .slice(0, 3)
+          .map((item) => `${item.name ?? `#${item.id}`}: ${item.message}`)
+          .join(" · ");
+        toast({
+          title: result.deletedCount > 0 ? "Products deleted" : "Nothing was deleted",
+          description: `${result.message}. ${details}${result.failed.length > 3 ? " …" : ""}`,
+          variant: result.deletedCount > 0 ? "success" : "destructive",
+        });
+        return;
+      }
+
+      toast({ title: "Success", description: result.message, variant: "success" });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+      setIsBulkDeleteDialogOpen(false);
     },
   });
 
@@ -278,21 +369,78 @@ function ProductsPage() {
       brandId: null, // Brand is optional
       supplierId: null, // Supplier is mandatory - the user has to pick one
       minStock: 10,
+      weightKg: null,
+      lengthCm: null,
+      widthCm: null,
+      heightCm: null,
     },
   });
 
 
-  const filteredProducts = products?.filter(product => 
-    product.name.toLowerCase().includes(search.toLowerCase()) ||
-    product.sku.toLowerCase().includes(search.toLowerCase()) ||
-    product.category.name.toLowerCase().includes(search.toLowerCase())
-  );
-
   const getStockStatus = (product: Product) => {
     const quantity = product.inventory[0]?.quantity ?? 0;
-    if (quantity <= 0) return { label: 'Out of Stock', class: 'bg-red-100 text-red-800' };
-    if (quantity <= product.minStock) return { label: 'Low Stock', class: 'bg-yellow-100 text-yellow-800' };
-    return { label: 'In Stock', class: 'bg-green-100 text-green-800' };
+    if (quantity <= 0) return { label: 'Out of Stock', class: 'bg-destructive-subtle text-destructive-subtle-foreground' };
+    if (quantity <= product.minStock) return { label: 'Low Stock', class: 'bg-warning-subtle text-warning-subtle-foreground' };
+    return { label: 'In Stock', class: 'bg-success-subtle text-success-subtle-foreground' };
+  };
+
+  // Header controls: clicking a column header sorts it (asc -> desc -> none) and
+  // the small input under each header filters that single column.
+  const productsTable = useTableControls(
+    products,
+    {
+      name: (product) => product.name,
+      sku: (product) => product.sku,
+      category: (product) => product.category.name,
+      price: (product) => Number(product.price),
+      stock: (product) => product.inventory[0]?.quantity ?? 0,
+      status: (product) => getStockStatus(product).label,
+    },
+    {
+      // The page level search box stays the primary, whole row search.
+      filter: (product) =>
+        product.name.toLowerCase().includes(search.toLowerCase()) ||
+        product.sku.toLowerCase().includes(search.toLowerCase()) ||
+        product.category.name.toLowerCase().includes(search.toLowerCase()),
+    }
+  );
+
+  // Rows currently visible (search + column filters + sorting). Export and bulk
+  // selection both read from this list, so a hidden row is never deleted.
+  const filteredProducts = productsTable.rows;
+
+  // Bulk selection helpers. "Select all" only ever selects the rows that are
+  // currently visible so a hidden search result cannot be deleted by accident.
+  const visibleProductIds = (filteredProducts ?? []).map((product) => product.id);
+  const visibleSelectedCount = visibleProductIds.filter((id) => selectedIds.includes(id)).length;
+  const allVisibleSelected =
+    visibleProductIds.length > 0 && visibleSelectedCount === visibleProductIds.length;
+  const someVisibleSelected = visibleSelectedCount > 0 && !allVisibleSelected;
+
+  const toggleProductSelection = (id: number) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAllVisible = () => {
+    setSelectedIds((prev) => {
+      const visible = new Set(visibleProductIds);
+      const everyVisibleSelected = visibleProductIds.every((id) => prev.includes(id));
+      if (everyVisibleSelected) {
+        return prev.filter((id) => !visible.has(id));
+      }
+      return Array.from(new Set([...prev, ...visibleProductIds]));
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    try {
+      await bulkDeleteMutation.mutateAsync(selectedIds);
+    } catch {
+      // Reported by the mutation's onError handler.
+    }
   };
 
   // Export the rows currently shown (the search filter is respected) to an
@@ -315,6 +463,7 @@ function ProductsPage() {
       toast({
         title: "Export ready",
         description: `${fileName} · ${rows.length} product${rows.length === 1 ? "" : "s"}`,
+        variant: "success",
       });
     } catch {
       toast({
@@ -346,52 +495,52 @@ function ProductsPage() {
 
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Product Details</DialogTitle>
           </DialogHeader>
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-gray-500">Name</label>
-                <p className="mt-1 text-sm text-gray-900">{product.name}</p>
+                <label className="text-sm font-medium text-muted-foreground">Name</label>
+                <p className="mt-1 text-sm text-foreground">{product.name}</p>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">SKU</label>
-                <p className="mt-1 text-sm text-gray-900">{product.sku}</p>
+                <label className="text-sm font-medium text-muted-foreground">SKU</label>
+                <p className="mt-1 text-sm text-foreground">{product.sku}</p>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Category</label>
-                <p className="mt-1 text-sm text-gray-900">{product.category.name}</p>
+                <label className="text-sm font-medium text-muted-foreground">Category</label>
+                <p className="mt-1 text-sm text-foreground">{product.category.name}</p>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Brand</label>
-                <p className="mt-1 text-sm text-gray-900">{product.brand?.name || 'Not specified'}</p>
+                <label className="text-sm font-medium text-muted-foreground">Brand</label>
+                <p className="mt-1 text-sm text-foreground">{product.brand?.name || 'Not specified'}</p>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Supplier</label>
-                <p className="mt-1 text-sm text-gray-900">{product.supplier?.name || 'Not specified'}</p>
+                <label className="text-sm font-medium text-muted-foreground">Supplier</label>
+                <p className="mt-1 text-sm text-foreground">{product.supplier?.name || 'Not specified'}</p>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Landing Price</label>
-                <p className="mt-1 text-sm text-gray-900">
+                <label className="text-sm font-medium text-muted-foreground">Landing Price</label>
+                <p className="mt-1 text-sm text-foreground">
                   {product.landingPrice != null ? formatPrice(product.landingPrice) : 'Not set'}
                 </p>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">B2B Price</label>
-                <p className="mt-1 text-sm text-gray-900">
+                <label className="text-sm font-medium text-muted-foreground">B2B Price</label>
+                <p className="mt-1 text-sm text-foreground">
                   {product.b2bPrice != null ? formatPrice(product.b2bPrice) : 'Not set'}
                 </p>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">B2C Price</label>
-                <p className="mt-1 text-sm text-gray-900">
+                <label className="text-sm font-medium text-muted-foreground">B2C Price</label>
+                <p className="mt-1 text-sm text-foreground">
                   {product.b2cPrice != null ? formatPrice(product.b2cPrice) : 'Not set'}
                 </p>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Stock Status</label>
+                <label className="text-sm font-medium text-muted-foreground">Stock Status</label>
                 <div className="mt-1">
                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${stockStatus.class}`}>
                     {stockStatus.label}
@@ -399,18 +548,47 @@ function ProductsPage() {
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Current Stock</label>
-                <p className="mt-1 text-sm text-gray-900">{product.inventory[0]?.quantity ?? 0}</p>
+                <label className="text-sm font-medium text-muted-foreground">Current Stock</label>
+                <p className="mt-1 text-sm text-foreground">{product.inventory[0]?.quantity ?? 0}</p>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Minimum Stock</label>
-                <p className="mt-1 text-sm text-gray-900">{product.minStock}</p>
+                <label className="text-sm font-medium text-muted-foreground">Minimum Stock</label>
+                <p className="mt-1 text-sm text-foreground">{product.minStock}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">Weight</label>
+                <p className="mt-1 text-sm text-foreground">
+                  {product.weightKg != null ? `${Number(product.weightKg)} kg` : 'Not set'}
+                </p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">Length</label>
+                <p className="mt-1 text-sm text-foreground">
+                  {product.lengthCm != null ? `${Number(product.lengthCm)} cm` : 'Not set'}
+                </p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">Width</label>
+                <p className="mt-1 text-sm text-foreground">
+                  {product.widthCm != null ? `${Number(product.widthCm)} cm` : 'Not set'}
+                </p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">Height</label>
+                <p className="mt-1 text-sm text-foreground">
+                  {product.heightCm != null ? `${Number(product.heightCm)} cm` : 'Not set'}
+                </p>
               </div>
             </div>
             {product.description && (
               <div>
-                <label className="text-sm font-medium text-gray-500">Description</label>
-                <p className="mt-1 text-sm text-gray-900">{product.description}</p>
+                <label className="text-sm font-medium text-muted-foreground">Description</label>
+                {/* Descriptions may be plain text or HTML - RichText sanitises the
+                    HTML and keeps the formatting so the details look right. */}
+                <RichText
+                  value={product.description}
+                  className="mt-1 text-foreground"
+                />
               </div>
             )}
           </div>
@@ -460,14 +638,14 @@ function ProductsPage() {
   // If user doesn't have read permission, show access denied
   if (!hasPermission('products', 'read')) {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen w-full flex items-center justify-center bg-background">
         <Card className="w-full max-w-md mx-4">
           <CardContent className="pt-6">
             <div className="flex mb-4 gap-2">
               <AlertCircle className="h-8 w-8 text-red-500" />
-              <h1 className="text-2xl font-bold text-gray-900">Access Denied</h1>
+              <h1 className="text-2xl font-bold text-foreground">Access Denied</h1>
             </div>
-            <p className="mt-4 text-sm text-gray-600">
+            <p className="mt-4 text-sm text-muted-foreground">
               You don't have permission to view products.
             </p>
           </CardContent>
@@ -498,7 +676,7 @@ function ProductsPage() {
 
               onSubmit={onSubmit}
               trigger={
-                <Button onClick={() => {
+                <Button variant="create" onClick={() => {
                   setEditingProduct(null);
                   form.reset({
                     name: "",
@@ -511,6 +689,10 @@ function ProductsPage() {
                     brandId: null,
                     supplierId: null,
                     minStock: 10,
+                    weightKg: null,
+                    lengthCm: null,
+                    widthCm: null,
+                    heightCm: null,
                   });
 
                   setIsCreateDialogOpen(true);
@@ -535,15 +717,12 @@ function ProductsPage() {
         <CardHeader>
           <CardTitle>Product List</CardTitle>
           <div className="flex items-center gap-4">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search products..."
-                className="pl-8"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
+            <SearchInput
+              containerClassName="flex-1 max-w-sm"
+              placeholder="Search products..."
+              value={search}
+              onValueChange={setSearch}
+            />
             {hasPermission('products', 'read') && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -567,6 +746,23 @@ function ProductsPage() {
               </DropdownMenu>
             )}
           </div>
+          {canDeleteProducts && selectedIds.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+              <span className="text-sm font-medium">{selectedIds.length} selected</span>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedIds([])}>
+                Clear selection
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setIsBulkDeleteDialogOpen(true)}
+                disabled={bulkDeleteMutation.isPending}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete selected
+              </Button>
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -574,26 +770,52 @@ function ProductsPage() {
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
           ) : (
+            <>
+            <TableControlsBar controls={productsTable} noun="products" />
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>SKU</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Price</TableHead>
-                  <TableHead>Stock</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
+                  {canDeleteProducts && (
+                    <TableHead className="w-10 align-top">
+                      <Checkbox
+                        aria-label="Select all products"
+                        checked={
+                          allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false
+                        }
+                        onCheckedChange={toggleSelectAllVisible}
+                        disabled={visibleProductIds.length === 0}
+                      />
+                    </TableHead>
+                  )}
+                  <ColumnHeader controls={productsTable} columnKey="name" label="Name" filterPlaceholder="Filter name" />
+                  <ColumnHeader controls={productsTable} columnKey="sku" label="SKU" filterPlaceholder="Filter SKU" />
+                  <ColumnHeader controls={productsTable} columnKey="category" label="Category" filterPlaceholder="Filter category" />
+                  <ColumnHeader controls={productsTable} columnKey="price" label="Price" filterPlaceholder="Filter price" />
+                  <ColumnHeader controls={productsTable} columnKey="stock" label="Stock" filterPlaceholder="Filter stock" />
+                  <ColumnHeader controls={productsTable} columnKey="status" label="Status" filterPlaceholder="Filter status" />
+                  <TableHead className="align-top">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredProducts?.map((product) => {
                   const stockStatus = getStockStatus(product);
                   return (
-                    <TableRow key={product.id}>
+                    <TableRow key={product.id} data-state={selectedIds.includes(product.id) ? "selected" : undefined}>
+                      {canDeleteProducts && (
+                        <TableCell>
+                          <Checkbox
+                            aria-label={`Select ${product.name}`}
+                            checked={selectedIds.includes(product.id)}
+                            onCheckedChange={() => toggleProductSelection(product.id)}
+                          />
+                        </TableCell>
+                      )}
                       <TableCell>
                         <div>{product.name}</div>
-                        <div className="text-sm text-muted-foreground">{product.description}</div>
+                        {/* Compact single-line preview - strips any HTML markup. */}
+                        <div className="line-clamp-2 text-sm text-muted-foreground">
+                          {toPlainText(product.description)}
+                        </div>
                       </TableCell>
                       <TableCell>{product.sku}</TableCell>
                       <TableCell>{product.category.name}</TableCell>
@@ -646,6 +868,10 @@ function ProductsPage() {
                                       brandId: product.brandId ?? null,
                                       supplierId: product.supplierId ?? null,
                                       minStock: product.minStock,
+                                      weightKg: product.weightKg != null ? Number(product.weightKg) : null,
+                                      lengthCm: product.lengthCm != null ? Number(product.lengthCm) : null,
+                                      widthCm: product.widthCm != null ? Number(product.widthCm) : null,
+                                      heightCm: product.heightCm != null ? Number(product.heightCm) : null,
 
                                     });
                                     setIsEditDialogOpen(true);
@@ -672,6 +898,7 @@ function ProductsPage() {
                 })}
               </TableBody>
             </Table>
+            </>
           )}
         </CardContent>
       </Card>
@@ -692,6 +919,42 @@ function ProductsPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={isBulkDeleteDialogOpen} onOpenChange={setIsBulkDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selectedIds.length} selected product{selectedIds.length === 1 ? "" : "s"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. Products that are already used in orders will be
+              skipped and reported after the deletion.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleteMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                // Keep the dialog open while the request is in flight so the
+                // pending state is visible.
+                event.preventDefault();
+                void handleBulkDelete();
+              }}
+              disabled={bulkDeleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {bulkDeleteMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete selected"
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

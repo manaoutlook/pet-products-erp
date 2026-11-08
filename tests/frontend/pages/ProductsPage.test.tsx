@@ -14,9 +14,12 @@ vi.mock('@/hooks/use-permissions', () => ({
     }),
 }));
 
-// Avoid rendering the real toast provider
+// Avoid rendering the real toast provider, but keep a handle on the calls so
+// the success/error messaging can be asserted.
+const { toastMock } = vi.hoisted(() => ({ toastMock: vi.fn() }));
+
 vi.mock('@/hooks/use-toast', () => ({
-    useToast: () => ({ toast: vi.fn(), toasts: [], dismiss: vi.fn() }),
+    useToast: () => ({ toast: toastMock, toasts: [], dismiss: vi.fn() }),
 }));
 
 const now = new Date('2024-01-01T00:00:00.000Z').toISOString();
@@ -489,3 +492,87 @@ describe('ProductsPage - supplier', () => {
         }
     });
 });
+
+describe('ProductsPage - save confirmation toasts', () => {
+    let calls: FetchCall[];
+
+    beforeEach(() => {
+        // Radix UI primitives rely on these DOM APIs which happy-dom does not fully implement
+        Element.prototype.hasPointerCapture = vi.fn(() => false) as any;
+        Element.prototype.setPointerCapture = vi.fn() as any;
+        Element.prototype.releasePointerCapture = vi.fn() as any;
+        Element.prototype.scrollIntoView = vi.fn() as any;
+
+        calls = [];
+        toastMock.mockClear();
+        vi.stubGlobal('fetch', createFetchMock(calls));
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('names the modified product and uses the green success style when an edit is saved', async () => {
+        renderPage();
+        await screen.findByText('USB-C Fast Charger');
+
+        const { user, dialog } = await openEditDialogFor('USB-C Fast Charger');
+
+        await user.click(within(dialog).getByRole('button', { name: /update product/i }));
+
+        await waitFor(() => {
+            expect(calls.some((call) => call.method === 'PUT')).toBe(true);
+        });
+
+        await waitFor(() => {
+            expect(toastMock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    title: 'Success',
+                    description: 'Product "USB-C Fast Charger" updated successfully',
+                    // `success` renders the toast with a green background and white text.
+                    variant: 'success',
+                })
+            );
+        });
+    });
+
+    it('names the new product on the green success toast when a product is created', async () => {
+        renderPage();
+        await screen.findByText('USB-C Fast Charger');
+
+        const user = userEvent.setup();
+        await user.click(screen.getByRole('button', { name: /add product/i }));
+
+        const dialog = await screen.findByRole('dialog');
+        within(dialog)
+            .getAllByRole('spinbutton')
+            .forEach((input) => input.setAttribute('step', 'any'));
+
+        await user.type(within(dialog).getByRole('textbox', { name: /^name/i }), 'New Leash');
+        await user.type(within(dialog).getByRole('textbox', { name: /^sku/i }), 'MP-NL-0003');
+
+        // Category and supplier are mandatory: pick both before saving.
+        await user.click(within(dialog).getByRole('combobox', { name: /category/i }));
+        await user.click(await screen.findByRole('option', { name: 'Smart Gadgets' }));
+        await selectSupplier(user, dialog, 'Saigon Traders');
+
+        await user.type(within(dialog).getByRole('spinbutton', { name: /b2c price/i }), '120000');
+
+        await user.click(within(dialog).getByRole('button', { name: /create product/i }));
+
+        await waitFor(() => {
+            expect(calls.some((call) => call.method === 'POST')).toBe(true);
+        });
+
+        await waitFor(() => {
+            expect(toastMock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    title: 'Success',
+                    description: 'Product "New Leash" created successfully',
+                    variant: 'success',
+                })
+            );
+        });
+    });
+});
+

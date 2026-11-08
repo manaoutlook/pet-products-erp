@@ -148,7 +148,7 @@ export function ImportProductsDialog({
       const summary = (await response.json()) as ImportProductsResult;
       setResult(summary);
       onImported?.();
-      toast({ title: "Import finished", description: summary.message });
+      toast({ title: "Import finished", description: summary.message, variant: "success" });
     } catch (importError) {
       setError(importError instanceof Error ? importError.message : "Failed to import products");
     } finally {
@@ -159,7 +159,7 @@ export function ImportProductsDialog({
   const handleTemplate = async (format: "xlsx" | "csv") => {
     try {
       const fileName = await downloadImportTemplate(format);
-      toast({ title: "Template downloaded", description: fileName });
+      toast({ title: "Template downloaded", description: fileName, variant: "success" });
     } catch {
       toast({
         title: "Error",
@@ -201,7 +201,8 @@ export function ImportProductsDialog({
                 />
                 <p className="text-xs text-muted-foreground">
                   Required columns: Name, SKU, Category, Supplier, B2C Price. Optional:
-                  Description, Brand, Landing Price, B2B Price, Min Stock.
+                  Description, Brand, Landing Price, B2B Price, Min Stock, Weight (kg),
+                  Length (cm), Width (cm), Height (cm).
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs text-muted-foreground">Download a blank template:</span>

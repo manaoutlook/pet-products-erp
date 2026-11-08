@@ -29,15 +29,32 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
+import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
+import { useTableControls } from "@/hooks/use-table-controls";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, Plus, Pencil, Trash2, AlertCircle, Eye } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, AlertCircle, Eye, Download, Upload } from "lucide-react";
 import { z } from "zod";
 import { usePermissions } from "@/hooks/use-permissions";
+import { MasterDataImportDialog } from "@/components/master-data/MasterDataImportDialog";
+import {
+  MasterDataBulkDeleteDialog,
+  MasterDataBulkDeleteToolbar,
+  useMasterDataBulkDelete,
+} from "@/components/master-data/MasterDataBulkDelete";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { exportMasterData, type SpreadsheetFormat } from "@/utils/master-data-spreadsheet";
 
 // Category schema for form validation
 const categorySchema = z.object({
@@ -107,9 +124,12 @@ function CategoryPage() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [viewingCategory, setViewingCategory] = useState<Category | null>(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const { toast } = useToast();
   const { hasPermission } = usePermissions();
   const queryClient = useQueryClient();
+  const canDeleteCategories = hasPermission('masterData', 'delete');
 
   // View Category Dialog Component
   function ViewCategoryDialog({
@@ -132,20 +152,20 @@ function CategoryPage() {
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-gray-500">Name</label>
-                <p className="mt-1 text-sm text-gray-900">{category.name}</p>
+                <label className="text-sm font-medium text-muted-foreground">Name</label>
+                <p className="mt-1 text-sm text-foreground">{category.name}</p>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Description</label>
-                <p className="mt-1 text-sm text-gray-900">{category.description || 'Not specified'}</p>
+                <label className="text-sm font-medium text-muted-foreground">Description</label>
+                <p className="mt-1 text-sm text-foreground">{category.description || 'Not specified'}</p>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Created At</label>
-                <p className="mt-1 text-sm text-gray-900">{new Date(category.createdAt).toLocaleString()}</p>
+                <label className="text-sm font-medium text-muted-foreground">Created At</label>
+                <p className="mt-1 text-sm text-foreground">{new Date(category.createdAt).toLocaleString()}</p>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Updated At</label>
-                <p className="mt-1 text-sm text-gray-900">{new Date(category.updatedAt).toLocaleString()}</p>
+                <label className="text-sm font-medium text-muted-foreground">Updated At</label>
+                <p className="mt-1 text-sm text-foreground">{new Date(category.updatedAt).toLocaleString()}</p>
               </div>
             </div>
           </div>
@@ -180,7 +200,7 @@ function CategoryPage() {
     },
     onSuccess: () => {
       refetch();
-      toast({ title: "Success", description: "Category created successfully" });
+      toast({ title: "Success", description: "Category created successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -217,7 +237,7 @@ function CategoryPage() {
         );
       }
       refetch();
-      toast({ title: "Success", description: "Category updated successfully" });
+      toast({ title: "Success", description: "Category updated successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -242,7 +262,7 @@ function CategoryPage() {
     },
     onSuccess: () => {
       refetch();
-      toast({ title: "Success", description: "Category deleted successfully" });
+      toast({ title: "Success", description: "Category deleted successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -260,14 +280,79 @@ function CategoryPage() {
 
   const normalizedSearch = normalizeSearchText(search);
 
-  const filteredCategories = categories?.filter((category) => {
-    if (!normalizedSearch) return true;
+  // Header controls: click a column header to sort it (asc -> desc -> none) and
+  // use the small input under a header to filter that single column.
+  const categoriesTable = useTableControls(
+    categories,
+    {
+      name: (category) => category.name,
+      description: (category) => category.description,
+      parent: (category) =>
+        category.parentId ? categoryMap?.[category.parentId] || "Parent Category" : "Root category",
+      createdAt: (category) => new Date(category.createdAt),
+      updatedAt: (category) => new Date(category.updatedAt),
+    },
+    {
+      // The page level search box stays the primary, whole row search.
+      filter: (category) =>
+        !normalizedSearch ||
+        normalizeSearchText(category.name).includes(normalizedSearch) ||
+        normalizeSearchText(category.description).includes(normalizedSearch),
+    }
+  );
 
-    return (
-      normalizeSearchText(category.name).includes(normalizedSearch) ||
-      normalizeSearchText(category.description).includes(normalizedSearch)
-    );
+  // Rows currently visible (search + column filters + sorting).
+  const filteredCategories = categoriesTable.rows;
+
+  // Checkbox multi-select for the bulk delete action. Only ids of the rows that
+  // are currently shown are ever selected, so a hidden search result cannot be
+  // deleted by accident.
+  const bulkDelete = useMasterDataBulkDelete({
+    endpoint: '/api/categories',
+    singular: 'category',
+    plural: 'categories',
+    onDeleted: () => refetch(),
   });
+
+  const visibleCategoryIds = (filteredCategories ?? []).map((category) => category.id);
+  const visibleSelection = bulkDelete.selectionState(visibleCategoryIds);
+
+  // Export the rows currently shown (the search filter is respected) to an
+  // .xlsx or .csv file. SheetJS is loaded lazily by the export helper.
+  const handleExport = async (format: SpreadsheetFormat) => {
+    const rows = filteredCategories ?? [];
+
+    if (rows.length === 0) {
+      toast({
+        title: "Nothing to export",
+        description: "No categories match the current search.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // The list only carries parentId, so the parent column is resolved from the
+    // (unfiltered) category list - a parent hidden by the search still exports.
+    setIsExporting(true);
+    try {
+      const fileName = await exportMasterData("categories", rows, format, {
+        categoryNames: categoryMap,
+      });
+      toast({
+        title: "Export ready",
+        description: `${fileName} · ${rows.length} ${rows.length === 1 ? "category" : "categories"}`,
+        variant: "success",
+      });
+    } catch {
+      toast({
+        title: "Export failed",
+        description: "The export file could not be created.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const onSubmit = async (data: CategoryFormData) => {
     try {
@@ -309,14 +394,14 @@ function CategoryPage() {
   // If user doesn't have read permission, show access denied
   if (!hasPermission('masterData', 'read')) {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen w-full flex items-center justify-center bg-background">
         <Card className="w-full max-w-md mx-4">
           <CardContent className="pt-6">
             <div className="flex mb-4 gap-2">
               <AlertCircle className="h-8 w-8 text-red-500" />
-              <h1 className="text-2xl font-bold text-gray-900">Access Denied</h1>
+              <h1 className="text-2xl font-bold text-foreground">Access Denied</h1>
             </div>
-            <p className="mt-4 text-sm text-gray-600">
+            <p className="mt-4 text-sm text-muted-foreground">
               You don't have permission to view categories.
             </p>
           </CardContent>
@@ -330,121 +415,163 @@ function CategoryPage() {
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Categories</h1>
         {hasPermission('masterData', 'create') && (
-          <Dialog
-            open={isCreateDialogOpen}
-            onOpenChange={(open) => {
-              setIsCreateDialogOpen(open);
-              if (open) {
-                // Always start the Add dialog from a blank form
-                setEditingCategory(null);
-                form.reset(emptyCategoryForm);
-              }
-            }}
-          >
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="mr-2 h-4 w-4" />
-                Add Category
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Add New Category</DialogTitle>
-              </DialogHeader>
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Name</FormLabel>
-                        <FormControl>
-                          <Input {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="description"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Description</FormLabel>
-                        <FormControl>
-                          <Input {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="parentId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Parent Category</FormLabel>
-                        <Select
-                          onValueChange={(value) =>
-                            field.onChange(value === "root" ? "" : value)
-                          }
-                          value={field.value || "root"}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select parent category" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="root">No parent (Root category)</SelectItem>
-                            {isLoading ? (
-                              <div className="h-20 w-full flex items-center justify-center">
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              </div>
-                            ) : categories?.map((category) => (
-                              <SelectItem
-                                key={category.id}
-                                value={category.id.toString()}
-                              >
-                                {category.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={form.formState.isSubmitting}
-                  >
-                    {form.formState.isSubmitting && (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    )}
-                    {editingCategory ? 'Update Category' : 'Create Category'}
-                  </Button>
-                </form>
-              </Form>
-            </DialogContent>
-          </Dialog>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setIsImportDialogOpen(true)}>
+              <Upload className="mr-2 h-4 w-4" />
+              Import
+            </Button>
+            <Dialog
+              open={isCreateDialogOpen}
+              onOpenChange={(open) => {
+                setIsCreateDialogOpen(open);
+                if (open) {
+                  // Always start the Add dialog from a blank form
+                  setEditingCategory(null);
+                  form.reset(emptyCategoryForm);
+                }
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button variant="create">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Category
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add New Category</DialogTitle>
+                </DialogHeader>
+                <Form {...form}>
+                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                    <FormField
+                      control={form.control}
+                      name="name"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Name</FormLabel>
+                          <FormControl>
+                            <Input {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="description"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Description</FormLabel>
+                          <FormControl>
+                            <Input {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="parentId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Parent Category</FormLabel>
+                          <Select
+                            onValueChange={(value) =>
+                              field.onChange(value === "root" ? "" : value)
+                            }
+                            value={field.value || "root"}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select parent category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="root">No parent (Root category)</SelectItem>
+                              {isLoading ? (
+                                <div className="h-20 w-full flex items-center justify-center">
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                </div>
+                              ) : categories?.map((category) => (
+                                <SelectItem
+                                  key={category.id}
+                                  value={category.id.toString()}
+                                >
+                                  {category.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <Button variant={editingCategory ? 'update' : 'create'}
+                      type="submit"
+                      className="w-full"
+                      disabled={form.formState.isSubmitting}
+                    >
+                      {form.formState.isSubmitting && (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      )}
+                      {editingCategory ? 'Update Category' : 'Create Category'}
+                    </Button>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+          </div>
         )}
       </div>
+
+      {/* CSV / Excel import - opened from the Import button above */}
+      <MasterDataImportDialog
+        kind="categories"
+        open={isImportDialogOpen}
+        onOpenChange={setIsImportDialogOpen}
+        onImported={() => refetch()}
+      />
 
       <Card>
         <CardHeader>
           <CardTitle>Category List</CardTitle>
           <div className="flex items-center gap-4">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search categories..."
-                className="pl-8"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
+            <SearchInput
+              containerClassName="flex-1 max-w-sm"
+              placeholder="Search categories..."
+              value={search}
+              onValueChange={setSearch}
+            />
+            {hasPermission('masterData', 'read') && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" disabled={isExporting}>
+                    {isExporting ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="mr-2 h-4 w-4" />
+                    )}
+                    Export
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => handleExport("xlsx")}>
+                    Excel (.xlsx)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handleExport("csv")}>
+                    CSV (.csv)
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
+          {canDeleteCategories && (
+            <MasterDataBulkDeleteToolbar
+              count={bulkDelete.selectedCount}
+              plural="categories"
+              onClear={bulkDelete.clearSelection}
+              onRequestDelete={() => bulkDelete.setIsDeleteDialogOpen(true)}
+              isPending={bulkDelete.isPending}
+            />
+          )}
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -452,20 +579,50 @@ function CategoryPage() {
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
           ) : (
+            <>
+            <TableControlsBar controls={categoriesTable} noun="categories" />
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Parent Category</TableHead>
-                  <TableHead>Created At</TableHead>
-                  <TableHead>Updated At</TableHead>
-                  <TableHead>Actions</TableHead>
+                  {canDeleteCategories && (
+                    <TableHead className="w-10 align-top">
+                      <Checkbox
+                        aria-label="Select all categories"
+                        checked={
+                          visibleSelection.allSelected
+                            ? true
+                            : visibleSelection.someSelected
+                              ? "indeterminate"
+                              : false
+                        }
+                        onCheckedChange={() => bulkDelete.toggleSelectAll(visibleCategoryIds)}
+                        disabled={visibleCategoryIds.length === 0}
+                      />
+                    </TableHead>
+                  )}
+                  <ColumnHeader controls={categoriesTable} columnKey="name" label="Name" filterPlaceholder="Filter name" />
+                  <ColumnHeader controls={categoriesTable} columnKey="description" label="Description" filterPlaceholder="Filter description" />
+                  <ColumnHeader controls={categoriesTable} columnKey="parent" label="Parent Category" filterPlaceholder="Filter parent" />
+                  <ColumnHeader controls={categoriesTable} columnKey="createdAt" label="Created At" filterPlaceholder="Filter created" />
+                  <ColumnHeader controls={categoriesTable} columnKey="updatedAt" label="Updated At" filterPlaceholder="Filter updated" />
+                  <TableHead className="align-top">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredCategories?.map((category: any) => (
-                  <TableRow key={category.id}>
+                  <TableRow
+                    key={category.id}
+                    data-state={bulkDelete.isSelected(category.id) ? "selected" : undefined}
+                  >
+                    {canDeleteCategories && (
+                      <TableCell>
+                        <Checkbox
+                          aria-label={`Select ${category.name}`}
+                          checked={bulkDelete.isSelected(category.id)}
+                          onCheckedChange={() => bulkDelete.toggleSelection(category.id)}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell>{category.name}</TableCell>
                     <TableCell>{category.description}</TableCell>
                     <TableCell>{category.parentId ? categoryMap?.[category.parentId] || 'Parent Category' : 'Root category'}</TableCell>
@@ -579,7 +736,7 @@ function CategoryPage() {
                                       </FormItem>
                                     )}
                                   />
-                                  <Button
+                                  <Button variant="update"
                                     type="submit"
                                     className="w-full"
                                     disabled={form.formState.isSubmitting}
@@ -614,9 +771,20 @@ function CategoryPage() {
                 ))}
               </TableBody>
             </Table>
+            </>
           )}
         </CardContent>
       </Card>
+
+      <MasterDataBulkDeleteDialog
+        open={bulkDelete.isDeleteDialogOpen}
+        onOpenChange={bulkDelete.setIsDeleteDialogOpen}
+        count={bulkDelete.selectedCount}
+        singular="category"
+        plural="categories"
+        isPending={bulkDelete.isPending}
+        onConfirm={bulkDelete.confirmDelete}
+      />
 
       <ViewCategoryDialog
         category={viewingCategory}

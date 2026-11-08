@@ -57,7 +57,7 @@ function BrandQuickAddModal({ onSuccess, trigger }: BrandQuickAddModalProps) {
       queryClient.invalidateQueries({ queryKey: ['/api/brands'] });
       setDialogOpen(false);
       form.reset();
-      toast({ title: "Success", description: "Brand created successfully" });
+      toast({ title: "Success", description: "Brand created successfully", variant: "success" });
       onSuccess?.(data.brand);
     },
     onError: (error: Error) => {
@@ -125,7 +125,7 @@ function BrandQuickAddModal({ onSuccess, trigger }: BrandQuickAddModalProps) {
                 </FormItem>
               )}
             />
-            <Button
+            <Button variant="create"
               type="submit"
               className="w-full"
               disabled={form.formState.isSubmitting}

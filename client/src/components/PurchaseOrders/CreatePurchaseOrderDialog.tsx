@@ -103,6 +103,7 @@ export function CreatePurchaseOrderDialog() {
       toast({
         title: "Success",
         description: "Purchase order created successfully",
+        variant: "success",
       });
       setOpen(false);
       form.reset({
@@ -134,7 +135,7 @@ export function CreatePurchaseOrderDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button>
+        <Button variant="create">
           <Plus className="mr-2 h-4 w-4" />
           Create Purchase Order
         </Button>
@@ -347,7 +348,7 @@ export function CreatePurchaseOrderDialog() {
               >
                 Cancel
               </Button>
-              <Button
+              <Button variant="create"
                 type="submit"
                 disabled={createPurchaseOrder.isPending}
               >

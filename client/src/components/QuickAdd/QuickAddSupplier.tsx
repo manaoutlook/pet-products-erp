@@ -60,7 +60,7 @@ export function QuickAddSupplier() {
       queryClient.invalidateQueries({ queryKey: ['/api/suppliers'] });
       setOpen(false);
       methods.reset();
-      toast({ title: "Success", description: "Supplier created successfully" });
+      toast({ title: "Success", description: "Supplier created successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -139,7 +139,7 @@ export function QuickAddSupplier() {
               )}
             />
 
-            <Button
+            <Button variant="create"
               type="submit"
               className="w-full"
               disabled={createSupplierMutation.isPending}

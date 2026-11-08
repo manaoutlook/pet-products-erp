@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useUser } from "@/hooks/use-user";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useTheme } from "@/components/theme-provider";
 import {
   LayoutDashboard,
   Package,
@@ -12,6 +13,8 @@ import {
   Settings,
   Store,
   LogOut,
+  Sun,
+  Moon,
   UserCog,
   Lock,
   BarChart,
@@ -43,6 +46,7 @@ function Sidebar() {
   const [location] = useLocation();
   const { logout, user } = useUser();
   const { hasPermission, isAdmin } = usePermissions();
+  const { resolvedTheme, toggleTheme } = useTheme();
   const isSystemAdmin = user?.role?.isSystemAdmin === true;
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
 
@@ -269,12 +273,10 @@ function Sidebar() {
           <button
             onClick={() => toggleExpanded(item.name)}
             className={cn(
-              "w-full flex items-center justify-between px-3 py-2 text-sm rounded-md",
-              "text-sidebar-foreground/70 hover:text-sidebar-foreground",
-              "bg-transparent hover:bg-sidebar-accent/10 transition-colors",
-              "cursor-pointer focus:outline-none focus:ring-2 focus:ring-sidebar-accent/20",
-              isExpanded && "bg-sidebar-accent/5"
+              "erp-nav-item justify-between",
+              isExpanded && "bg-sidebar-accent text-sidebar-accent-foreground"
             )}
+            aria-expanded={isExpanded}
           >
             <div className="flex items-center">
               <item.icon className="mr-3 h-5 w-5" />
@@ -286,7 +288,7 @@ function Sidebar() {
             )} />
           </button>
           {isExpanded && (
-            <div className="ml-4 pl-3 space-y-1 border-l-2 border-sidebar-accent/20">
+            <div className="ml-4 pl-3 space-y-1 border-l border-border">
               {accessibleChildren.map(child => renderNavItem(child))}
             </div>
           )}
@@ -302,12 +304,10 @@ function Sidebar() {
       <Link key={item.name} href={item.href}>
         <a
           className={cn(
-            "flex items-center px-3 py-2 text-sm rounded-md transition-colors",
-            isActive
-              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-              : "text-sidebar-foreground hover:bg-sidebar-accent/20 hover:text-sidebar-foreground",
-            "focus:outline-none focus:ring-2 focus:ring-sidebar-accent/20"
+            "erp-nav-subitem",
+            isActive && "erp-nav-item-active"
           )}
+          aria-current={isActive ? "page" : undefined}
         >
           <item.icon className="mr-3 h-5 w-5" />
           {item.name}
@@ -318,20 +318,39 @@ function Sidebar() {
 
   return (
     <div className="flex flex-col w-64 bg-sidebar border-r border-sidebar-border">
-      <div className="p-4 border-b border-sidebar-border">
-        <h1 className="text-xl font-bold text-sidebar-foreground">Smart ERP</h1>
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-sidebar-border">
+        <span
+          className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground text-sm font-bold shadow-xs"
+          aria-hidden="true"
+        >
+          SE
+        </span>
+        <div>
+          <h1 className="text-lg font-bold tracking-tight text-sidebar-foreground">Smart ERP</h1>
+          <p className="text-caption text-muted-foreground">Enterprise Suite</p>
+        </div>
       </div>
 
-      <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
+      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         {navigationItems.map(item => renderNavItem(item))}
       </nav>
 
-      <div className="p-4 border-t border-sidebar-border">
-        <div className="flex items-center mb-4">
-          <div>
-            <p className="text-sm font-medium text-sidebar-foreground">{user?.username}</p>
-            <p className="text-xs text-sidebar-foreground/70 capitalize">{user?.role?.name}</p>
+      <div className="p-3 border-t border-sidebar-border space-y-3">
+        <div className="flex items-center justify-between gap-2 rounded-lg bg-muted px-3 py-2">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-foreground">{user?.username}</p>
+            <p className="truncate text-caption capitalize text-muted-foreground">{user?.role?.name}</p>
           </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={toggleTheme}
+            aria-label={resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            title={resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {resolvedTheme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </Button>
         </div>
         <Button
           variant="outline"

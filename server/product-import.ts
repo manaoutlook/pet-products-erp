@@ -263,6 +263,32 @@ export async function importProducts(
         continue;
       }
 
+      // Optional physical attributes: weight in kilograms, dimensions in centimetres.
+      // Blank cells leave the value unset (null) instead of defaulting to 0.
+      const weightKg = isBlank(raw.weightKg) ? null : parseImportPrice(raw.weightKg);
+      if (weightKg === "invalid" || (weightKg !== null && weightKg < 0)) {
+        fail("Weight must be a positive number of kilograms");
+        continue;
+      }
+
+      const lengthCm = isBlank(raw.lengthCm) ? null : parseImportPrice(raw.lengthCm);
+      if (lengthCm === "invalid" || (lengthCm !== null && lengthCm < 0)) {
+        fail("Length must be a positive number");
+        continue;
+      }
+
+      const widthCm = isBlank(raw.widthCm) ? null : parseImportPrice(raw.widthCm);
+      if (widthCm === "invalid" || (widthCm !== null && widthCm < 0)) {
+        fail("Width must be a positive number");
+        continue;
+      }
+
+      const heightCm = isBlank(raw.heightCm) ? null : parseImportPrice(raw.heightCm);
+      if (heightCm === "invalid" || (heightCm !== null && heightCm < 0)) {
+        fail("Height must be a positive number");
+        continue;
+      }
+
       const categoryName = toText(raw.category);
       if (!categoryName) {
         fail("Category is required");
@@ -342,6 +368,10 @@ export async function importProducts(
             brandId,
             supplierId,
             minStock,
+            weightKg: toDecimalOrNull(weightKg),
+            lengthCm: toDecimalOrNull(lengthCm),
+            widthCm: toDecimalOrNull(widthCm),
+            heightCm: toDecimalOrNull(heightCm),
             updatedAt: new Date(),
           })
           .where(eq(products.id, existingId));
@@ -364,6 +394,10 @@ export async function importProducts(
           brandId,
           supplierId,
           minStock,
+          weightKg: toDecimalOrNull(weightKg),
+          lengthCm: toDecimalOrNull(lengthCm),
+          widthCm: toDecimalOrNull(widthCm),
+          heightCm: toDecimalOrNull(heightCm),
         })
         .returning({ id: products.id });
 

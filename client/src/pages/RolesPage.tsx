@@ -28,6 +28,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
+import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
+import { useTableControls } from "@/hooks/use-table-controls";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -43,7 +46,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import type { InsertRole, SelectRole } from "@db/schema";
 import { insertRoleSchema } from "@db/schema";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, Plus, Pencil, Trash2 } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2 } from "lucide-react";
 
 function RolesPage() {
   const [search, setSearch] = useState("");
@@ -96,7 +99,7 @@ function RolesPage() {
     onSuccess: (data) => {
       console.log("Role created successfully:", data);
       refetch();
-      toast({ title: "Success", description: "Role created successfully" });
+      toast({ title: "Success", description: "Role created successfully", variant: "success" });
     },
     onError: (error: Error) => {
       console.error("Create role mutation error:", error);
@@ -137,7 +140,7 @@ function RolesPage() {
     onSuccess: () => {
       refetch();
       setDialogOpen(false);
-      toast({ title: "Success", description: "Role updated successfully" });
+      toast({ title: "Success", description: "Role updated successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -159,7 +162,7 @@ function RolesPage() {
     },
     onSuccess: () => {
       refetch();
-      toast({ title: "Success", description: "Role deleted successfully" });
+      toast({ title: "Success", description: "Role deleted successfully", variant: "success" });
     },
     onError: (error: Error) => {
       toast({
@@ -179,10 +182,25 @@ function RolesPage() {
     },
   });
 
-  const filteredRoles = roles?.filter(role =>
-    role.name.toLowerCase().includes(search.toLowerCase()) ||
-    role.description?.toLowerCase().includes(search.toLowerCase())
+  // Header controls: click a column header to sort it (asc -> desc -> none) and
+  // use the small input under a header to filter that single column.
+  const rolesTable = useTableControls(
+    roles,
+    {
+      name: (role) => role.name,
+      description: (role) => role.description,
+      isSystemAdmin: (role) => role.isSystemAdmin,
+    },
+    {
+      // The page level search box stays the primary, whole row search.
+      filter: (role) =>
+        role.name.toLowerCase().includes(search.toLowerCase()) ||
+        (role.description?.toLowerCase() || "").includes(search.toLowerCase()),
+    }
   );
+
+  // Rows currently visible (search + column filters + sorting).
+  const filteredRoles = rolesTable.rows;
 
   const onSubmit = async (data: any) => {
     try {
@@ -263,7 +281,7 @@ function RolesPage() {
         <h1 className="text-3xl font-bold tracking-tight">Roles</h1>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button onClick={handleAddRole}>
+            <Button variant="create" onClick={handleAddRole}>
               <Plus className="mr-2 h-4 w-4" />
               Add Role
             </Button>
@@ -349,15 +367,12 @@ function RolesPage() {
         <CardHeader>
           <CardTitle>Role List</CardTitle>
           <div className="flex items-center gap-4">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search roles..."
-                className="pl-8"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
+            <SearchInput
+              containerClassName="flex-1 max-w-sm"
+              placeholder="Search roles..."
+              value={search}
+              onValueChange={setSearch}
+            />
           </div>
         </CardHeader>
         <CardContent>
@@ -366,13 +381,15 @@ function RolesPage() {
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
           ) : (
+            <>
+            <TableControlsBar controls={rolesTable} noun="roles" />
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>System Admin</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <ColumnHeader controls={rolesTable} columnKey="name" label="Name" filterPlaceholder="Filter name" />
+                  <ColumnHeader controls={rolesTable} columnKey="description" label="Description" filterPlaceholder="Filter description" />
+                  <ColumnHeader controls={rolesTable} columnKey="isSystemAdmin" label="System Admin" filterPlaceholder="Filter admin" />
+                  <TableHead className="align-top">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -409,6 +426,7 @@ function RolesPage() {
                 ))}
               </TableBody>
             </Table>
+            </>
           )}
         </CardContent>
       </Card>

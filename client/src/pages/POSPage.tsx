@@ -164,6 +164,7 @@ function POSPage() {
       toast({
         title: "Sale Completed",
         description: `Transaction ${data.transaction.invoiceNumber} completed successfully`,
+        variant: "success",
       });
     },
     onError: (error: Error) => {
@@ -240,6 +241,7 @@ function POSPage() {
     toast({
       title: "Receipt Printed",
       description: "Receipt has been sent to printer",
+      variant: "success",
     });
   };
 
@@ -258,14 +260,14 @@ function POSPage() {
 
   if (!hasPermission('pos', 'read')) {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen w-full flex items-center justify-center bg-background">
         <Card className="w-full max-w-md mx-4">
           <CardContent className="pt-6">
             <div className="flex mb-4 gap-2">
               <AlertTriangle className="h-8 w-8 text-red-500" />
-              <h1 className="text-2xl font-bold text-gray-900">Access Denied</h1>
+              <h1 className="text-2xl font-bold text-foreground">Access Denied</h1>
             </div>
-            <p className="mt-4 text-sm text-gray-600">
+            <p className="mt-4 text-sm text-muted-foreground">
               You don't have permission to access the Point of Sale system.
             </p>
           </CardContent>
