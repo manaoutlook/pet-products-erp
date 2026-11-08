@@ -29,6 +29,12 @@ import { getStoreDeletionBlockers, hasBlockers, buildStoreDeletionError } from "
 import { z } from "zod";
 import { validateBody, validateParams, idParamSchema } from "./validate";
 import { resolveScope, scopeDenies, scopeStoreFilter } from "./scoping";
+import {
+  applyStockChange,
+  recordOpeningStock,
+  recordStockMovement,
+  recordStockMovements,
+} from "./stock-ledger";
 import { crypto } from "./auth";
 import { initializeStoreCounter } from "./invoice-counter";
 import { createSale, refundSale, cancelSale, SaleError } from "./sales";
@@ -654,13 +660,16 @@ export function registerRoutes(app: Express): Server {
 
           if (currentInventory) {
             console.log('Updating existing inventory item:', currentInventory.id, 'quantity:', currentInventory.quantity, '->', currentInventory.quantity + item.quantity);
-            await db
-              .update(inventory)
-              .set({
-                quantity: currentInventory.quantity + item.quantity,
-                updatedAt: new Date()
-              })
-              .where(eq(inventory.id, currentInventory.id));
+            await applyStockChange(db, {
+              inventoryId: currentInventory.id,
+              delta: item.quantity,
+              reason: 'po_receipt',
+              productId: item.productId,
+              storeId: purchaseOrder.destinationStoreId ?? null,
+              refType: 'purchase_order',
+              refId: purchaseOrder.id,
+              userId: req.user?.id ?? null,
+            });
           } else {
             const barcode = generateInventoryBarcode('DC', item.productId.toString(), purchaseOrder.destinationStoreId);
             console.log('Creating new inventory item for product:', item.productId);
@@ -677,7 +686,7 @@ export function registerRoutes(app: Express): Server {
               });
             }
 
-            await db
+            const [createdInventory] = await db
               .insert(inventory)
               .values({
                 productId: item.productId,
@@ -687,7 +696,21 @@ export function registerRoutes(app: Express): Server {
                 barcode,
                 supplierId: purchaseOrder.supplierId,
                 purchaseDate: new Date().toISOString().split('T')[0] // YYYY-MM-DD format
-              });
+              })
+              .returning({ id: inventory.id });
+
+            // The new row starts at item.quantity - record that as its opening balance,
+            // otherwise the ledger never adds up to inventory.quantity for this row.
+            await recordOpeningStock(db, {
+              inventoryId: createdInventory.id,
+              quantity: item.quantity,
+              reason: 'po_receipt',
+              productId: item.productId,
+              storeId: purchaseOrder.destinationStoreId ?? null,
+              refType: 'purchase_order',
+              refId: purchaseOrder.id,
+              userId: req.user?.id ?? null,
+            });
           }
 
           console.log('Updating purchase order item delivered quantity:', item.id);
@@ -836,18 +859,20 @@ export function registerRoutes(app: Express): Server {
 
           if (currentInventory) {
             // Update existing inventory
-            const newQuantity = currentInventory.quantity + item.quantity;
-            await db
-              .update(inventory)
-              .set({
-                quantity: newQuantity,
-                updatedAt: new Date()
-              })
-              .where(eq(inventory.id, currentInventory.id));
+            await applyStockChange(db, {
+              inventoryId: currentInventory.id,
+              delta: item.quantity,
+              reason: 'po_receipt',
+              productId: item.productId,
+              storeId: currentPO.destinationStoreId ?? null,
+              refType: 'purchase_order',
+              refId: currentPO.id,
+              userId: req.user?.id ?? null,
+            });
           } else {
             // Create new inventory entry
             const barcode = generateInventoryBarcode('DC', item.productId.toString(), currentPO.destinationStoreId);
-            await db
+            const [createdInventory] = await db
               .insert(inventory)
               .values({
                 productId: item.productId,
@@ -857,7 +882,19 @@ export function registerRoutes(app: Express): Server {
                 barcode,
                 supplierId: currentPO.supplierId,
                 purchaseDate: new Date()
-              });
+              })
+              .returning({ id: inventory.id });
+
+            await recordOpeningStock(db, {
+              inventoryId: createdInventory.id,
+              quantity: item.quantity,
+              reason: 'po_receipt',
+              productId: item.productId,
+              storeId: currentPO.destinationStoreId ?? null,
+              refType: 'purchase_order',
+              refId: currentPO.id,
+              userId: req.user?.id ?? null,
+            });
           }
 
           // Update delivered quantity in purchase order item
@@ -3074,6 +3111,7 @@ export function registerRoutes(app: Express): Server {
 
       const result = await importInventory(parsed.data.rows, {
         updateExisting: parsed.data.updateExisting,
+        userId: req.user?.id ?? null,
       });
 
       const parts: string[] = [];
@@ -3125,19 +3163,49 @@ export function registerRoutes(app: Express): Server {
       }
 
       // Update inventory item with supplier
-      const [updatedInventory] = await db
-        .update(inventory)
-        .set({
-          productId: parseInt(productId),
-          storeId: storeId ? parseInt(storeId) : null,
-          supplierId: supplierId ? parseInt(supplierId) : null,
-          quantity: parseInt(quantity),
-          location,
-          inventoryType,
-          updatedAt: new Date(),
-        })
-        .where(eq(inventory.id, parseInt(id)))
-        .returning();
+      const nextQuantity = parseInt(quantity);
+
+      // AI Agent Note: this endpoint sets the quantity outright, so the interesting number
+      // is the difference. Recording it as an 'adjustment' movement with the real delta is
+      // what makes an unexplained correction visible in the ledger instead of silent.
+      // The delta is computed from a read inside the same transaction that writes the row,
+      // so a concurrent change cannot make the movement disagree with the stored quantity.
+      const updatedInventory = await db.transaction(async (tx) => {
+        const current = await tx.query.inventory.findFirst({
+          where: eq(inventory.id, parseInt(id)),
+        });
+
+        const [row] = await tx
+          .update(inventory)
+          .set({
+            productId: parseInt(productId),
+            storeId: storeId ? parseInt(storeId) : null,
+            supplierId: supplierId ? parseInt(supplierId) : null,
+            quantity: nextQuantity,
+            location,
+            inventoryType,
+            updatedAt: new Date(),
+          })
+          .where(eq(inventory.id, parseInt(id)))
+          .returning();
+
+        const quantityDelta = nextQuantity - (current?.quantity ?? nextQuantity);
+        if (quantityDelta !== 0) {
+          await recordStockMovement(tx, {
+            inventoryId: row.id,
+            delta: quantityDelta,
+            reason: 'adjustment',
+            productId: row.productId,
+            storeId: row.storeId,
+            quantityAfter: nextQuantity,
+            refType: 'inventory_edit',
+            refId: row.id,
+            userId: req.user?.id ?? null,
+          });
+        }
+
+        return row;
+      });
 
       // Fetch complete inventory item with relations
       const inventoryWithRelations = await db.query.inventory.findFirst({
@@ -4686,13 +4754,16 @@ export function registerRoutes(app: Express): Server {
         }
 
         // Deduct from source
-        await db
-          .update(inventory)
-          .set({
-            quantity: sql`${inventory.quantity} - ${item.approvedQuantity}`,
-            updatedAt: new Date(),
-          })
-          .where(eq(inventory.id, sourceInventory.id));
+        await applyStockChange(db, {
+          inventoryId: sourceInventory.id,
+          delta: -item.approvedQuantity,
+          reason: 'transfer_out',
+          productId: item.productId,
+          storeId: transferRequest.fromStoreId ?? null,
+          refType: 'transfer_request',
+          refId: transferRequest.id,
+          userId: user.id,
+        });
 
         // Add to destination (create or update)
         const destInventory = await db.query.inventory.findFirst({
@@ -4706,13 +4777,16 @@ export function registerRoutes(app: Express): Server {
 
         if (destInventory) {
           // Update existing
-          await db
-            .update(inventory)
-            .set({
-              quantity: sql`${inventory.quantity} + ${item.approvedQuantity}`,
-              updatedAt: new Date(),
-            })
-            .where(eq(inventory.id, destInventory.id));
+          await applyStockChange(db, {
+            inventoryId: destInventory.id,
+            delta: item.approvedQuantity,
+            reason: 'transfer_in',
+            productId: item.productId,
+            storeId: transferRequest.toStoreId ?? null,
+            refType: 'transfer_request',
+            refId: transferRequest.id,
+            userId: user.id,
+          });
 
           // Record transfer history
           await db.insert(transferHistory).values({
@@ -4740,6 +4814,17 @@ export function registerRoutes(app: Express): Server {
               location: `Transferred from ${transferRequest.fromStore?.name || 'DC (Distribution Center)'}`,
             })
             .returning();
+
+          await recordOpeningStock(db, {
+            inventoryId: newDestInventory.id,
+            quantity: item.approvedQuantity,
+            reason: 'transfer_in',
+            productId: item.productId,
+            storeId: transferRequest.toStoreId ?? null,
+            refType: 'transfer_request',
+            refId: transferRequest.id,
+            userId: user.id,
+          });
 
           // Record transfer history
           await db.insert(transferHistory).values({
@@ -5001,14 +5086,16 @@ export function registerRoutes(app: Express): Server {
       }
 
       // Execute quick transfer
-      // Deduct from source
-      await db
+      // Deduct from source. The ledger rows are written further down, once the transfer
+      // record exists, so each movement can reference the document that caused it.
+      const [sourceAfterDeduct] = await db
         .update(inventory)
         .set({
           quantity: sql`${inventory.quantity} - ${quantity}`,
           updatedAt: new Date(),
         })
-        .where(eq(inventory.id, sourceInventory.id));
+        .where(eq(inventory.id, sourceInventory.id))
+        .returning({ quantity: inventory.quantity });
 
       // Add to destination
       const destInventory = await db.query.inventory.findFirst({
@@ -5021,15 +5108,18 @@ export function registerRoutes(app: Express): Server {
       });
 
       let destInventoryId;
+      let destQuantityAfter;
       if (destInventory) {
-        await db
+        const [destAfter] = await db
           .update(inventory)
           .set({
             quantity: sql`${inventory.quantity} + ${quantity}`,
             updatedAt: new Date(),
           })
-          .where(eq(inventory.id, destInventory.id));
+          .where(eq(inventory.id, destInventory.id))
+          .returning({ quantity: inventory.quantity });
         destInventoryId = destInventory.id;
+        destQuantityAfter = destAfter.quantity;
       } else {
         const inventoryType = toStoreId === null ? 'DC' : 'STORE';
         const barcode = generateInventoryBarcode(inventoryType, productId.toString(), toStoreId);
@@ -5045,6 +5135,7 @@ export function registerRoutes(app: Express): Server {
           })
           .returning();
         destInventoryId = newDest.id;
+        destQuantityAfter = newDest.quantity;
       }
 
       // Create a quick transfer record (without full request workflow)
@@ -5062,6 +5153,31 @@ export function registerRoutes(app: Express): Server {
           notes: `Quick transfer: ${notes || 'No notes'}`,
         })
         .returning();
+
+      await recordStockMovements(db, [
+        {
+          inventoryId: sourceInventory.id,
+          delta: -quantity,
+          quantityAfter: sourceAfterDeduct.quantity,
+          reason: 'transfer_out',
+          productId,
+          storeId: fromStoreId ?? null,
+          refType: 'transfer_request',
+          refId: quickTransfer.id,
+          userId: user.id,
+        },
+        {
+          inventoryId: destInventoryId,
+          delta: quantity,
+          quantityAfter: destQuantityAfter,
+          reason: 'transfer_in',
+          productId,
+          storeId: toStoreId ?? null,
+          refType: 'transfer_request',
+          refId: quickTransfer.id,
+          userId: user.id,
+        },
+      ]);
 
       // Record the transfer
       await db.insert(transferHistory).values({

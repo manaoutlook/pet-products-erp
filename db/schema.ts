@@ -724,3 +724,36 @@ export const userSessions = pgTable("user_sessions", {
 }, (table) => ({
   expireIdx: index("user_sessions_expire_idx").on(table.expire),
 }));
+
+/**
+ * Append-only ledger of every stock change.
+ *
+ * AI Agent Note: `inventory.quantity` is a mutable running total - it says what is on the
+ * shelf, never how it got there. A wrong quantity therefore cannot be reconstructed or
+ * audited. This table records the cause of every change; `inventory.quantity` stays the
+ * cached total and `npm run stock:reconcile` proves the two agree.
+ *
+ * Deliberately no foreign keys: this is history. Deleting an inventory row (or the product
+ * behind it) must not erase the record that stock once moved, and a cascade would do exactly
+ * that. productId/storeId are denormalised for the same reason.
+ */
+export const stockMovements = pgTable("stock_movements", {
+  id: serial("id").primaryKey(),
+  inventoryId: integer("inventory_id").notNull(),
+  productId: integer("product_id"),
+  storeId: integer("store_id"),
+  // Signed change applied to the row: negative leaves the shelf, positive arrives on it.
+  delta: integer("delta").notNull(),
+  // Cached quantity of `inventory.quantity` immediately after this change, when known.
+  quantityAfter: integer("quantity_after"),
+  // 'sale' | 'refund' | 'cancel' | 'transfer_in' | 'transfer_out' | 'po_receipt' | 'adjustment'
+  reason: varchar("reason", { length: 24 }).notNull(),
+  // The document that caused it: ('sales_transaction', 42), ('purchase_order', 7), ...
+  refType: varchar("ref_type", { length: 40 }),
+  refId: integer("ref_id"),
+  userId: integer("user_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  inventoryIdx: index("stock_movements_inventory_idx").on(table.inventoryId, table.createdAt),
+  reasonIdx: index("stock_movements_reason_idx").on(table.reason),
+}));

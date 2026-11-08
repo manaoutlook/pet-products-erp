@@ -1,6 +1,7 @@
 import { db } from "@db";
 import { inventory, products, stores, suppliers } from "@db/schema";
 import { eq } from "drizzle-orm";
+import { recordOpeningStock, recordStockMovement } from "./stock-ledger";
 
 /**
  * Bulk inventory import used by `POST /api/inventory/import` (Inventory page).
@@ -18,6 +19,8 @@ import { eq } from "drizzle-orm";
 export interface InventoryImportOptions {
   /** Update inventory that already exists (product + store + type). Default: true */
   updateExisting?: boolean;
+  /** Who ran the import - stamped on the stock ledger rows it produces. */
+  userId?: number | null;
 }
 
 export interface InventoryImportRowError {
@@ -166,18 +169,23 @@ export async function importInventory(
   }
 
   // Existing inventory keyed by product + store + type so a repeated import
-  // updates the stock record instead of creating a duplicate.
-  const existingByKey = new Map<string, number>();
+  // updates the stock record instead of creating a duplicate. The current quantity is
+  // kept alongside the id because an import sets quantity outright and the ledger needs
+  // the difference.
+  const existingByKey = new Map<string, { id: number; quantity: number }>();
   for (const item of await db
     .select({
       id: inventory.id,
       productId: inventory.productId,
       storeId: inventory.storeId,
       inventoryType: inventory.inventoryType,
+      quantity: inventory.quantity,
     })
     .from(inventory)) {
     const key = inventoryKey(item.productId, item.storeId, item.inventoryType as string);
-    if (!existingByKey.has(key)) existingByKey.set(key, item.id);
+    if (!existingByKey.has(key)) {
+      existingByKey.set(key, { id: item.id, quantity: item.quantity });
+    }
   }
 
   for (let index = 0; index < rows.length; index += 1) {
@@ -261,9 +269,9 @@ export async function importInventory(
       }
 
       const key = inventoryKey(productId, storeId, inventoryType);
-      const existingId = existingByKey.get(key);
+      const existing = existingByKey.get(key);
 
-      if (existingId) {
+      if (existing) {
         if (!updateExisting) {
           result.skipped += 1;
           continue;
@@ -277,7 +285,23 @@ export async function importInventory(
         if (purchaseDate !== null) values.purchaseDate = purchaseDate;
         if (expiryDate !== null) values.expiryDate = expiryDate;
 
-        await db.update(inventory).set(values).where(eq(inventory.id, existingId));
+        await db.update(inventory).set(values).where(eq(inventory.id, existing.id));
+
+        // An import is a bulk correction, so it is recorded as an adjustment. The sheet
+        // gives the new quantity, and the ledger needs the difference to be auditable.
+        await recordStockMovement(db, {
+          inventoryId: existing.id,
+          delta: quantity - existing.quantity,
+          reason: 'adjustment',
+          productId,
+          storeId,
+          quantityAfter: quantity,
+          refType: 'inventory_import',
+          refId: null,
+          userId: options.userId ?? null,
+        });
+
+        existing.quantity = quantity;
         result.updated += 1;
         continue;
       }
@@ -298,7 +322,18 @@ export async function importInventory(
         })
         .returning({ id: inventory.id });
 
-      existingByKey.set(key, created.id);
+      await recordOpeningStock(db, {
+        inventoryId: created.id,
+        quantity,
+        reason: 'adjustment',
+        productId,
+        storeId,
+        refType: 'inventory_import',
+        refId: null,
+        userId: options.userId ?? null,
+      });
+
+      existingByKey.set(key, { id: created.id, quantity });
       result.created += 1;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

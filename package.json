@@ -20,7 +20,8 @@
     "db:setup": "tsx scripts/setup-database.ts",
     "db:seed": "tsx scripts/seed-sample-data.ts",
     "db:seed-customers": "tsx scripts/seed-customer-profiles.ts",
-    "db:seed-inventory": "tsx scripts/seed-inventory.ts"
+    "db:seed-inventory": "tsx scripts/seed-inventory.ts",
+    "stock:reconcile": "tsx scripts/stock-reconcile.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

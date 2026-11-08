@@ -9,6 +9,7 @@ import {
 } from "@db/schema";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { generateInvoiceNumber } from "./invoice-counter";
+import { applyStockChange, recordStockMovements } from "./stock-ledger";
 
 export interface SaleItemInput {
   productId: number;
@@ -197,6 +198,19 @@ export async function createSale(input: CreateSaleInput) {
       performedByUserId: userId,
     });
 
+    // Ledger rows are written here, not at the deduct step, because the sale id only
+    // exists now - and a movement must point at the document that caused it.
+    await recordStockMovements(tx, pricedItems.map((item) => ({
+      inventoryId: item.inventoryId,
+      productId: item.productId,
+      storeId,
+      delta: -item.quantity,
+      reason: 'sale' as const,
+      refType: 'sales_transaction',
+      refId: salesTransaction.id,
+      userId,
+    })));
+
     return salesTransaction.id;
   });
 
@@ -265,7 +279,16 @@ export async function refundSale(input: RefundSaleInput) {
     }
 
     // Resolve which inventory rows (and how many units) go back into stock.
-    const restore = new Map<number, number>(); // inventoryId -> quantity
+    // productId is carried along so the ledger row can be denormalised.
+    const restore = new Map<number, { quantity: number; productId: number | null }>();
+    const addToRestore = (inventoryId: number, quantity: number, productId: number | null) => {
+      const current = restore.get(inventoryId);
+      restore.set(inventoryId, {
+        quantity: (current?.quantity ?? 0) + quantity,
+        productId: current?.productId ?? productId,
+      });
+    };
+
     if (items && Array.isArray(items) && items.length > 0) {
       for (const refundItem of items) {
         const transactionItem = transaction.items.find((item) => item.id === refundItem.id);
@@ -284,12 +307,11 @@ export async function refundSale(input: RefundSaleInput) {
             400, `Maximum refund quantity is ${transactionItem.quantity}`,
           );
         }
-        restore.set(transactionItem.inventoryId,
-          (restore.get(transactionItem.inventoryId) ?? 0) + quantity);
+        addToRestore(transactionItem.inventoryId, quantity, transactionItem.productId);
       }
     } else {
       for (const item of transaction.items) {
-        restore.set(item.inventoryId, (restore.get(item.inventoryId) ?? 0) + item.quantity);
+        addToRestore(item.inventoryId, item.quantity, item.productId);
       }
     }
 
@@ -309,11 +331,17 @@ export async function refundSale(input: RefundSaleInput) {
         'Reload the receipt - another user may have just refunded or cancelled it');
     }
 
-    for (const [inventoryId, quantity] of Array.from(restore.entries())) {
-      await tx
-        .update(inventory)
-        .set({ quantity: sql`${inventory.quantity} + ${quantity}`, updatedAt: new Date() })
-        .where(eq(inventory.id, inventoryId));
+    for (const [inventoryId, entry] of Array.from(restore.entries())) {
+      await applyStockChange(tx, {
+        inventoryId,
+        delta: entry.quantity,
+        reason: 'refund',
+        productId: entry.productId,
+        storeId: transaction.storeId,
+        refType: 'sales_transaction',
+        refId: transactionId,
+        userId,
+      });
     }
 
     await tx.insert(salesTransactionActions).values({
@@ -372,10 +400,16 @@ export async function cancelSale(input: CancelSaleInput) {
     // deducted and inventory drifted downwards on every void. A cancellation reverses
     // the sale, therefore it puts the goods back.
     for (const item of transaction.items) {
-      await tx
-        .update(inventory)
-        .set({ quantity: sql`${inventory.quantity} + ${item.quantity}`, updatedAt: new Date() })
-        .where(eq(inventory.id, item.inventoryId));
+      await applyStockChange(tx, {
+        inventoryId: item.inventoryId,
+        delta: item.quantity,
+        reason: 'cancel',
+        productId: item.productId,
+        storeId: transaction.storeId,
+        refType: 'sales_transaction',
+        refId: transactionId,
+        userId,
+      });
     }
 
     await tx.insert(salesTransactionActions).values({
