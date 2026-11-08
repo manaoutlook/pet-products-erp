@@ -31,24 +31,21 @@ import {
     invoiceCounters,
     userStoreAssignments,
 } from '../../db/schema';
-import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import path from 'path';
 import * as bcrypt from 'bcrypt';
 
 export async function runMigrations() {
-    // Use drizzle-kit push to ensure schema is created properly
+    // `drizzle-kit push` is the only schema mechanism: it diffs db/schema.ts against the
+    // database. There used to be a `migrate()` fallback here, but the Drizzle journal
+    // only listed 0000-0003 while twelve .sql files existed, so that fallback applied a
+    // *partial* schema and failed later with confusing "column does not exist" errors.
+    // Failing here with the push error is far easier to diagnose.
     const { execSync } = await import('child_process');
-    try {
-        execSync('npx drizzle-kit push', {
-            cwd: path.resolve(__dirname, '../..'),
-            stdio: 'inherit',
-            env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL }
-        });
-    } catch (error) {
-        console.warn('drizzle-kit push failed, trying migrate fallback:', error);
-        // Fallback to the original migrate function
-        await migrate(db, { migrationsFolder: path.resolve(__dirname, '../../migrations') });
-    }
+    execSync('npx drizzle-kit push', {
+        cwd: path.resolve(__dirname, '../..'),
+        stdio: 'inherit',
+        env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL }
+    });
 }
 
 /**

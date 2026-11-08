@@ -17,7 +17,6 @@
     "test:debug": "vitest run --reporter=verbose",
     "test:db:reset": "tsx scripts/reset-test-db.ts",
     "db:push": "drizzle-kit push",
-    "db:setup": "tsx scripts/setup-database.ts",
     "db:seed": "tsx scripts/seed-sample-data.ts",
     "db:seed-customers": "tsx scripts/seed-customer-profiles.ts",
     "db:seed-inventory": "tsx scripts/seed-inventory.ts",
