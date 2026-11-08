@@ -1,6 +1,7 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation } from "wouter";
 import { useUser } from "./hooks/use-user";
 import { Loader2 } from "lucide-react";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import AuthPage from "./pages/AuthPage";
 import DashboardPage from "./pages/DashboardPage";
 import InventoryPage from "./pages/InventoryPage";
@@ -26,6 +27,7 @@ import MainLayout from "./components/Layout/MainLayout";
 
 function App() {
   const { user, isLoading } = useUser();
+  const [location] = useLocation();
 
   if (isLoading) {
     return (
@@ -41,7 +43,9 @@ function App() {
 
   return (
     <MainLayout>
-      <Switch>
+      {/* Keyed by location: a crash on one screen is cleared by navigating to another. */}
+      <ErrorBoundary key={location} section="This screen">
+        <Switch>
         <Route path="/" component={DashboardPage} />
         <Route path="/inventory" component={InventoryPage} />
         <Route path="/stock-take" component={StockTakePage} />
@@ -66,7 +70,8 @@ function App() {
             <h1 className="text-2xl font-bold">404 - Page Not Found</h1>
           </div>
         </Route>
-      </Switch>
+        </Switch>
+      </ErrorBoundary>
     </MainLayout>
   );
 }
