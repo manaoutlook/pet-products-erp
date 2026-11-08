@@ -50,9 +50,13 @@ export class DrizzleSessionStore extends session.Store {
       .then(([row]) => {
         if (!row) return callback(null, null);
         if (row.expire.getTime() < Date.now()) {
-          // Expired but not pruned yet - treat as absent and clean it up.
-          db.delete(userSessions).where(eq(userSessions.sid, sid)).catch(() => undefined);
-          return callback(null, null);
+          // Expired but not pruned yet - treat as absent and clean it up. The delete is
+          // awaited before answering so callers never observe the row again.
+          db.delete(userSessions)
+            .where(eq(userSessions.sid, sid))
+            .then(() => callback(null, null))
+            .catch(() => callback(null, null));
+          return;
         }
         callback(null, row.sess as unknown as session.SessionData);
       })

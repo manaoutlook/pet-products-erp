@@ -27,6 +27,7 @@ import {
 } from "./master-data-bulk-delete";
 import { getStoreDeletionBlockers, hasBlockers, buildStoreDeletionError } from "./store-deletion";
 import { z } from "zod";
+import { validateBody, validateParams, idParamSchema } from "./validate";
 import { crypto } from "./auth";
 import { initializeStoreCounter } from "./invoice-counter";
 import { createSale, refundSale, cancelSale, SaleError } from "./sales";
@@ -67,6 +68,53 @@ const masterDataImportSchema = z.object({
     .max(5000, "Too many rows - import 5000 rows at a time"),
   // Update entries that already exist (matched by name)
   updateExisting: z.boolean().optional(),
+});
+
+// --- POS / stock schemas ---------------------------------------------------
+// AI Agent Note: these bodies used to be hand-checked inside the handlers, so a
+// string "12" or a missing field only failed later, inside Postgres, as a 500.
+const saleItemSchema = z.object({
+  productId: z.number().int().positive("productId must be a positive integer"),
+  quantity: z.number().int().positive("quantity must be a positive integer"),
+});
+
+const createSaleSchema = z.object({
+  items: z.array(saleItemSchema).min(1, "Add at least one item"),
+  paymentMethod: z.string().min(1, "Payment method is required").max(50),
+  customerProfileId: z.number().int().positive().nullish(),
+  transactionType: z.enum(['STORE_SALE', 'DC_SALE']).optional(),
+});
+
+const refundSaleSchema = z.object({
+  refundAmount: z.number().positive("Refund amount must be greater than zero").optional(),
+  reason: z.string().max(500, "Reason must be 500 characters or fewer").optional(),
+  items: z.array(z.object({
+    id: z.number().int().positive(),
+    quantity: z.number().int().positive(),
+  })).optional(),
+});
+
+const cancelSaleSchema = z.object({
+  reason: z.string().max(500, "Reason must be 500 characters or fewer").optional(),
+});
+
+const checkStockSchema = z.object({
+  items: z.array(saleItemSchema).min(1, "Provide at least one item"),
+  storeId: z.number().int().positive().nullish(),
+});
+
+// --- access control schemas ----------------------------------------------
+const roleBodySchema = z.object({
+  name: z.string().min(1, "Role name is required").max(100),
+  description: z.string().max(500).nullish(),
+  isSystemAdmin: z.boolean().optional(),
+  permissions: z.record(z.any()).nullish(),
+});
+
+const rolePermissionsSchema = z.object({
+  permissions: z.record(z.any()).refine((value) => Object.keys(value).length > 0, {
+    message: "Provide at least one permission",
+  }),
 });
 
 
@@ -171,20 +219,9 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/stores", requireAuth, async (req, res) => {
+  app.post("/api/stores", requireAuth, validateBody(insertStoreSchema, "Provide the store name, location and region"), async (req, res) => {
     try {
-      const result = insertStoreSchema.safeParse(req.body);
-      if (!result.success) {
-        return res.status(400).json({
-          message: "Invalid input",
-          errors: result.error.errors.map(err => ({
-            field: err.path.join('.'),
-            message: err.message
-          }))
-        });
-      }
-
-      const { name, location, contactInfo, type, regionId } = result.data; // AI Agent Note: Added 'type' and 'regionId'
+      const { name, location, contactInfo, type, regionId } = req.body; // AI Agent Note: Added 'type' and 'regionId'
 
       // AI Agent Note: A store must belong to a region for hierarchical access
       // control. Without this, region_id was silently stored as NULL for every
@@ -240,21 +277,10 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.put("/api/stores/:id", requireAuth, async (req, res) => {
+  app.put("/api/stores/:id", requireAuth, validateParams(idParamSchema, "Use a numeric store id"), validateBody(insertStoreSchema, "Provide the store name, location and region"), async (req, res) => {
     try {
       const { id } = req.params;
-      const result = insertStoreSchema.safeParse(req.body);
-      if (!result.success) {
-        return res.status(400).json({
-          message: "Invalid input",
-          errors: result.error.errors.map(err => ({
-            field: err.path.join('.'),
-            message: err.message
-          }))
-        });
-      }
-
-      const { name, location, contactInfo, type, regionId } = result.data; // AI Agent Note: Added 'type' and 'regionId'
+      const { name, location, contactInfo, type, regionId } = req.body; // AI Agent Note: Added 'type' and 'regionId'
 
       // AI Agent Note: A store must belong to a region for hierarchical access
       // control. Reject updates that would leave region_id NULL.
@@ -313,15 +339,8 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/stores/:id", requirePermission('stores', 'delete'), async (req, res) => {
-    const storeId = parseInt(req.params.id, 10);
-
-    if (Number.isNaN(storeId)) {
-      return res.status(400).json({
-        message: "Invalid store ID",
-        suggestion: "Please select a store and try again"
-      });
-    }
+  app.delete("/api/stores/:id", requirePermission('stores', 'delete'), validateParams(idParamSchema, "Please select a store and try again"), async (req, res) => {
+    const storeId = Number(req.params.id);
 
     try {
       const store = await db.query.stores.findFirst({
@@ -1071,7 +1090,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/roles", requirePermission('users', 'create'), async (req, res) => {
+  app.post("/api/roles", requirePermission('users', 'create'), validateBody(roleBodySchema, "Provide a role name and optional permissions"), async (req, res) => {
     try {
       const { name, description, isSystemAdmin, permissions } = req.body;
 
@@ -1122,7 +1141,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.put("/api/roles/:id", requirePermission('users', 'update'), async (req, res) => {
+  app.put("/api/roles/:id", requirePermission('users', 'update'), validateParams(idParamSchema, "Use a numeric role id"), validateBody(roleBodySchema, "Provide a role name"), async (req, res) => {
     try {
       const { id } = req.params;
       const { name, description, isSystemAdmin } = req.body;
@@ -1161,13 +1180,13 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/roles/:id", requirePermission('users', 'delete'), async (req, res) => {
+  app.delete("/api/roles/:id", requirePermission('users', 'delete'), validateParams(idParamSchema, "Use a numeric role id"), async (req, res) => {
     try {
-      const { id } = req.params;
+      const id = Number(req.params.id);
 
       // Check if role exists and is not admin
       const roleToDelete = await db.query.roles.findFirst({
-        where: eq(roles.id, parseInt(id)),
+        where: eq(roles.id, id),
       });
 
       if (!roleToDelete) {
@@ -1180,7 +1199,7 @@ export function registerRoutes(app: Express): Server {
 
       // Check if role is assigned to any users
       const usersWithRole = await db.query.users.findMany({
-        where: eq(users.roleId, parseInt(id)),
+        where: eq(users.roleId, id),
       });
 
       if (usersWithRole.length > 0) {
@@ -1189,7 +1208,7 @@ export function registerRoutes(app: Express): Server {
 
       await db
         .delete(roles)
-        .where(eq(roles.id, parseInt(id)));
+        .where(eq(roles.id, id));
 
       res.json({ message: "Role deleted successfully" });
     } catch (error) {
@@ -1199,15 +1218,10 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Add new endpoint for updating role permissions
-  app.put("/api/roles/:id/permissions", requirePermission('users', 'update'), async (req, res) => {
+  app.put("/api/roles/:id/permissions", requirePermission('users', 'update'), validateParams(idParamSchema, "Use a numeric role id"), validateBody(rolePermissionsSchema, "Send a permissions object"), async (req, res) => {
     try {
       const { id } = req.params;
       const { permissions } = req.body;
-
-      // Validate permissions object structure
-      if (!permissions || typeof permissions !== 'object') {
-        return res.status(400).send("Invalid permissions format");
-      }
 
       // Prevent modifying admin role permissions
       const roleToUpdate = await db.query.roles.findFirst({
@@ -1801,22 +1815,9 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/users", requirePermission('users', 'create'), async (req, res) => {
+  app.post("/api/users", requirePermission('users', 'create'), validateBody(insertUserSchema, "Provide a username, password and role"), async (req, res) => {
     try {
-      const result = insertUserSchema.safeParse(req.body);
-      if (!result.success) {
-        return res
-          .status(400)
-          .json({
-            message: "Invalid input",
-            errors: result.error.errors.map(err => ({
-              field: err.path.join('.'),
-              message: err.message
-            }))
-          });
-      }
-
-      const { username, password, roleId } = result.data;
+      const { username, password, roleId } = req.body;
 
       // Check if user exists
       const existingUser = await db.query.users.findFirst({
@@ -1857,23 +1858,12 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.put("/api/users/:id", requirePermission('users', 'update'), async (req, res) => {
+  app.put("/api/users/:id", requirePermission('users', 'update'), validateParams(idParamSchema, "Use a numeric user id"), validateBody(updateUserSchema, "Provide the fields to update"), async (req, res) => {
     try {
-      const { id } = req.params;
+      const id = Number(req.params.id);
 
       // Validate input
-      const result = updateUserSchema.safeParse(req.body);
-      if (!result.success) {
-        return res.status(400).json({
-          message: "Invalid input",
-          errors: result.error.errors.map(err => ({
-            field: err.path.join('.'),
-            message: err.message
-          }))
-        });
-      }
-
-      const { username, roleId, password } = result.data;
+      const { username, roleId, password } = req.body;
 
       if (!username && !roleId && !password) {
         return res.status(400).json({
@@ -1884,7 +1874,7 @@ export function registerRoutes(app: Express): Server {
 
       // Verify user exists
       const existingUser = await db.query.users.findFirst({
-        where: eq(users.id, parseInt(id)),
+        where: eq(users.id, id),
         with: {
           role: true,
         },
@@ -1941,7 +1931,7 @@ export function registerRoutes(app: Express): Server {
           ...(password && { password: hashedPassword }),
           updatedAt: new Date(),
         })
-        .where(eq(users.id, parseInt(id)))
+        .where(eq(users.id, id))
         .returning();
 
       // Fetch updated user with role information
@@ -1965,9 +1955,9 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/users/:id", requirePermission('users', 'delete'), async (req, res) => {
+  app.delete("/api/users/:id", requirePermission('users', 'delete'), validateParams(idParamSchema, "Use a numeric user id"), async (req, res) => {
     try {
-      const { id } = req.params;
+      const id = Number(req.params.id);
 
       // Prevent deleting the last admin
       const adminRole = await db.query.roles.findFirst({
@@ -1981,7 +1971,7 @@ export function registerRoutes(app: Express): Server {
 
         if (adminUsers.length <= 1) {
           const userToDelete = await db.query.users.findFirst({
-            where: eq(users.id, parseInt(id)),
+            where: eq(users.id, id),
             with: {
               role: true,
             },
@@ -1995,7 +1985,7 @@ export function registerRoutes(app: Express): Server {
 
       await db
         .delete(users)
-        .where(eq(users.id, parseInt(id)));
+        .where(eq(users.id, id));
 
       res.json({ message: "User deleted successfully" });
     } catch (error) {
@@ -3588,7 +3578,7 @@ export function registerRoutes(app: Express): Server {
 
   // POS Sales Transaction API endpoints
   // Create new sales transaction
-  app.post("/api/sales-transactions", requirePermission('pos', 'create'), async (req, res) => {
+  app.post("/api/sales-transactions", requirePermission('pos', 'create'), validateBody(createSaleSchema, "Each item must have productId and positive quantity"), async (req, res) => {
     try {
       const user = req.user;
       if (!user) {
@@ -3834,20 +3824,14 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Process refund for sales transaction
-  app.post("/api/sales-transactions/:id/refund", requirePermission('receipts', 'update'), async (req, res) => {
+  app.post("/api/sales-transactions/:id/refund", requirePermission('receipts', 'update'), validateParams(idParamSchema, "Use a numeric transaction id"), validateBody(refundSaleSchema, "Check the refund amount and quantities"), async (req, res) => {
     try {
       const user = req.user;
       if (!user) {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
-      const transactionId = parseInt(req.params.id, 10);
-      if (Number.isNaN(transactionId)) {
-        return res.status(400).json({
-          message: "Invalid transaction ID",
-          suggestion: "Verify the transaction ID"
-        });
-      }
+      const transactionId = Number(req.params.id);
 
       const { refundAmount, reason, items } = req.body;
 
@@ -3880,17 +3864,14 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Cancel sales transaction
-  app.post("/api/sales-transactions/:id/cancel", requirePermission('receipts', 'update'), async (req, res) => {
+  app.post("/api/sales-transactions/:id/cancel", requirePermission('receipts', 'update'), validateParams(idParamSchema, "Use a numeric transaction id"), validateBody(cancelSaleSchema, "Check the cancellation reason"), async (req, res) => {
     try {
       const user = req.user;
       if (!user) {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
-      const transactionId = parseInt(req.params.id, 10);
-      if (Number.isNaN(transactionId)) {
-        return res.status(400).json({ message: "Invalid transaction ID" });
-      }
+      const transactionId = Number(req.params.id);
 
       await cancelSale({ transactionId, userId: user.id, reason: req.body?.reason });
 
@@ -3932,27 +3913,13 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Check stock availability for POS
-  app.post("/api/inventory/check-stock", requireAuth, async (req, res) => {
+  app.post("/api/inventory/check-stock", requireAuth, validateBody(checkStockSchema, "Each item must have productId and quantity"), async (req, res) => {
     try {
       const { items, storeId } = req.body;
-
-      if (!items || !Array.isArray(items)) {
-        return res.status(400).json({
-          message: "Items array is required",
-          suggestion: "Provide items to check stock for"
-        });
-      }
 
       const stockCheckResults = [];
 
       for (const item of items) {
-        if (!item.productId || !item.quantity) {
-          return res.status(400).json({
-            message: "Each item must have productId and quantity",
-            suggestion: "Provide valid item data"
-          });
-        }
-
         // Find available inventory - prioritize store inventory over DC
         let inventoryItem = null;
 
