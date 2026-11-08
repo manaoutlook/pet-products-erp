@@ -1,6 +1,7 @@
 import { db } from "@db";
 import { invoiceCounters, stores } from "@db/schema";
 import { eq, and, sql } from "drizzle-orm";
+import type { DbClient } from "./db-types";
 
 /**
  * Generate invoice number prefix for a store
@@ -23,27 +24,31 @@ export function generateDCPrefix(): string {
  * Generate invoice number using atomic counter increment
  * Format: {prefix}{YYYYMMDD}-{sequence number padded to 4 digits}
  * Example: STR001-20241210-0001
+ *
+ * AI Agent Note: pass `executor` when the caller already holds a transaction, so the
+ * counter commits or rolls back with the sale. Without it the counter would increment
+ * on a second pooled connection and burn a number even when the sale fails.
  */
 export async function generateInvoiceNumber(
   storeId: number | null,
-  transactionType: 'STORE_SALE' | 'DC_SALE'
+  transactionType: 'STORE_SALE' | 'DC_SALE',
+  executor?: DbClient
 ): Promise<string> {
   const counterType = storeId ? 'STORE' : 'DC';
 
-  // Use a database transaction to atomically increment the counter
-  const result = await db.transaction(async (tx) => {
-    // Get or create the counter record
+  const run = async (tx: DbClient): Promise<string> => {
+    const whereClause = storeId
+      ? and(eq(invoiceCounters.storeId, storeId), eq(invoiceCounters.counterType, counterType))
+      : eq(invoiceCounters.counterType, counterType);
+
     let counter = await tx.query.invoiceCounters.findFirst({
-      where: storeId
-        ? and(eq(invoiceCounters.storeId, storeId), eq(invoiceCounters.counterType, counterType))
-        : eq(invoiceCounters.counterType, counterType)
+      where: whereClause
     });
 
     if (!counter) {
-      // Create counter if it doesn't exist
       const prefix = storeId ? generateStorePrefix(storeId) : generateDCPrefix();
 
-      const [newCounter] = await tx
+      const [created] = await tx
         .insert(invoiceCounters)
         .values({
           storeId,
@@ -51,31 +56,35 @@ export async function generateInvoiceNumber(
           currentNumber: 0,
           prefix,
         })
+        .onConflictDoNothing()
         .returning();
 
-      counter = newCounter;
+      // A concurrent sale may have created it first - re-read in that case.
+      counter = created ?? (await tx.query.invoiceCounters.findFirst({ where: whereClause }))!;
     }
 
-    // Increment the counter atomically
-    const newNumber = counter.currentNumber + 1;
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-
-    // Update the counter
-    await tx
+    // AI Agent Note: increment in SQL, not in JS. Reading currentNumber and writing
+    // currentNumber + 1 lets two concurrent sales compute the same number; letting
+    // Postgres add one to the stored value under the row lock cannot.
+    const [updated] = await tx
       .update(invoiceCounters)
       .set({
-        currentNumber: newNumber,
+        currentNumber: sql`${invoiceCounters.currentNumber} + 1`,
         lastUpdated: new Date(),
       })
-      .where(eq(invoiceCounters.id, counter.id));
+      .where(eq(invoiceCounters.id, counter.id))
+      .returning({
+        currentNumber: invoiceCounters.currentNumber,
+        prefix: invoiceCounters.prefix,
+      });
 
-    // Generate the invoice number
-    const invoiceNumber = `${counter.prefix}${dateStr}-${newNumber.toString().padStart(4, '0')}`;
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    return `${updated.prefix}${dateStr}-${updated.currentNumber.toString().padStart(4, '0')}`;
+  };
 
-    return invoiceNumber;
-  });
-
-  return result;
+  // Callers that already hold a transaction must pass it, so the counter commits or
+  // rolls back together with the sale.
+  return executor ? run(executor) : db.transaction(run);
 }
 
 /**

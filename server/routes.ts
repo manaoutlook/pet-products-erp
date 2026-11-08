@@ -18,10 +18,18 @@ import { sql } from "drizzle-orm";
 import { eq, and, or, desc, gte, lt, isNull, gt } from "drizzle-orm";
 import { requireRole, requireAuth, requirePermission } from "./middleware";
 import { importProducts } from "./product-import";
+import { importInventory } from "./inventory-import";
+import { importBrands, importCategories, importSuppliers } from "./master-data-import";
+import {
+  bulkDeleteBrands,
+  bulkDeleteCategories,
+  bulkDeleteSuppliers,
+} from "./master-data-bulk-delete";
 import { getStoreDeletionBlockers, hasBlockers, buildStoreDeletionError } from "./store-deletion";
 import { z } from "zod";
 import { crypto } from "./auth";
-import { initializeStoreCounter, generateInvoiceNumber } from "./invoice-counter";
+import { initializeStoreCounter } from "./invoice-counter";
+import { createSale, refundSale, cancelSale, SaleError } from "./sales";
 
 // Schema validations
 const createPurchaseOrderSchema = z.object({
@@ -41,6 +49,24 @@ const updatePurchaseOrderSchema = z.object({
   status: z.enum(['pending', 'confirmed', 'shipped', 'delivered', 'cancelled']),
   deliveryDate: z.string().datetime().optional(),
   notes: z.string().optional(),
+});
+
+// Shared body schemas for the master data screens (Categories, Brands,
+// Suppliers): the checkbox selection uses one, the CSV/Excel import the other.
+const masterDataBulkDeleteSchema = z.object({
+  ids: z
+    .array(z.number().int().positive())
+    .min(1, "Select at least one entry")
+    .max(1000, "Delete at most 1000 entries at a time"),
+});
+
+const masterDataImportSchema = z.object({
+  rows: z
+    .array(z.record(z.unknown()))
+    .min(1, "At least one row is required")
+    .max(5000, "Too many rows - import 5000 rows at a time"),
+  // Update entries that already exist (matched by name)
+  updateExisting: z.boolean().optional(),
 });
 
 
@@ -88,6 +114,36 @@ function normalizeWhitespace(value: string): string {
     .trim();
 }
 
+// AI Agent Note: Human readable summary of a master data CSV/Excel import, e.g.
+// "Import finished: 3 created, 1 updated, 2 failed".
+function buildMasterDataImportMessage(result: {
+  created: number;
+  updated: number;
+  skipped: number;
+  createdParents: number;
+  errors: { length: number };
+}): string {
+  const parts: string[] = [];
+  if (result.created) parts.push(`${result.created} created`);
+  if (result.updated) parts.push(`${result.updated} updated`);
+  if (result.skipped) parts.push(`${result.skipped} skipped`);
+  if (result.createdParents) {
+    parts.push(
+      `${result.createdParents} parent categor${result.createdParents === 1 ? "y" : "ies"} created`
+    );
+  }
+  if (result.errors.length) parts.push(`${result.errors.length} failed`);
+
+  return parts.length ? `Import finished: ${parts.join(", ")}` : "Nothing to import";
+}
+
+// AI Agent Note: "Deleted 3 brands · 1 could not be deleted" style summary of a
+// master data bulk delete (mirrors the products bulk delete response).
+function buildBulkDeleteMessage(singular: string, deletedCount: number, failedCount: number): string {
+  const base = `Deleted ${deletedCount} ${singular}${deletedCount === 1 ? "" : "s"}`;
+  return failedCount === 0 ? base : `${base} · ${failedCount} could not be deleted`;
+}
+
 export function registerRoutes(app: Express): Server {
   setupAuth(app);
 
@@ -128,7 +184,17 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { name, location, contactInfo, type } = result.data; // AI Agent Note: Added 'type' for multiple DC support
+      const { name, location, contactInfo, type, regionId } = result.data; // AI Agent Note: Added 'type' and 'regionId'
+
+      // AI Agent Note: A store must belong to a region for hierarchical access
+      // control. Without this, region_id was silently stored as NULL for every
+      // store created through the UI.
+      if (regionId == null) {
+        return res.status(400).json({
+          message: "Region is required",
+          errors: [{ field: "regionId", message: "Region is required" }],
+        });
+      }
 
       // Check if store exists
       const existingStore = await db.query.stores.findFirst({
@@ -148,6 +214,7 @@ export function registerRoutes(app: Express): Server {
           name,
           location,
           contactInfo,
+          regionId,
           type: type || 'RETAIL', // AI Agent Note: Save store type
         })
         .returning();
@@ -187,7 +254,16 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { name, location, contactInfo, type } = result.data; // AI Agent Note: Added 'type' for multiple DC support
+      const { name, location, contactInfo, type, regionId } = result.data; // AI Agent Note: Added 'type' and 'regionId'
+
+      // AI Agent Note: A store must belong to a region for hierarchical access
+      // control. Reject updates that would leave region_id NULL.
+      if (regionId == null) {
+        return res.status(400).json({
+          message: "Region is required",
+          errors: [{ field: "regionId", message: "Region is required" }],
+        });
+      }
 
       // Check if store exists
       const existingStore = await db.query.stores.findFirst({
@@ -210,6 +286,7 @@ export function registerRoutes(app: Express): Server {
           name,
           location,
           contactInfo,
+          regionId,
           type: type || 'RETAIL', // AI Agent Note: Save store type
           updatedAt: new Date()
         })
@@ -1617,6 +1694,64 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // CSV/Excel import for the Categories screen. Rows are matched by name; the
+  // optional "Parent Category" column is resolved by name and created as a root
+  // category when it does not exist yet.
+  app.post("/api/categories/import", requirePermission("masterData", "create"), async (req, res) => {
+    const parsed = masterDataImportSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: "Invalid import request",
+        errors: parsed.error.errors.map(err => ({
+          field: err.path.join('.'),
+          message: err.message,
+        })),
+      });
+    }
+
+    try {
+      const result = await importCategories(parsed.data.rows, {
+        updateExisting: parsed.data.updateExisting,
+      });
+
+      res.json({
+        message: buildMasterDataImportMessage(result),
+        ...result,
+      });
+    } catch (error) {
+      console.error('Error importing categories:', error);
+      res.status(500).json({ message: "Failed to import categories" });
+    }
+  });
+
+  // Bulk delete for the Categories screen (checkbox selection in the list). Each
+  // category keeps the same rules as the single delete endpoint; protected
+  // categories are reported back instead of aborting the batch.
+  app.post("/api/categories/bulk-delete", requirePermission('masterData', 'delete'), async (req, res) => {
+    const parsed = masterDataBulkDeleteSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: "Invalid delete request",
+        suggestion: parsed.error.issues[0]?.message ?? "Provide an array of category ids",
+      });
+    }
+
+    try {
+      const { deleted, failed } = await bulkDeleteCategories(parsed.data.ids);
+
+      res.json({
+        message: buildBulkDeleteMessage("category", deleted.length, failed.length),
+        deletedCount: deleted.length,
+        failedCount: failed.length,
+        deleted,
+        failed,
+      });
+    } catch (error) {
+      console.error('Error bulk deleting categories:', error);
+      res.status(500).json({ message: "Failed to delete categories" });
+    }
+  });
+
   // Role Mapping endpoint
   app.get("/api/roles/mapping", requirePermission('users', 'read'), async (req, res) => {
     try {
@@ -1882,7 +2017,15 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { name, location, contactInfo, type } = result.data; // AI Agent Note: Added 'type' for multiple DC support
+      const { name, location, contactInfo, type, regionId } = result.data; // AI Agent Note: Added 'type' and 'regionId'
+
+      // AI Agent Note: A store must belong to a region for hierarchical access control.
+      if (regionId == null) {
+        return res.status(400).json({
+          message: "Region is required",
+          errors: [{ field: "regionId", message: "Region is required" }],
+        });
+      }
 
       // Check if store exists
       const existingStore = await db.query.stores.findFirst({
@@ -1902,6 +2045,7 @@ export function registerRoutes(app: Express): Server {
           name,
           location,
           contactInfo,
+          regionId,
           type: type || 'RETAIL', // AI Agent Note: Save store type
         })
         .returning();
@@ -1933,7 +2077,15 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { name, location, contactInfo, type } = result.data; // AI Agent Note: Added 'type' for multiple DC support
+      const { name, location, contactInfo, type, regionId } = result.data; // AI Agent Note: Added 'type' and 'regionId'
+
+      // AI Agent Note: A store must belong to a region for hierarchical access control.
+      if (regionId == null) {
+        return res.status(400).json({
+          message: "Region is required",
+          errors: [{ field: "regionId", message: "Region is required" }],
+        });
+      }
 
       // Check if store exists
       const existingStore = await db.query.stores.findFirst({
@@ -1956,6 +2108,7 @@ export function registerRoutes(app: Express): Server {
           name,
           location,
           contactInfo,
+          regionId,
           type: type || 'RETAIL', // AI Agent Note: Save store type
           updatedAt: new Date()
         })
@@ -2284,6 +2437,11 @@ export function registerRoutes(app: Express): Server {
     brandId: z.number().positive("Brand ID is required").nullable().optional(),
     // Suppliers are optional: the UI sends `null` when "No supplier" is selected
     supplierId: z.number().positive("Supplier ID is required").nullable().optional(),
+    // Optional physical attributes: weight is in kilograms, dimensions in centimetres.
+    weightKg: z.number().min(0, "Weight must be positive").nullable().optional(),
+    lengthCm: z.number().min(0, "Length must be positive").nullable().optional(),
+    widthCm: z.number().min(0, "Width must be positive").nullable().optional(),
+    heightCm: z.number().min(0, "Height must be positive").nullable().optional(),
   });
 
 
@@ -2323,7 +2481,7 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { name, sku, price, description, categoryId, minStock, brandId, supplierId, landingPrice, b2bPrice, b2cPrice } = result.data;
+      const { name, sku, price, description, categoryId, minStock, brandId, supplierId, landingPrice, b2bPrice, b2cPrice, weightKg, lengthCm, widthCm, heightCm } = result.data;
 
 
       // Check if SKU already exists
@@ -2394,6 +2552,11 @@ export function registerRoutes(app: Express): Server {
           minStock: minStock ?? 0,
           brandId: brandId ?? null,
           supplierId: supplierId ?? null,
+          // Optional physical attributes (nullable when not provided).
+          weightKg: toDecimalOrNull(weightKg),
+          lengthCm: toDecimalOrNull(lengthCm),
+          widthCm: toDecimalOrNull(widthCm),
+          heightCm: toDecimalOrNull(heightCm),
         })
         .returning();
 
@@ -2424,7 +2587,7 @@ export function registerRoutes(app: Express): Server {
   app.put("/api/products/:id", requirePermission('products', 'update'), async (req, res) => {
     try {
       const { id } = req.params;
-      const { name, description, sku, price, categoryId, minStock, brandId, supplierId, landingPrice, b2bPrice, b2cPrice } = req.body;
+      const { name, description, sku, price, categoryId, minStock, brandId, supplierId, landingPrice, b2bPrice, b2cPrice, weightKg, lengthCm, widthCm, heightCm } = req.body;
 
 
       if (!name || !sku || !categoryId) {
@@ -2539,6 +2702,24 @@ export function registerRoutes(app: Express): Server {
 
       if (b2cPrice !== undefined) {
         updateValues.b2cPrice = toDecimalOrNull(b2cPrice);
+      }
+
+      // Optional physical attributes: only touched when the client sent them,
+      // and an explicit `null` clears the stored value.
+      if (weightKg !== undefined) {
+        updateValues.weightKg = toDecimalOrNull(weightKg);
+      }
+
+      if (lengthCm !== undefined) {
+        updateValues.lengthCm = toDecimalOrNull(lengthCm);
+      }
+
+      if (widthCm !== undefined) {
+        updateValues.widthCm = toDecimalOrNull(widthCm);
+      }
+
+      if (heightCm !== undefined) {
+        updateValues.heightCm = toDecimalOrNull(heightCm);
       }
 
       const [updatedProduct] = await db
@@ -2662,6 +2843,79 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Products API - Bulk delete products (multi-select action on the product list)
+  app.post("/api/products/bulk-delete", requirePermission('products', 'delete'), async (req, res) => {
+    const bulkDeleteSchema = z.object({
+      ids: z
+        .array(z.number().int().positive())
+        .min(1, "Select at least one product")
+        .max(1000, "Delete at most 1000 products at a time"),
+    });
+
+    const parsed = bulkDeleteSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: "Invalid delete request",
+        suggestion: parsed.error.issues[0]?.message ?? "Provide an array of product ids",
+      });
+    }
+
+    // De-duplicate so a repeated id cannot be counted (or deleted) twice.
+    const ids = Array.from(new Set(parsed.data.ids));
+    const deleted: number[] = [];
+    const failed: { id: number; name: string | null; message: string }[] = [];
+
+    // Each product keep the same rules as the single delete endpoint: a product
+    // used in any order cannot be removed. Failures are collected so one bad row
+    // does not abort the whole batch.
+    for (const id of ids) {
+      try {
+        const product = await db.query.products.findFirst({
+          where: eq(products.id, id),
+        });
+
+        if (!product) {
+          failed.push({ id, name: null, message: "Product not found" });
+          continue;
+        }
+
+        const orderItem = await db.query.orderItems.findFirst({
+          where: eq(orderItems.productId, id),
+        });
+
+        if (orderItem) {
+          failed.push({
+            id,
+            name: product.name,
+            message: "Used in orders - archive the product instead",
+          });
+          continue;
+        }
+
+        // Delete any inventory items for this product first, then the product.
+        await db.delete(inventory).where(eq(inventory.productId, id));
+        await db.delete(products).where(eq(products.id, id));
+        deleted.push(id);
+      } catch (error) {
+        console.error(`Error deleting product ${id}:`, error);
+        failed.push({ id, name: null, message: "Failed to delete product" });
+      }
+    }
+
+    const message =
+      failed.length === 0
+        ? `Deleted ${deleted.length} product${deleted.length === 1 ? "" : "s"}`
+        : `Deleted ${deleted.length} product${deleted.length === 1 ? "" : "s"} · ${failed.length} could not be deleted`;
+
+    res.json({
+      message,
+      deletedCount: deleted.length,
+      failedCount: failed.length,
+      deleted,
+      failed,
+    });
+  });
+
   // Orders API
   app.get("/api/orders", requirePermission('orders', 'read'), async (req, res) => {
     try {
@@ -2767,6 +3021,55 @@ export function registerRoutes(app: Express): Server {
     } catch (error) {
       console.error('Error creating inventory:', error);
       res.status(500).send("Failed to create inventory item");
+    }
+  });
+
+  // Inventory API - Bulk import (CSV/Excel) used by the Inventory Management page.
+  // The file is parsed in the browser and posted as rows of canonical fields.
+  app.post("/api/inventory/import", requirePermission('inventory', 'create'), async (req, res) => {
+    try {
+      const importInventorySchema = z.object({
+        rows: z
+          .array(z.record(z.unknown()))
+          .min(1, "At least one row is required")
+          .max(5000, "Too many rows - import 5000 rows at a time"),
+        // Update inventory that already exists (matched by product + store + type)
+        updateExisting: z.boolean().optional(),
+      });
+
+      const parsed = importInventorySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          message: "Invalid input",
+          errors: parsed.error.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message,
+          })),
+        });
+      }
+
+      const result = await importInventory(parsed.data.rows, {
+        updateExisting: parsed.data.updateExisting,
+      });
+
+      const parts: string[] = [];
+      if (result.created) parts.push(`${result.created} created`);
+      if (result.updated) parts.push(`${result.updated} updated`);
+      if (result.skipped) parts.push(`${result.skipped} skipped`);
+      if (result.errors.length) parts.push(`${result.errors.length} failed`);
+
+      res.json({
+        message: parts.length
+          ? `Import finished: ${parts.join(', ')}`
+          : 'Nothing to import',
+        ...result,
+      });
+    } catch (error) {
+      console.error('Error importing inventory:', error);
+      res.status(500).json({
+        message: "Failed to import inventory",
+        suggestion: "Please check the file format and try again",
+      });
     }
   });
 
@@ -3062,6 +3365,61 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // CSV/Excel import for the Brands screen (matched by name).
+  app.post("/api/brands/import", requirePermission('masterData', 'create'), async (req, res) => {
+    const parsed = masterDataImportSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: "Invalid import request",
+        errors: parsed.error.errors.map(err => ({
+          field: err.path.join('.'),
+          message: err.message,
+        })),
+      });
+    }
+
+    try {
+      const result = await importBrands(parsed.data.rows, {
+        updateExisting: parsed.data.updateExisting,
+      });
+
+      res.json({
+        message: buildMasterDataImportMessage(result),
+        ...result,
+      });
+    } catch (error) {
+      console.error('Error importing brands:', error);
+      res.status(500).json({ message: "Failed to import brands" });
+    }
+  });
+
+  // Bulk delete for the Brands screen. Brands assigned to products are reported
+  // back as failures (same rule as the single delete endpoint).
+  app.post("/api/brands/bulk-delete", requirePermission('masterData', 'delete'), async (req, res) => {
+    const parsed = masterDataBulkDeleteSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: "Invalid delete request",
+        suggestion: parsed.error.issues[0]?.message ?? "Provide an array of brand ids",
+      });
+    }
+
+    try {
+      const { deleted, failed } = await bulkDeleteBrands(parsed.data.ids);
+
+      res.json({
+        message: buildBulkDeleteMessage("brand", deleted.length, failed.length),
+        deletedCount: deleted.length,
+        failedCount: failed.length,
+        deleted,
+        failed,
+      });
+    } catch (error) {
+      console.error('Error bulk deleting brands:', error);
+      res.status(500).json({ message: "Failed to delete brands" });
+    }
+  });
+
   // Supplier Management endpoints - admin only
   app.get("/api/suppliers", requirePermission('masterData', 'read'), async (req, res) => {
     try {
@@ -3172,194 +3530,94 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // CSV/Excel import for the Suppliers screen (matched by name). Name, contact
+  // information and address are mandatory because the create form requires them.
+  app.post("/api/suppliers/import", requirePermission('masterData', 'create'), async (req, res) => {
+    const parsed = masterDataImportSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: "Invalid import request",
+        errors: parsed.error.errors.map(err => ({
+          field: err.path.join('.'),
+          message: err.message,
+        })),
+      });
+    }
+
+    try {
+      const result = await importSuppliers(parsed.data.rows, {
+        updateExisting: parsed.data.updateExisting,
+      });
+
+      res.json({
+        message: buildMasterDataImportMessage(result),
+        ...result,
+      });
+    } catch (error) {
+      console.error('Error importing suppliers:', error);
+      res.status(500).json({ message: "Failed to import suppliers" });
+    }
+  });
+
+  // Bulk delete for the Suppliers screen. Suppliers that still have inventory or
+  // products are reported back as failures (same rules as the single endpoint).
+  app.post("/api/suppliers/bulk-delete", requirePermission('masterData', 'delete'), async (req, res) => {
+    const parsed = masterDataBulkDeleteSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: "Invalid delete request",
+        suggestion: parsed.error.issues[0]?.message ?? "Provide an array of supplier ids",
+      });
+    }
+
+    try {
+      const { deleted, failed } = await bulkDeleteSuppliers(parsed.data.ids);
+
+      res.json({
+        message: buildBulkDeleteMessage("supplier", deleted.length, failed.length),
+        deletedCount: deleted.length,
+        failedCount: failed.length,
+        deleted,
+        failed,
+      });
+    } catch (error) {
+      console.error('Error bulk deleting suppliers:', error);
+      res.status(500).json({ message: "Failed to delete suppliers" });
+    }
+  });
+
   // POS Sales Transaction API endpoints
   // Create new sales transaction
   app.post("/api/sales-transactions", requirePermission('pos', 'create'), async (req, res) => {
     try {
-      const { items, paymentMethod, customerProfileId, transactionType } = req.body;
-
-      if (!items || !Array.isArray(items) || items.length === 0) {
-        return res.status(400).json({
-          message: "At least one item is required",
-          suggestion: "Add products to the transaction"
-        });
-      }
-
-      if (!paymentMethod) {
-        return res.status(400).json({
-          message: "Payment method is required"
-        });
-      }
-
       const user = req.user;
       if (!user) {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
-      // Determine transaction type and store
-      let storeId: number | null = null;
-      let finalTransactionType = transactionType || 'STORE_SALE';
+      const { items, paymentMethod, customerProfileId, transactionType } = req.body;
 
-      // Get user's store assignment for store sales
-      if (finalTransactionType === 'STORE_SALE') {
-        const userAssignment = await db.query.userStoreAssignments.findFirst({
-          where: eq(userStoreAssignments.userId, user.id),
-        });
-
-        if (!userAssignment) {
-          return res.status(403).json({
-            message: "User is not assigned to any store",
-            suggestion: "Contact administrator to assign you to a store"
-          });
-        }
-
-        storeId = userAssignment.storeId;
-      }
-
-      // Validate and check stock for each item
-      const validatedItems = [];
-      for (const item of items) {
-        if (!item.productId || !item.quantity || item.quantity <= 0) {
-          return res.status(400).json({
-            message: "Invalid item data",
-            suggestion: "Each item must have productId and positive quantity"
-          });
-        }
-
-        // Find available inventory for this product
-        const availableInventory = await db.query.inventory.findFirst({
-          where: and(
-            eq(inventory.productId, item.productId),
-            storeId ? eq(inventory.storeId, storeId) : eq(inventory.inventoryType, 'DC')
-          ),
-          with: {
-            product: true,
-          },
-        });
-
-        if (!availableInventory) {
-          const product = await db.query.products.findFirst({
-            where: eq(products.id, item.productId),
-          });
-          return res.status(400).json({
-            message: `Product ${product?.name || 'Unknown'} is not available in ${storeId ? 'your store' : 'DC'}`,
-            suggestion: "Choose a different product or check inventory"
-          });
-        }
-
-        if (availableInventory.quantity < item.quantity) {
-          const product = availableInventory.product || await db.query.products.findFirst({
-            where: eq(products.id, item.productId),
-          });
-          return res.status(400).json({
-            message: `Insufficient stock for ${product?.name || 'Unknown'}. Available: ${availableInventory.quantity}, Requested: ${item.quantity}`,
-            suggestion: "Reduce quantity or choose a different product"
-          });
-        }
-
-        // Always fetch product data directly to ensure we have the price
-        const productData = await db.query.products.findFirst({
-          where: eq(products.id, item.productId),
-        });
-
-        if (!productData) {
-          return res.status(400).json({
-            message: `Product with ID ${item.productId} not found`,
-            suggestion: "Please verify the product exists"
-          });
-        }
-
-        // Convert price to number for calculations
-        const numericPrice = typeof productData.price === 'string' ? parseFloat(productData.price) : productData.price;
-
-        if (!numericPrice || isNaN(numericPrice)) {
-          return res.status(400).json({
-            message: "Unable to determine product price",
-            suggestion: "Please contact support - product may not be properly configured"
-          });
-        }
-
-        validatedItems.push({
-          ...item,
-          inventoryId: availableInventory.id,
-          unitPrice: numericPrice,
-          totalPrice: numericPrice * item.quantity,
-        });
-      }
-
-      // Calculate total amount
-      const totalAmount = validatedItems.reduce((sum, item) => sum + item.totalPrice, 0);
-
-      // Generate invoice number
-      const invoiceNumber = await generateInvoiceNumber(storeId, finalTransactionType as 'STORE_SALE' | 'DC_SALE');
-
-      // Create sales transaction
-      const [salesTransaction] = await db
-        .insert(salesTransactions)
-        .values({
-          invoiceNumber,
-          storeId,
-          transactionType: finalTransactionType,
-          cashierUserId: user.id,
-          customerProfileId: customerProfileId || null,
-          totalAmount: totalAmount.toString(),
-          paymentMethod,
-          status: 'completed',
-        })
-        .returning();
-
-      // Create sales transaction items and update inventory
-      await Promise.all(validatedItems.map(async (item) => {
-        // Create transaction item
-        await db.insert(salesTransactionItems).values({
-          salesTransactionId: salesTransaction.id,
-          productId: item.productId,
-          inventoryId: item.inventoryId,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice.toString(),
-          totalPrice: item.totalPrice.toString(),
-        });
-
-        // Update inventory quantity
-        await db
-          .update(inventory)
-          .set({
-            quantity: sql`${inventory.quantity} - ${item.quantity}`,
-            updatedAt: new Date(),
-          })
-          .where(eq(inventory.id, item.inventoryId));
-      }));
-
-      // Log transaction action
-      await db.insert(salesTransactionActions).values({
-        salesTransactionId: salesTransaction.id,
-        actionType: 'sale_completed',
-        actionData: { itemsCount: validatedItems.length, totalAmount },
-        performedByUserId: user.id,
-      });
-
-      // Fetch complete transaction with details
-      const completeTransaction = await db.query.salesTransactions.findFirst({
-        where: eq(salesTransactions.id, salesTransaction.id),
-        with: {
-          items: {
-            with: {
-              product: true,
-              inventory: true,
-            },
-          },
-          store: true,
-          cashierUser: true,
-          customerProfile: true,
-        },
+      const transaction = await createSale({
+        userId: user.id,
+        items,
+        paymentMethod,
+        customerProfileId,
+        transactionType,
       });
 
       res.json({
         message: "Sales transaction completed successfully",
-        transaction: completeTransaction,
+        transaction,
       });
     } catch (error) {
-      console.error('Error creating sales transaction:', error);
+      if (error instanceof SaleError) {
+        return res.status(error.status).json({
+          message: error.message,
+          ...(error.suggestion ? { suggestion: error.suggestion } : {}),
+        });
+      }
+      console.error('Error creating sales transaction:',
+        error instanceof Error ? error.message : 'unknown error');
       res.status(500).json({
         message: "Failed to complete sales transaction",
         suggestion: "Please try again later"
@@ -3578,127 +3836,42 @@ export function registerRoutes(app: Express): Server {
   // Process refund for sales transaction
   app.post("/api/sales-transactions/:id/refund", requirePermission('receipts', 'update'), async (req, res) => {
     try {
-      const { id } = req.params;
-      const { refundAmount, reason, items } = req.body;
-
       const user = req.user;
       if (!user) {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
-      // Get the original transaction
-      const transaction = await db.query.salesTransactions.findFirst({
-        where: eq(salesTransactions.id, parseInt(id)),
-        with: {
-          items: {
-            with: {
-              product: true,
-              inventory: true,
-            },
-          },
-        },
-      });
-
-      if (!transaction) {
-        return res.status(404).json({
-          message: "Sales transaction not found",
+      const transactionId = parseInt(req.params.id, 10);
+      if (Number.isNaN(transactionId)) {
+        return res.status(400).json({
+          message: "Invalid transaction ID",
           suggestion: "Verify the transaction ID"
         });
       }
 
-      if (transaction.status === 'refunded') {
-        return res.status(400).json({
-          message: "Transaction has already been refunded",
-          suggestion: "Cannot refund an already refunded transaction"
-        });
-      }
+      const { refundAmount, reason, items } = req.body;
 
-      if (transaction.status === 'voided') {
-        return res.status(400).json({
-          message: "Cannot refund a voided transaction",
-          suggestion: "Voided transactions cannot be refunded"
-        });
-      }
-
-      // Validate refund amount
-      const transactionTotal = parseFloat(transaction.totalAmount);
-      const requestedRefund = refundAmount ? parseFloat(refundAmount) : transactionTotal;
-
-      if (requestedRefund > transactionTotal) {
-        return res.status(400).json({
-          message: "Refund amount cannot exceed transaction total",
-          suggestion: `Maximum refund amount is ${transactionTotal}`
-        });
-      }
-
-      // Process refund - restore inventory
-      if (items && Array.isArray(items)) {
-        // Partial refund by items
-        for (const refundItem of items) {
-          const transactionItem = transaction.items.find(item => item.id === refundItem.id);
-          if (!transactionItem) {
-            return res.status(400).json({
-              message: `Transaction item ${refundItem.id} not found`,
-              suggestion: "Verify the item IDs to refund"
-            });
-          }
-
-          if (refundItem.quantity > transactionItem.quantity) {
-            return res.status(400).json({
-              message: `Refund quantity for ${transactionItem.product.name} cannot exceed sold quantity`,
-              suggestion: `Maximum refund quantity is ${transactionItem.quantity}`
-            });
-          }
-
-          // Restore inventory
-          await db
-            .update(inventory)
-            .set({
-              quantity: sql`${inventory.quantity} + ${refundItem.quantity}`,
-              updatedAt: new Date(),
-            })
-            .where(eq(inventory.id, transactionItem.inventoryId));
-        }
-      } else {
-        // Full refund - restore all inventory
-        for (const item of transaction.items) {
-          await db
-            .update(inventory)
-            .set({
-              quantity: sql`${inventory.quantity} + ${item.quantity}`,
-              updatedAt: new Date(),
-            })
-            .where(eq(inventory.id, item.inventoryId));
-        }
-      }
-
-      // Update transaction status
-      await db
-        .update(salesTransactions)
-        .set({
-          status: 'refunded',
-          updatedAt: new Date(),
-        })
-        .where(eq(salesTransactions.id, parseInt(id)));
-
-      // Log refund action
-      await db.insert(salesTransactionActions).values({
-        salesTransactionId: parseInt(id),
-        actionType: 'refund_processed',
-        actionData: {
-          refundAmount: requestedRefund,
-          reason: reason || 'No reason provided',
-          items: items || 'full refund'
-        },
-        performedByUserId: user.id,
+      const result = await refundSale({
+        transactionId,
+        userId: user.id,
+        refundAmount,
+        reason,
+        items,
       });
 
       res.json({
         message: "Refund processed successfully",
-        refundAmount: requestedRefund,
+        refundAmount: result.refundAmount,
       });
     } catch (error) {
-      console.error('Error processing refund:', error);
+      if (error instanceof SaleError) {
+        return res.status(error.status).json({
+          message: error.message,
+          ...(error.suggestion ? { suggestion: error.suggestion } : {}),
+        });
+      }
+      console.error('Error processing refund:',
+        error instanceof Error ? error.message : 'unknown error');
       res.status(500).json({
         message: "Failed to process refund",
         suggestion: "Please try again later"
@@ -3709,58 +3882,28 @@ export function registerRoutes(app: Express): Server {
   // Cancel sales transaction
   app.post("/api/sales-transactions/:id/cancel", requirePermission('receipts', 'update'), async (req, res) => {
     try {
-      const { id } = req.params;
-      const { reason } = req.body;
-
       const user = req.user;
       if (!user) {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
-      // Get the transaction
-      const transaction = await db.query.salesTransactions.findFirst({
-        where: eq(salesTransactions.id, parseInt(id)),
-      });
-
-      if (!transaction) {
-        return res.status(404).json({
-          message: "Sales transaction not found",
-          suggestion: "Verify the transaction ID"
-        });
+      const transactionId = parseInt(req.params.id, 10);
+      if (Number.isNaN(transactionId)) {
+        return res.status(400).json({ message: "Invalid transaction ID" });
       }
 
-      if (transaction.status !== 'completed') {
-        return res.status(400).json({
-          message: "Only completed transactions can be cancelled",
-          suggestion: "Transaction must be in completed status to cancel"
-        });
-      }
+      await cancelSale({ transactionId, userId: user.id, reason: req.body?.reason });
 
-      // Update transaction status to cancelled
-      await db
-        .update(salesTransactions)
-        .set({
-          status: 'cancelled',
-          updatedAt: new Date(),
-        })
-        .where(eq(salesTransactions.id, parseInt(id)));
-
-      // Log cancellation action
-      await db.insert(salesTransactionActions).values({
-        salesTransactionId: parseInt(id),
-        actionType: 'transaction_cancelled',
-        actionData: {
-          reason: reason || 'Cancelled by user',
-          cancelledBy: user.username
-        },
-        performedByUserId: user.id,
-      });
-
-      res.json({
-        message: "Transaction cancelled successfully",
-      });
+      res.json({ message: "Transaction cancelled successfully" });
     } catch (error) {
-      console.error('Error cancelling transaction:', error);
+      if (error instanceof SaleError) {
+        return res.status(error.status).json({
+          message: error.message,
+          ...(error.suggestion ? { suggestion: error.suggestion } : {}),
+        });
+      }
+      console.error('Error cancelling transaction:',
+        error instanceof Error ? error.message : 'unknown error');
       res.status(500).json({
         message: "Failed to cancel transaction",
         suggestion: "Please try again later"
