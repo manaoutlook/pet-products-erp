@@ -1,7 +1,7 @@
 import * as React from "react"
 import { type DialogProps } from "@radix-ui/react-dialog"
 import { Command as CommandPrimitive } from "cmdk"
-import { Search } from "lucide-react"
+import { Search, X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -38,19 +38,62 @@ const CommandDialog = ({ children, ...props }: CommandDialogProps) => {
 const CommandInput = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Input>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
->(({ className, ...props }, ref) => (
-  <div className="flex items-center border-b px-3" cmdk-input-wrapper="">
-    <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-    <CommandPrimitive.Input
-      ref={ref}
-      className={cn(
-        "flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
-        className
-      )}
-      {...props}
-    />
-  </div>
-))
+>(({ className, value, onValueChange, ...props }, forwardedRef) => {
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
+  const [internalValue, setInternalValue] = React.useState(value ?? "");
+  const search = value ?? internalValue;
+
+  const setRefs = React.useCallback(
+    (node: HTMLInputElement | null) => {
+      inputRef.current = node;
+      if (typeof forwardedRef === "function") {
+        forwardedRef(node);
+      } else if (forwardedRef) {
+        (
+          forwardedRef as React.MutableRefObject<HTMLInputElement | null>
+        ).current = node;
+      }
+    },
+    [forwardedRef]
+  );
+
+  const handleValueChange = (next: string) => {
+    setInternalValue(next);
+    onValueChange?.(next);
+  };
+
+  const handleClear = () => {
+    handleValueChange("");
+    inputRef.current?.focus();
+  };
+
+  return (
+    <div className="flex items-center border-b px-3" cmdk-input-wrapper="">
+      <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+      <CommandPrimitive.Input
+        ref={setRefs}
+        value={search}
+        onValueChange={handleValueChange}
+        className={cn(
+          "flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
+          className
+        )}
+        {...props}
+      />
+      {search ? (
+        <button
+          type="button"
+          onClick={handleClear}
+          aria-label="Clear search"
+          title="Clear search"
+          className="ml-2 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      ) : null}
+    </div>
+  );
+});
 
 CommandInput.displayName = CommandPrimitive.Input.displayName
 

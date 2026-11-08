@@ -29,7 +29,9 @@ const toastVariants = cva(
       variant: {
         default: "border bg-background text-foreground",
         destructive:
-          "destructive group border-destructive bg-destructive text-destructive-foreground",
+          "destructive group border-red-700 bg-red-600 text-white",
+        success:
+          "success group border-green-700 bg-green-600 text-white",
       },
     },
     defaultVariants: {
@@ -75,7 +77,7 @@ const ToastClose = React.forwardRef<
   <ToastPrimitives.Close
     ref={ref}
     className={cn(
-      "absolute right-2 top-2 rounded-md p-1 text-foreground/50 opacity-0 transition-opacity hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 group-hover:opacity-100 group-[.destructive]:text-red-300 group-[.destructive]:hover:text-red-50 group-[.destructive]:focus:ring-red-400 group-[.destructive]:focus:ring-offset-red-600",
+      "absolute right-2 top-2 rounded-md p-1 text-foreground/50 opacity-0 transition-opacity hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 group-hover:opacity-100 group-[.destructive]:text-white/80 group-[.destructive]:hover:text-white group-[.destructive]:focus:ring-white group-[.success]:text-white/80 group-[.success]:hover:text-white group-[.success]:focus:ring-white",
       className
     )}
     toast-close=""
@@ -92,7 +94,10 @@ const ToastTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <ToastPrimitives.Title
     ref={ref}
-    className={cn("text-sm font-semibold", className)}
+    className={cn(
+      "text-sm font-semibold group-[.destructive]:font-bold group-[.destructive]:tracking-wide group-[.success]:font-bold group-[.success]:tracking-wide",
+      className
+    )}
     {...props}
   />
 ))
@@ -123,7 +128,10 @@ const ToastDescription = React.forwardRef<
     <div className="flex items-start justify-between gap-2 max-w-full overflow-y-auto max-h-[200px]">
       <ToastPrimitives.Description
         ref={ref}
-        className={cn("text-sm opacity-90", className)}
+        className={cn(
+          "text-sm opacity-90 group-[.destructive]:font-bold group-[.destructive]:opacity-100 group-[.success]:font-bold group-[.success]:opacity-100",
+          className
+        )}
         {...props}
       >
         {children}

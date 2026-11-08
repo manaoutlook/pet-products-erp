@@ -9,21 +9,42 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        /* Primary — the single most important action on a screen (Save, Submit,
+           Sign in, Apply filters). Professional blue #2563EB. */
+        default:
+          "bg-primary text-primary-foreground shadow-xs hover:bg-primary-hover active:bg-primary-active",
+
+        /* CRUD action colours — use these so Create/View/Update/Delete look the
+           same on every screen. */
+        create:
+          "bg-success-strong text-success-foreground shadow-xs hover:bg-success-strong-hover", // green
+        view: "border border-primary/30 bg-primary-subtle text-primary-subtle-foreground hover:border-primary/50 hover:bg-primary/15", // blue
+        update:
+          "bg-warning text-warning-foreground shadow-xs hover:bg-warning-strong", // amber
+        delete:
+          "bg-destructive text-destructive-foreground shadow-xs hover:bg-destructive-hover", // red
+
+        /* Status aliases — identical styling, named after the semantic token. */
+        success:
+          "bg-success-strong text-success-foreground shadow-xs hover:bg-success-strong-hover",
+        warning: "bg-warning text-warning-foreground shadow-xs hover:bg-warning-strong",
+        info: "bg-info-strong text-info-foreground shadow-xs hover:bg-info-strong-hover",
         destructive:
-          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-        outline:
-          "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+          "bg-destructive text-destructive-foreground shadow-xs hover:bg-destructive-hover",
+
+        /* Neutral / structural */
         secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
+          "bg-secondary-solid text-white shadow-xs hover:bg-secondary-solid-hover active:bg-secondary-solid-active",
+        outline:
+          "border border-input bg-card text-foreground shadow-xs hover:border-primary/40 hover:bg-accent hover:text-accent-foreground",
+        ghost: "text-foreground hover:bg-accent hover:text-accent-foreground",
+        link: "text-link underline-offset-4 hover:text-link-hover hover:underline",
       },
       size: {
-        default: "h-10 px-4 py-2",
+        default: "h-control px-4 py-2",
         sm: "h-9 rounded-md px-3",
         lg: "h-11 rounded-md px-8",
-        icon: "h-10 w-10",
+        icon: "h-control w-control",
       },
     },
     defaultVariants: {
