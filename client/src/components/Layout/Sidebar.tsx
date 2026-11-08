@@ -21,6 +21,7 @@ import {
   Building2,
   ChevronRight,
   ClipboardList,
+  ClipboardCheck,
   UserCircle,
   StoreIcon,
   ListIcon,
@@ -135,6 +136,13 @@ function Sidebar() {
           name: "Transfers",
           href: "/transfers",
           icon: ArrowRight,
+          module: 'inventory',
+          action: 'read'
+        },
+        {
+          name: "Stock Take",
+          href: "/stock-take",
+          icon: ClipboardCheck,
           module: 'inventory',
           action: 'read'
         }

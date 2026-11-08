@@ -26,6 +26,8 @@ export interface StockMovementInput {
   refType?: string | null;
   refId?: number | null;
   userId?: number | null;
+  /** Human explanation for a manual change; `reason` stays a fixed vocabulary. */
+  note?: string | null;
 }
 
 /**
@@ -69,6 +71,7 @@ export async function recordStockMovement(
     refType: input.refType ?? null,
     refId: input.refId ?? null,
     userId: input.userId ?? null,
+    note: input.note ?? null,
   });
 }
 
@@ -92,6 +95,7 @@ export async function recordStockMovements(
       refType: input.refType ?? null,
       refId: input.refId ?? null,
       userId: input.userId ?? null,
+      note: input.note ?? null,
     }))
   );
 }

@@ -34,7 +34,9 @@ import {
   recordOpeningStock,
   recordStockMovement,
   recordStockMovements,
+  StockError,
 } from "./stock-ledger";
+import { adjustStock, listStockTake } from "./stock-adjust";
 import { crypto } from "./auth";
 import { initializeStoreCounter } from "./invoice-counter";
 import { createSale, refundSale, cancelSale, SaleError } from "./sales";
@@ -109,6 +111,21 @@ const checkStockSchema = z.object({
   items: z.array(saleItemSchema).min(1, "Provide at least one item"),
   storeId: z.number().int().positive().nullish(),
 });
+
+// Stock adjust / stock-take: either a signed delta or a counted quantity, never both.
+const adjustStockSchema = z.object({
+  delta: z.number().int().refine((value) => value !== 0, {
+    message: "delta must be a non-zero whole number",
+  }).optional(),
+  countedQuantity: z.number().int().min(0, "countedQuantity cannot be negative").optional(),
+  reason: z.string().trim()
+    .min(3, "A reason is required for a stock adjustment")
+    .max(200, "Reason must be 200 characters or fewer"),
+  source: z.enum(['stock_adjust', 'stock_take']).optional(),
+}).refine(
+  (value) => (value.delta === undefined) !== (value.countedQuantity === undefined),
+  { message: "Send either delta or countedQuantity, not both" },
+);
 
 // --- access control schemas ----------------------------------------------
 const roleBodySchema = z.object({
@@ -3243,6 +3260,101 @@ export function registerRoutes(app: Express): Server {
       res.status(500).send("Failed to update inventory item");
     }
   });
+  // ---------------------------------------------------------------------------
+  // Stock adjust / stock-take (P1 #2)
+  //
+  // AI Agent Note: correcting a count used to mean PUT /api/inventory/:id, which only
+  // overwrites the number. These two endpoints are the supported path: the correction is
+  // written through the stock ledger with a required reason, and /stock-take gives the
+  // screen the system quantity next to the last count so the difference is visible.
+  // ---------------------------------------------------------------------------
+
+  app.get("/api/inventory/stock-take", requirePermission('inventory', 'read'), async (req, res) => {
+    try {
+      const scope = await resolveScope(req.user!);
+      const rows = await listStockTake(scope);
+      res.json(rows);
+    } catch (error) {
+      console.error('Error building stock take list:', error);
+      res.status(500).json({
+        message: "Failed to load the stock take list",
+        suggestion: "Refresh the page and try again",
+      });
+    }
+  });
+
+  app.post("/api/inventory/:id/adjust", requirePermission('inventory', 'update'), async (req, res) => {
+    try {
+      const parsedId = idParamSchema.safeParse(req.params);
+      if (!parsedId.success) {
+        return res.status(400).json({
+          message: "Invalid inventory id",
+          suggestion: "Reload the stock list and try again",
+        });
+      }
+
+      const body = adjustStockSchema.safeParse(req.body);
+      if (!body.success) {
+        return res.status(400).json({
+          message: body.error.issues[0]?.message ?? "Invalid adjustment",
+          suggestion: "Send either delta or countedQuantity, plus a reason",
+        });
+      }
+
+      const scope = await resolveScope(req.user!);
+      const target = await db.query.inventory.findFirst({
+        where: eq(inventory.id, parsedId.data.id),
+        columns: { id: true, storeId: true },
+      });
+
+      if (!target) {
+        return res.status(404).json({
+          message: "Inventory item not found",
+          suggestion: "Reload the stock list and try again",
+        });
+      }
+
+      // AI Agent Note: without this a user could adjust another store's stock by guessing
+      // the id. DC rows (store_id NULL) are shared company stock, same rule as the list.
+      if (target.storeId !== null && scopeDenies(scope, target.storeId)) {
+        return res.status(403).json({
+          message: "You do not have access to that store",
+          suggestion: "Ask an administrator to assign you to the store",
+        });
+      }
+
+      const result = await adjustStock({
+        inventoryId: target.id,
+        delta: body.data.delta,
+        countedQuantity: body.data.countedQuantity,
+        reason: body.data.reason,
+        // The module derives stock_take vs stock_adjust itself when no source is given.
+        source: body.data.source,
+        userId: req.user?.id ?? null,
+      });
+
+      res.json({
+        message: result.movementWritten
+          ? "Stock adjusted"
+          : "Counted quantity matches the system - nothing to change",
+        adjustment: result,
+      });
+    } catch (error) {
+      if (error instanceof StockError) {
+        return res.status(error.status).json({
+          message: error.message,
+          suggestion: error.suggestion,
+        });
+      }
+      console.error('Error adjusting stock:', error);
+      res.status(500).json({
+        message: "Failed to adjust stock",
+        suggestion: "Nothing was changed - refresh the page and try again",
+      });
+    }
+  });
+
+
 
   app.delete("/api/inventory/:id", requirePermission('inventory', 'delete'), async (req, res) => {
     try {

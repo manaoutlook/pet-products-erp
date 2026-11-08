@@ -751,6 +751,9 @@ export const stockMovements = pgTable("stock_movements", {
   // The document that caused it: ('sales_transaction', 42), ('purchase_order', 7), ...
   refType: varchar("ref_type", { length: 40 }),
   refId: integer("ref_id"),
+  // Free-text justification for manual changes ("damaged in transit", stock-take note).
+  // The `reason` column is a fixed vocabulary, so the human explanation goes here.
+  note: text("note"),
   userId: integer("user_id"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
