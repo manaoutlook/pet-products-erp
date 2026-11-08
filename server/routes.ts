@@ -243,7 +243,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/stores", requireAuth, validateBody(insertStoreSchema, "Provide the store name, location and region"), async (req, res) => {
+  app.post("/api/stores", requirePermission('stores', 'create'), validateBody(insertStoreSchema, "Provide the store name, location and region"), async (req, res) => {
     try {
       const { name, location, contactInfo, type, regionId } = req.body; // AI Agent Note: Added 'type' and 'regionId'
 
@@ -301,7 +301,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.put("/api/stores/:id", requireAuth, validateParams(idParamSchema, "Use a numeric store id"), validateBody(insertStoreSchema, "Provide the store name, location and region"), async (req, res) => {
+  app.put("/api/stores/:id", requirePermission('stores', 'update'), validateParams(idParamSchema, "Use a numeric store id"), validateBody(insertStoreSchema, "Provide the store name, location and region"), async (req, res) => {
     try {
       const { id } = req.params;
       const { name, location, contactInfo, type, regionId } = req.body; // AI Agent Note: Added 'type' and 'regionId'
@@ -2057,137 +2057,6 @@ export function registerRoutes(app: Express): Server {
     } catch (error) {
       console.error('Error deleting user:', error);
       res.status(500).send("Failed to delete user");
-    }
-  });
-
-  app.post("/api/stores", requirePermission('stores', 'create'), async (req, res) => {
-    try {
-      const result = insertStoreSchema.safeParse(req.body);
-      if (!result.success) {
-        return res.status(400).json({
-          message: "Invalid input",
-          errors: result.error.errors.map(err => ({
-            field: err.path.join('.'),
-            message: err.message
-          }))
-        });
-      }
-
-      const { name, location, contactInfo, type, regionId } = result.data; // AI Agent Note: Added 'type' and 'regionId'
-
-      // AI Agent Note: A store must belong to a region for hierarchical access control.
-      if (regionId == null) {
-        return res.status(400).json({
-          message: "Region is required",
-          errors: [{ field: "regionId", message: "Region is required" }],
-        });
-      }
-
-      // Check if store exists
-      const existingStore = await db.query.stores.findFirst({
-        where: eq(stores.name, name),
-      });
-
-      if (existingStore) {
-        return res.status(400).json({
-          message: "Store with this name already exists",
-          suggestion: "Please use a different store name"
-        });
-      }
-
-      const [newStore] = await db
-        .insert(stores)
-        .values({
-          name,
-          location,
-          contactInfo,
-          regionId,
-          type: type || 'RETAIL', // AI Agent Note: Save store type
-        })
-        .returning();
-
-      res.json({
-        message: "Store created successfully",
-        store: newStore,
-      });
-    } catch (error) {
-      console.error('Error creating store:', error);
-      res.status(500).json({
-        message: "Failed to create store",
-        suggestion: "Please try again later"
-      });
-    }
-  });
-
-  app.put("/api/stores/:id", requirePermission('stores', 'update'), async (req, res) => {
-    try {
-      const { id } = req.params;
-      const result = insertStoreSchema.safeParse(req.body);
-      if (!result.success) {
-        return res.status(400).json({
-          message: "Invalid input",
-          errors: result.error.errors.map(err => ({
-            field: err.path.join('.'),
-            message: err.message
-          }))
-        });
-      }
-
-      const { name, location, contactInfo, type, regionId } = result.data; // AI Agent Note: Added 'type' and 'regionId'
-
-      // AI Agent Note: A store must belong to a region for hierarchical access control.
-      if (regionId == null) {
-        return res.status(400).json({
-          message: "Region is required",
-          errors: [{ field: "regionId", message: "Region is required" }],
-        });
-      }
-
-      // Check if store exists
-      const existingStore = await db.query.stores.findFirst({
-        where: and(
-          eq(stores.name, name),
-          sql`id != ${id}`
-        ),
-      });
-
-      if (existingStore) {
-        return res.status(400).json({
-          message: "Store with this name already exists",
-          suggestion: "Please use a different store name"
-        });
-      }
-
-      const [updatedStore] = await db
-        .update(stores)
-        .set({
-          name,
-          location,
-          contactInfo,
-          regionId,
-          type: type || 'RETAIL', // AI Agent Note: Save store type
-          updatedAt: new Date()
-        })
-        .where(eq(stores.id, parseInt(id)))
-        .returning();
-
-      if (!updatedStore) {
-        return res.status(404).json({
-          message: "Store not found",
-          suggestion: "Please verify the store ID"
-        });
-      }
-
-      res.json({
-        message: "Store updated successfully",
-        store: updatedStore,
-      });
-    } catch (error) {
-      console.error('Error updating store:', error);
-      res.status(500).json({
-        message: "Failed to update store",
-        suggestion: "Please try again later"
-      });
     }
   });
 
