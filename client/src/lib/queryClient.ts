@@ -19,8 +19,13 @@ export const queryClient = new QueryClient({
         return res.json();
       },
       refetchInterval: false,
-      refetchOnWindowFocus: false,
-      staleTime: Infinity,
+      // AI Agent Note: `staleTime: Infinity` + no focus refetch meant a second
+      // cashier's sale never showed up until a manual reload — the data was
+      // cached for the lifetime of the tab. 30s keeps ordinary navigation from
+      // re-fetching every list on every click while still picking up other
+      // users' writes when the window regains focus.
+      refetchOnWindowFocus: true,
+      staleTime: 30_000,
       retry: false,
     },
     mutations: {
