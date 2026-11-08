@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { checkHierarchicalPermission } from '../shared/permissions';
 
 // Role-based middleware with permission checks
 export function requireRole(allowedRoles: string[]) {
@@ -74,40 +75,8 @@ export function requirePermission(module: string, action: 'create' | 'read' | 'u
   };
 }
 
-// Helper function to check hierarchical permissions
-function checkHierarchicalPermission(
-  hierarchyLevel: string,
-  module: string,
-  action: string,
-  rolePermissions?: any
-): boolean {
-  // Global managers have all permissions except admin-only actions
-  if (hierarchyLevel === 'global_manager') {
-    // Global managers can do everything except user management (admin only)
-    if (module === 'users') return false;
-    return true;
-  }
-
-  // Regional managers have regional permissions
-  if (hierarchyLevel === 'regional_manager') {
-    // Regional managers can approve transfers, manage inventory, but not global user management
-    if (module === 'users' && action === 'delete') return false;
-    if (module === 'users' && (action === 'read' || action === 'create' || action === 'update')) return true; // Allow reading/creating/updating users for region management
-    if (module === 'transfers') return true;
-    if (module === 'inventory') return true;
-    if (module === 'purchaseOrders') return true; // Can approve POs in their region
-  }
-
-  // Staff have only basic permissions defined in their role
-  if (hierarchyLevel === 'staff') {
-    if (!rolePermissions) return false;
-    const modulePermissions = rolePermissions[module];
-    return !!(modulePermissions && modulePermissions[action]);
-  }
-
-  // Default deny for unknown hierarchy levels
-  return false;
-}
+// Hierarchical rules live in shared/permissions.ts so the client can apply the very
+// same check when it decides whether to render a screen.
 
 // Authentication check middleware
 export function requireAuth(req: Request, res: Response, next: NextFunction) {

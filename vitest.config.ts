@@ -42,6 +42,7 @@ export default defineConfig({
             // Keep the more specific alias first - '@db' must not swallow '@db/schema'
             '@db/schema': path.resolve(__dirname, './db/schema.ts'),
             '@db': path.resolve(__dirname, './db/index.ts'),
+            '@shared': path.resolve(__dirname, './shared'),
         },
     },
     resolve: {
@@ -49,6 +50,7 @@ export default defineConfig({
             '@': path.resolve(__dirname, './client/src'),
             '@db/schema': path.resolve(__dirname, './db/schema.ts'),
             '@db': path.resolve(__dirname, './db/index.ts'),
+            '@shared': path.resolve(__dirname, './shared'),
         },
     },
 });

@@ -2,6 +2,7 @@ import { Switch, Route, useLocation } from "wouter";
 import { useUser } from "./hooks/use-user";
 import { Loader2 } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { RequirePermission } from "./components/auth/RequirePermission";
 import AuthPage from "./pages/AuthPage";
 import DashboardPage from "./pages/DashboardPage";
 import InventoryPage from "./pages/InventoryPage";
@@ -46,30 +47,67 @@ function App() {
       {/* Keyed by location: a crash on one screen is cleared by navigating to another. */}
       <ErrorBoundary key={location} section="This screen">
         <Switch>
-        <Route path="/" component={DashboardPage} />
-        <Route path="/inventory" component={InventoryPage} />
-        <Route path="/stock-take" component={StockTakePage} />
-        <Route path="/transfers" component={TransferPage} />
-        <Route path="/pos" component={POSPage} />
-        <Route path="/receipts" component={ReceiptsPage} />
-        <Route path="/purchase-orders" component={PurchaseOrdersPage} />
-        <Route path="/products" component={ProductsPage} />
-        <Route path="/categories" component={CategoryPage} />
-        <Route path="/brands" component={BrandsPage} />
-        <Route path="/customers" component={CustomerProfilesPage} />
-        <Route path="/users" component={UsersPage} />
-        <Route path="/roles" component={RolesPage} />
-        <Route path="/role-permissions" component={RolePermissionsPage} />
-        <Route path="/stores" component={StorePage} />
-        <Route path="/store-assignments" component={StoreAssignmentPage} />
-        <Route path="/store-performance" component={StorePerformancePage} />
-        <Route path="/suppliers" component={SuppliersPage} />
-        <Route path="/regions" component={RegionPage} />
-        <Route>
-          <div className="flex items-center justify-center h-full">
-            <h1 className="text-2xl font-bold">404 - Page Not Found</h1>
-          </div>
-        </Route>
+          <Route path="/" component={DashboardPage} />
+          <Route path="/inventory">
+            <RequirePermission module="inventory" action="read"><InventoryPage /></RequirePermission>
+          </Route>
+          <Route path="/stock-take">
+            <RequirePermission module="inventory" action="read"><StockTakePage /></RequirePermission>
+          </Route>
+          <Route path="/transfers">
+            <RequirePermission module="inventory" action="read"><TransferPage /></RequirePermission>
+          </Route>
+          <Route path="/pos">
+            <RequirePermission module="pos" action="read"><POSPage /></RequirePermission>
+          </Route>
+          <Route path="/receipts">
+            <RequirePermission module="receipts" action="read"><ReceiptsPage /></RequirePermission>
+          </Route>
+          <Route path="/purchase-orders">
+            <RequirePermission module="orders" action="read"><PurchaseOrdersPage /></RequirePermission>
+          </Route>
+          <Route path="/products">
+            <RequirePermission module="products" action="read"><ProductsPage /></RequirePermission>
+          </Route>
+          <Route path="/categories">
+            <RequirePermission module="masterData" action="read"><CategoryPage /></RequirePermission>
+          </Route>
+          <Route path="/brands">
+            <RequirePermission module="masterData" action="read"><BrandsPage /></RequirePermission>
+          </Route>
+          <Route path="/suppliers">
+            <RequirePermission module="masterData" action="read"><SuppliersPage /></RequirePermission>
+          </Route>
+          <Route path="/customers">
+            <RequirePermission module="customerProfiles" action="read"><CustomerProfilesPage /></RequirePermission>
+          </Route>
+          <Route path="/users">
+            <RequirePermission module="users" action="read"><UsersPage /></RequirePermission>
+          </Route>
+          {/* Roles, permissions and store assignments have no module of their own. */}
+          <Route path="/roles">
+            <RequirePermission module="users" action="read" adminOnly><RolesPage /></RequirePermission>
+          </Route>
+          <Route path="/role-permissions">
+            <RequirePermission module="users" action="read" adminOnly><RolePermissionsPage /></RequirePermission>
+          </Route>
+          <Route path="/store-assignments">
+            <RequirePermission module="stores" action="read" adminOnly><StoreAssignmentPage /></RequirePermission>
+          </Route>
+          <Route path="/stores">
+            <RequirePermission module="stores" action="read"><StorePage /></RequirePermission>
+          </Route>
+          <Route path="/store-performance">
+            <RequirePermission module="stores" action="read"><StorePerformancePage /></RequirePermission>
+          </Route>
+          <Route path="/regions">
+            <RequirePermission module="stores" action="read"><RegionPage /></RequirePermission>
+          </Route>
+          <Route>
+            <div className="flex items-center justify-center h-full">
+              <h1 className="text-2xl font-bold">404 - Page Not Found</h1>
+            </div>
+          </Route>
         </Switch>
       </ErrorBoundary>
     </MainLayout>
