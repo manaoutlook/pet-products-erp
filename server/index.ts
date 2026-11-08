@@ -3,9 +3,11 @@ import net from "node:net";
 import { sql } from "drizzle-orm";
 import { db } from "@db";
 import express from "express";
+import helmet from "helmet";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { errorHandler } from "./error-handler";
+import { apiLimiter } from "./rate-limit";
 
 // `tsx watch` and `node dist/index.js` both end silently when the process dies
 // from an unhandled error, and under `tsx watch` the supervisor then just sits
@@ -24,10 +26,22 @@ if (process.env.NODE_ENV !== "test") {
 }
 
 export const app = express();
+// Security headers. CSP is disabled on purpose: the Vite dev server injects inline
+// scripts/HMR code and Recharts renders inline styles, so a strict policy here would
+// break the app in development and in production builds alike. Every other helmet
+// default (nosniff, frameguard, referrer-policy, HSTS in production) is kept.
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
 // Bulk product import posts parsed spreadsheet rows as JSON, which can be far
 // larger than the 100kb default (a 1000 row file is several hundred KB).
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: false, limit: "10mb" }));
+
+// Coarse per-IP ceiling for the whole API, before any route does work. Login has
+// its own tighter limiter (server/rate-limit.ts) on top of this one.
+app.use(apiLimiter);
 
 // Liveness/readiness probe for hosting platforms and uptime monitors. It is
 // registered before the Vite/static catch-all so it always answers with JSON,
