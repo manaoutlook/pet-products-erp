@@ -76,6 +76,23 @@ index on `(store_id, idempotency_key)`; offline queue is a larger follow-up.
 
 ## P2 — developer experience and polish
 
+**Status: all 14 items done** (one commit each, on `main`):
+
+| # | Commit | | # | Commit |
+| --- | --- | --- | --- | --- |
+| 1 | `7ce668be` perf(client): split the routes with React.lazy | | 8 | `7854fb27` chore: delete the scratch note + unused dep |
+| 2 | `25c7ab18` feat(client): add an error boundary | | 9 | `723ae804` refactor(server): store routes extracted (first domain; see note below) |
+| 3 | `6dc39f5e` fix(client): stop caching every query forever | | 10 | `d44eb7bc` ci: run the test suite once |
+| 4 | `3c094983` feat(client): gate routes on the API's permission rules | | 11 | `cc7de215` fix(db): drop the partial journal, db:push only |
+| 5 | `d27f3913` refactor(client): one formatting module | | 12 | `7854fb27` chore: delete the scratch note + unused dep |
+| 6 | `45eafc71` fix(dashboard): theme the chart | | 13 | `55bd9629` fix(stores): remove the duplicate registrations |
+| 7 | `9aab2daa` docs: add the missing README | | 14 | `eca4c0d4` test: serialise test runs with an advisory lock |
+
+> #9 is deliberately incremental: the item's own fix says "as each domain is touched, one
+> domain per PR". `server/routes.ts` is down from 5,210 to 5,018 lines with
+> `server/routes/stores.ts` extracted; the remaining domains should follow as they are
+> worked on.
+
 | # | Problem | Fix |
 | --- | --- | --- |
 | 1 | All 20 pages are imported statically in `client/src/App.tsx`, so the first load ships every screen (incl. Recharts) | `React.lazy` + `Suspense` per route, keeping POS eager |
