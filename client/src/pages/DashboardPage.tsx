@@ -1,5 +1,6 @@
 import { Card } from "@/components/ui/card";
 import StatsCards from "@/components/Dashboard/StatsCards";
+import { chartTheme } from "@/lib/chart-theme";
 import { useQuery } from "@tanstack/react-query";
 import {
   LineChart,
@@ -34,11 +35,11 @@ function DashboardPage() {
           <div className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={orderTrends}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis />
-                <Tooltip />
-                <Line type="monotone" dataKey="orders" stroke="#8884d8" />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+                <XAxis dataKey="date" stroke={chartTheme.axis} tick={{ fill: chartTheme.axis }} />
+                <YAxis stroke={chartTheme.axis} tick={{ fill: chartTheme.axis }} />
+                <Tooltip contentStyle={chartTheme.tooltip} labelStyle={{ color: chartTheme.tooltip.color }} itemStyle={{ color: chartTheme.tooltip.color }} />
+                <Line type="monotone" dataKey="orders" stroke={chartTheme.line} strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -49,7 +50,7 @@ function DashboardPage() {
           {stats?.lowStock?.map((item: any) => (
             <div key={item.id} className="flex justify-between items-center py-2">
               <span>{item.name}</span>
-              <span className="text-red-500">{item.quantity} remaining</span>
+              <span className="text-destructive">{item.quantity} remaining</span>
             </div>
           ))}
         </Card>
