@@ -87,6 +87,8 @@ export function EditCustomerProfileDialog({ profile, open, onOpenChange }: EditC
 
   // Only a business trades under a company name, so the box is rendered for B2B alone.
   const isBusiness = form.watch("customerType") === "B2B";
+  // A consumer *is* the person the order goes to, so the field is their own name.
+  const isConsumer = form.watch("customerType") === "B2C";
 
   const updateCustomerProfile = useMutation({
     mutationFn: async (data: FormData) => {
@@ -224,9 +226,13 @@ export function EditCustomerProfileDialog({ profile, open, onOpenChange }: EditC
                 name="contactPerson"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Contact Person</FormLabel>
+                    <FormLabel>{isConsumer ? "Customer Name" : "Contact Person"}</FormLabel>
                     <FormControl>
-                      <Input {...field} placeholder="Nguyen Van A" autoComplete="name" />
+                      <Input
+                        {...field}
+                        placeholder={isConsumer ? "Nguyen Thi Mai" : "Nguyen Van A"}
+                        autoComplete="name"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

@@ -68,6 +68,8 @@ export function CreateCustomerProfileDialog() {
 
   // Only a business trades under a company name, so the box is rendered for B2B alone.
   const isBusiness = form.watch("customerType") === "B2B";
+  // A consumer *is* the person the order goes to, so the field is their own name.
+  const isConsumer = form.watch("customerType") === "B2C";
 
   const createCustomerProfile = useMutation({
     mutationFn: async (data: FormData) => {
@@ -208,9 +210,13 @@ export function CreateCustomerProfileDialog() {
                 name="contactPerson"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Contact Person</FormLabel>
+                    <FormLabel>{isConsumer ? "Customer Name" : "Contact Person"}</FormLabel>
                     <FormControl>
-                      <Input {...field} placeholder="Nguyen Van A" autoComplete="name" />
+                      <Input
+                        {...field}
+                        placeholder={isConsumer ? "Nguyen Thi Mai" : "Nguyen Van A"}
+                        autoComplete="name"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

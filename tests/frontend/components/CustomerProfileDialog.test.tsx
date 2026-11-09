@@ -67,14 +67,20 @@ describe('Customer profile dialogs - customer type drives the company name', () 
         expect(labelOrder(dialog)[0]).toBe('Customer Type');
         // Nothing is selected yet, so a company name would be asking about a type we do not know.
         expect(within(dialog).queryByText('Company Name (Optional)')).toBeNull();
+        expect(within(dialog).getByLabelText('Contact Person')).toBeTruthy();
 
         await user.click(within(dialog).getByRole('combobox'));
         await user.click(await screen.findByRole('option', { name: 'B2C - Consumer' }));
         expect(within(dialog).queryByText('Company Name (Optional)')).toBeNull();
+        // A consumer is the person, so the same field is labelled as their own name.
+        expect(within(dialog).getByLabelText('Customer Name')).toBeTruthy();
+        expect(within(dialog).queryByLabelText('Contact Person')).toBeNull();
 
         await user.click(within(dialog).getByRole('combobox'));
         await user.click(await screen.findByRole('option', { name: 'B2B - Business' }));
         expect(within(dialog).getByText('Company Name (Optional)')).toBeTruthy();
+        expect(within(dialog).getByLabelText('Contact Person')).toBeTruthy();
+        expect(within(dialog).queryByLabelText('Customer Name')).toBeNull();
     });
 
     it('sends no company name when a consumer is created', async () => {
@@ -88,7 +94,7 @@ describe('Customer profile dialogs - customer type drives the company name', () 
         await user.click(await screen.findByRole('option', { name: 'B2C - Consumer' }));
 
         await user.type(within(dialog).getByLabelText('Mobile Number'), '0912345678');
-        await user.type(within(dialog).getByLabelText('Contact Person'), 'Nguyen Thi Mai');
+        await user.type(within(dialog).getByLabelText('Customer Name'), 'Nguyen Thi Mai');
         await user.type(within(dialog).getByLabelText('Email'), 'mai@example.com');
         await user.type(within(dialog).getByLabelText('Address'), '99 Hai Ba Trung, District 3');
 

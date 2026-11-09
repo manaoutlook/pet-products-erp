@@ -84,7 +84,9 @@ function ViewCustomerProfileDialog({
             <p className="mt-1 text-sm text-foreground">{profile.companyName || 'Not specified'}</p>
           </div>
           <div>
-            <label className="text-sm font-medium text-muted-foreground">Contact Person</label>
+            <label className="text-sm font-medium text-muted-foreground">
+              {profile.customerType === 'B2C' ? 'Customer Name' : 'Contact Person'}
+            </label>
             <p className="mt-1 text-sm text-foreground">{profile.contactPerson}</p>
           </div>
           <div>
@@ -236,7 +238,7 @@ function CustomerProfilesPage() {
               <TableHeader>
                 <TableRow>
                   <ColumnHeader controls={profilesTable} columnKey="companyName" label="Company Name" filterPlaceholder="Filter company" />
-                  <ColumnHeader controls={profilesTable} columnKey="contactPerson" label="Contact Person" filterPlaceholder="Filter contact" />
+                  <ColumnHeader controls={profilesTable} columnKey="contactPerson" label="Customer/Contact" filterPlaceholder="Filter customer/contact" />
                   <ColumnHeader controls={profilesTable} columnKey="mobileNumber" label="Mobile Number" filterPlaceholder="Filter mobile" />
                   <ColumnHeader controls={profilesTable} columnKey="email" label="Email" filterPlaceholder="Filter email" />
                   <ColumnHeader controls={profilesTable} columnKey="customerType" label="Customer Type" filterPlaceholder="Filter customer type" />

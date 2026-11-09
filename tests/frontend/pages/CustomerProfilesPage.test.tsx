@@ -88,12 +88,12 @@ describe('CustomerProfilesPage - company name and contact person', () => {
         vi.unstubAllGlobals();
     });
 
-    it('shows a company name column next to the contact person one', async () => {
+    it('shows a company name column next to the customer/contact one', async () => {
         renderPage();
 
         const company = await screen.findByText('Creative Minds Store');
         expect(screen.getByRole('button', { name: /^Company Name:/ })).toBeTruthy();
-        expect(screen.getByRole('button', { name: /^Contact Person:/ })).toBeTruthy();
+        expect(screen.getByRole('button', { name: /^Customer\/Contact:/ })).toBeTruthy();
         // The panel says "Name" nowhere any more.
         expect(screen.queryByRole('button', { name: /^Name:/ })).toBeNull();
 
