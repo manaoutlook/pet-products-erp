@@ -7,7 +7,7 @@ import { configureTestEnvironment } from './helpers/env-setup';
  * `fileParallelism: false` (vitest.config.ts) stops one process from running two
  * backend files at once, but nothing stopped two *processes* — an editor watcher plus
  * a manual `npm run test:backend`, or two terminals — from truncating the same
- * pet_erp_test tables while the other was asserting on them. The lock is taken on the
+ * smart_erp_test tables while the other was asserting on them. The lock is taken on the
  * test database itself, so it only conflicts with runs that use the same database.
  */
 const TEST_DB_ADVISORY_LOCK = 913471;
@@ -16,7 +16,7 @@ const LOCK_RETRY_MS = 1_000;
 
 /**
  * Extract the database name from a postgres connection string.
- * `postgres://user:pass@host:5432/pet_erp_test?sslmode=require` -> `pet_erp_test`
+ * `postgres://user:pass@host:5432/smart_erp_test?sslmode=require` -> `smart_erp_test`
  */
 function databaseNameFromUrl(url: string): string {
     const match = url.match(/\/([^/?]+)(\?.*)?$/);
@@ -73,8 +73,8 @@ export default async function setup() {
         try {
             // Ensure test database exists. The name has to come from the
             // configured URL (.env.test / CI env) instead of being hardcoded:
-            // probing "smart_erp_test" while connecting to "pet_erp_test" made
-            // the connection fail with CONNECTION_ENDED because the database
+            // probing "smart_erp_test" while connecting to a differently named database
+            // made the connection fail with CONNECTION_ENDED because the database
             // that was actually used had never been created.
             const adminUrl = testUrl.replace(/(^postgresql?:\/\/.*\/)([^?]+)(\?.*)?$/, '$1postgres$3');
             const sql = postgres(adminUrl);

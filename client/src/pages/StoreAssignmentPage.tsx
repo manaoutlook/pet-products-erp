@@ -54,7 +54,7 @@ function StoreAssignmentPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const { toast } = useToast();
 
-  const { data: petStoreUsers, isLoading: isLoadingUsers } = useQuery<SelectUser[]>({
+  const { data: storeUsers, isLoading: isLoadingUsers } = useQuery<SelectUser[]>({
     queryKey: ['/api/store-assignments/users'],
     queryFn: async () => {
       const response = await fetch('/api/store-assignments/users', {
@@ -194,7 +194,7 @@ function StoreAssignmentPage() {
                     <SelectValue placeholder="Select a user" />
                   </SelectTrigger>
                   <SelectContent>
-                    {petStoreUsers?.map((user: SelectUser) => (
+                    {storeUsers?.map((user: SelectUser) => (
                       <SelectItem key={user.id} value={user.id.toString()}>
                         {user.username}
                       </SelectItem>

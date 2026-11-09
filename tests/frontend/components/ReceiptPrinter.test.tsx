@@ -16,7 +16,7 @@ const receiptData = {
     invoiceNumber: 'DC-20261107-0001',
     transactionDate: '2026-11-07T10:15:00.000Z',
     cashierName: 'Admin',
-    storeName: 'Pet Products',
+    storeName: 'Smart ERP',
     items: [
         {
             productId: 1,

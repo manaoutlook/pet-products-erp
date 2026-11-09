@@ -8,7 +8,7 @@
  * The URL comes from `tests/helpers/env-setup.ts` - the same resolver the suites use - so
  * this cannot target a different database than the tests do (that resolver normalises the
  * name to `smart_erp_test`, which is why dropping and recreating by reading `.env.test`
- * directly failed with "database pet_erp_test does not exist").
+ * directly failed with "database smart_erp_test does not exist").
  *
  * It refuses to touch a database whose name does not contain "test".
  */

@@ -1,7 +1,7 @@
-# Pet Products ERP
+# Smart ERP
 
-A multi-store ERP for a pet-products retailer: inventory and stock ledger, purchase
-orders, point of sale, stock transfers, stock takes, customer and pet profiles, and
+A multi-store ERP: inventory and stock ledger, purchase
+orders, point of sale, stock transfers, stock takes, customer profiles, and
 role-based access down to the region/store level.
 
 Single-page React client, Express API, PostgreSQL (Drizzle ORM). One process serves both

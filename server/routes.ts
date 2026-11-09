@@ -1883,7 +1883,7 @@ export function registerRoutes(app: Express): Server {
   app.get("/api/store-assignments/users", requirePermission('users', 'read'), async (req, res) => {
     try {
       // Get all non-system admin users
-      const petStoreUsers = await db
+      const storeUsers = await db
         .select({
           id: users.id,
           username: users.username,
@@ -1897,12 +1897,12 @@ export function registerRoutes(app: Express): Server {
         .innerJoin(roles, eq(users.roleId, roles.id))
         .where(eq(roles.isSystemAdmin, false));
 
-      console.log('Pet Store users found:', petStoreUsers.length);
-      res.json(petStoreUsers);
+      console.log('Store users found:', storeUsers.length);
+      res.json(storeUsers);
     } catch (error) {
-      console.error('Error fetching pet store users:', error);
+      console.error('Error fetching store users:', error);
       res.status(500).json({
-        message: "Failed to fetch pet store users",
+        message: "Failed to fetch store users",
         suggestion: "Please try again later"
       });
     }
@@ -1916,7 +1916,7 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).send("User ID and Store ID are required");
       }
 
-      // Check if user exists and has pet store role
+      // Check if user exists and has a non-admin (store) role
       const user = await db.query.users.findFirst({
         where: eq(users.id, userId),
         with: {
