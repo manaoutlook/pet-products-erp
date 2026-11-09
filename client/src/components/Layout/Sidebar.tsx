@@ -30,7 +30,8 @@ import {
   StoreIcon,
   ListIcon,
   ArrowRight,
-  ShoppingBag
+  ShoppingBag,
+  SlidersHorizontal
 } from "lucide-react";
 import { useState } from "react";
 
@@ -171,6 +172,13 @@ function Sidebar() {
           name: "Stock Take",
           href: "/stock-take",
           icon: ClipboardCheck,
+          module: 'inventory',
+          action: 'read'
+        },
+        {
+          name: "Stock Adjustments",
+          href: "/stock-adjustments",
+          icon: SlidersHorizontal,
           module: 'inventory',
           action: 'read'
         }

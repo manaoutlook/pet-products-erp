@@ -16,6 +16,7 @@ import POSPage from "./pages/POSPage";
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
 const InventoryPage = lazy(() => import("./pages/InventoryPage"));
 const StockTakePage = lazy(() => import("./pages/StockTakePage"));
+const StockAdjustmentsPage = lazy(() => import("./pages/StockAdjustmentsPage"));
 const TransferPage = lazy(() => import("./pages/TransferPage"));
 const ProductsPage = lazy(() => import("./pages/ProductsPage"));
 const CategoryPage = lazy(() => import("./pages/CategoryPage"));
@@ -71,6 +72,9 @@ function App() {
             </Route>
             <Route path="/stock-take">
               <RequirePermission module="inventory" action="read"><StockTakePage /></RequirePermission>
+            </Route>
+            <Route path="/stock-adjustments">
+              <RequirePermission module="inventory" action="read"><StockAdjustmentsPage /></RequirePermission>
             </Route>
             <Route path="/transfers">
               <RequirePermission module="inventory" action="read"><TransferPage /></RequirePermission>

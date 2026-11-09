@@ -27,6 +27,12 @@ export interface AdjustStockInput {
   /** Why - required, free text ("damaged in transit", "stock take 2026-02"). */
   reason: string;
   source?: AdjustSource;
+  /**
+   * The audited transaction type for this correction. Defaults from the source:
+   * a stock take is a `PHYSICAL_COUNT`, a plain correction is a `MANUAL_ADJUSTMENT`.
+   * Callers pass `DAMAGE_OR_WRITE_OFF` when the reason is breakage/loss.
+   */
+  transactionType?: 'MANUAL_ADJUSTMENT' | 'PHYSICAL_COUNT' | 'DAMAGE_OR_WRITE_OFF';
 }
 
 export interface AdjustStockResult {
@@ -88,6 +94,8 @@ export async function adjustStock(
   }
 
   const source: AdjustSource = input.source ?? (hasCount ? 'stock_take' : 'stock_adjust');
+  const transactionType =
+    input.transactionType ?? (hasCount ? 'PHYSICAL_COUNT' : 'MANUAL_ADJUSTMENT');
 
   return executor.transaction(async (tx) => {
     const row = await tx.query.inventory.findFirst({
@@ -120,6 +128,7 @@ export async function adjustStock(
       inventoryId: row.id,
       delta,
       reason: 'adjustment',
+      transactionType,
       productId: row.productId,
       storeId: row.storeId,
       refType: source,

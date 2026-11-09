@@ -1069,6 +1069,72 @@ export const company = pgTable("company", {
  * behind it) must not erase the record that stock once moved, and a cascade would do exactly
  * that. productId/storeId are denormalised for the same reason.
  */
+/**
+ * Why an inventory quantity changed, in the vocabulary the transaction list shows.
+ *
+ * AI Agent Note: `stockMovements.reason` is the internal, short-lived vocabulary of the
+ * writer; `transactionType` is the audited business reason shown to users. Keep both -
+ * the reason column is read by older code paths (and the stock-take screen looks for
+ * `ref_type = 'stock_take'`), while reports and the UI group by `transactionType`.
+ */
+export const INVENTORY_TRANSACTION_TYPES = [
+  'PURCHASE_ORDER',
+  'SALES_ORDER',
+  'PHYSICAL_COUNT',
+  'BULK_IMPORT',
+  'MANUAL_ADJUSTMENT',
+  'STOCK_TRANSFER',
+  'RETURN',
+  'DAMAGE_OR_WRITE_OFF',
+] as const;
+
+export type InventoryTransactionType = (typeof INVENTORY_TRANSACTION_TYPES)[number];
+
+/** One row of a bulk import's result, stored on `inventoryImportFiles.result`. */
+export interface InventoryImportRowResult {
+  /** 1-based row number in the uploaded file (header = row 1). */
+  row: number;
+  sku?: string;
+  product?: string;
+  status: 'created' | 'updated' | 'skipped' | 'failed';
+  message?: string;
+  inventoryId?: number;
+  quantityBefore?: number;
+  quantityAfter?: number;
+  quantityChange?: number;
+}
+
+/**
+ * The original spreadsheet behind a bulk inventory import.
+ *
+ * AI Agent Note: an import sets quantities outright, so the imported numbers must be
+ * reproducible long after the fact - the parsed rows alone cannot prove what the user
+ * actually uploaded. Retaining the bytes (plus the per-row result) makes an import
+ * auditable and lets an operator re-download the file that caused a change.
+ */
+export const inventoryImportFiles = pgTable("inventory_import_files", {
+  id: serial("id").primaryKey(),
+  originalFileName: text("original_file_name").notNull(),
+  /** Public, servable path ("/uploads/inventory-imports/...") - same pattern as delivery notes. */
+  storedFileUrl: text("stored_file_url").notNull(),
+  mimeType: varchar("mime_type", { length: 120 }),
+  fileSize: integer("file_size"),
+  // 'processing' while the rows are applied, then 'completed' or 'failed'.
+  status: varchar("status", { length: 20 }).notNull().default("processing"),
+  totalRows: integer("total_rows").notNull().default(0),
+  createdRows: integer("created_rows").notNull().default(0),
+  updatedRows: integer("updated_rows").notNull().default(0),
+  skippedRows: integer("skipped_rows").notNull().default(0),
+  failedRows: integer("failed_rows").notNull().default(0),
+  // Per-row success/failure, so a failure can be explained row by row.
+  result: jsonb("result").$type<InventoryImportRowResult[]>().notNull().default(sql`'[]'::jsonb`),
+  uploadedByUserId: integer("uploaded_by_user_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (table) => ({
+  createdIdx: index("inventory_import_files_created_idx").on(table.createdAt),
+}));
+
 export const stockMovements = pgTable("stock_movements", {
   id: serial("id").primaryKey(),
   inventoryId: integer("inventory_id").notNull(),
@@ -1077,13 +1143,23 @@ export const stockMovements = pgTable("stock_movements", {
   storeId: integer("store_id"),
   // Signed change applied to the row: negative leaves the shelf, positive arrives on it.
   delta: integer("delta").notNull(),
+  // `inventory.quantity` immediately before this change, when known. Derived from
+  // `quantityAfter - delta` by the ledger writer, so it is always self-consistent.
+  quantityBefore: integer("quantity_before"),
   // Cached quantity of `inventory.quantity` immediately after this change, when known.
   quantityAfter: integer("quantity_after"),
+  // Why the quantity changed, in the audited vocabulary (`INVENTORY_TRANSACTION_TYPES`).
+  transactionType: varchar("transaction_type", { length: 32 })
+    .$type<InventoryTransactionType>()
+    .notNull()
+    .default("MANUAL_ADJUSTMENT"),
   // 'sale' | 'refund' | 'cancel' | 'transfer_in' | 'transfer_out' | 'po_receipt' | 'adjustment'
   reason: varchar("reason", { length: 24 }).notNull(),
   // The document that caused it: ('sales_transaction', 42), ('purchase_order', 7), ...
   refType: varchar("ref_type", { length: 40 }),
   refId: integer("ref_id"),
+  // The retained upload behind a bulk import, when this movement came from one.
+  importFileId: integer("import_file_id"),
   // Free-text justification for manual changes ("damaged in transit", stock-take note).
   // The `reason` column is a fixed vocabulary, so the human explanation goes here.
   note: text("note"),
@@ -1092,6 +1168,7 @@ export const stockMovements = pgTable("stock_movements", {
 }, (table) => ({
   inventoryIdx: index("stock_movements_inventory_idx").on(table.inventoryId, table.createdAt),
   reasonIdx: index("stock_movements_reason_idx").on(table.reason),
+  typeIdx: index("stock_movements_type_idx").on(table.transactionType, table.createdAt),
 }));
 
 // The company letterhead is a singleton, so the whole table is exposed as one

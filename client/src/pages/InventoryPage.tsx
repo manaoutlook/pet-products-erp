@@ -10,6 +10,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -42,7 +43,7 @@ import {
 } from "@/components/ui/card";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Plus, Pencil, Trash2, Download, Upload } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, Download, Upload, History } from "lucide-react";
 import { useForm, FormProvider } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -68,6 +69,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { exportInventory, type ExportFormat } from "@/utils/inventory-spreadsheet";
 import { ImportInventoryDialog } from "@/components/inventory/ImportInventoryDialog";
+import { InventoryTransactionsPanel } from "@/components/inventory/InventoryTransactionsPanel";
 
 const inventorySchema = z.object({
   productId: z.string().min(1, "Product is required"),
@@ -128,6 +130,7 @@ function InventoryPage() {
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const { toast } = useToast();
   const { hasPermission } = usePermissions();
@@ -434,6 +437,10 @@ function InventoryPage() {
         <div className="flex items-center gap-2">
           <QuickAddProduct />
           <QuickAddSupplier />
+          <Button variant="outline" onClick={() => setIsHistoryDialogOpen(true)}>
+            <History className="mr-2 h-4 w-4" />
+            Transactions
+          </Button>
           {canCreate && (
             <Button variant="outline" onClick={() => setIsImportDialogOpen(true)}>
               <Download className="mr-2 h-4 w-4" />
@@ -648,6 +655,20 @@ function InventoryPage() {
         onOpenChange={setIsImportDialogOpen}
         onImported={() => refetchInventory()}
       />
+
+      {/* Read-only audit trail of every stock change - opened from the Transactions button. */}
+      <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
+        <DialogContent className="max-h-[90vh] max-w-6xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Inventory transactions</DialogTitle>
+            <DialogDescription>
+              Every change to a stock quantity, whatever caused it - with the document behind it,
+              the quantity before and after, and who made the change.
+            </DialogDescription>
+          </DialogHeader>
+          <InventoryTransactionsPanel showHeader={false} />
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader>

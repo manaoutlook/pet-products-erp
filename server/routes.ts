@@ -16,13 +16,19 @@ import {
   salesTransactionActions, invoiceCounters,
   transferRequests, transferRequestItems, transferActions, transferHistory,
   insertTransferRequestSchema, insertTransferRequestItemSchema, insertTransferActionSchema,
-  selectTransferRequestSchema, selectTransferRequestItemSchema
+  selectTransferRequestSchema, selectTransferRequestItemSchema,
+  stockMovements, inventoryImportFiles, INVENTORY_TRANSACTION_TYPES
 } from "@db/schema";
 import { sql } from "drizzle-orm";
 import { eq, and, or, desc, gte, lt, isNull, gt } from "drizzle-orm";
 import { requireRole, requireAuth, requirePermission } from "./middleware";
 import { importProducts } from "./product-import";
 import { importInventory } from "./inventory-import";
+import {
+  InventoryImportFileError,
+  saveInventoryImportFile,
+  type StoredInventoryImportFile,
+} from "./inventory-import-files";
 import { importBrands, importCategories, importSuppliers } from "./master-data-import";
 import {
   bulkDeleteBrands,
@@ -40,6 +46,7 @@ import {
   StockError,
 } from "./stock-ledger";
 import { adjustStock, listStockTake } from "./stock-adjust";
+import { listInventoryTransactions } from "./inventory-transactions";
 import { crypto } from "./auth";
 import { createSale, refundSale, cancelSale, SaleError } from "./sales";
 import { generateInventoryBarcode, generateOrderNumber } from "./numbering";
@@ -158,10 +165,44 @@ const adjustStockSchema = z.object({
     .min(3, "A reason is required for a stock adjustment")
     .max(200, "Reason must be 200 characters or fewer"),
   source: z.enum(['stock_adjust', 'stock_take']).optional(),
+  // The audited reason shown in the inventory transaction list. A stock take defaults to
+  // PHYSICAL_COUNT; use DAMAGE_OR_WRITE_OFF for breakage/loss and MANUAL_ADJUSTMENT otherwise.
+  transactionType: z.enum(['MANUAL_ADJUSTMENT', 'PHYSICAL_COUNT', 'DAMAGE_OR_WRITE_OFF']).optional(),
 }).refine(
   (value) => (value.delta === undefined) !== (value.countedQuantity === undefined),
   { message: "Send either delta or countedQuantity, not both" },
 );
+
+// Transaction-log filters. Query strings arrive as text, so every number is coerced.
+const inventoryTransactionQuerySchema = z.object({
+  productId: z.coerce.number().int().positive().optional(),
+  storeId: z.coerce.number().int().positive().optional(),
+  inventoryId: z.coerce.number().int().positive().optional(),
+  importFileId: z.coerce.number().int().positive().optional(),
+  type: z.enum(INVENTORY_TRANSACTION_TYPES).optional(),
+  /**
+   * Comma-separated list of types, e.g. `types=MANUAL_ADJUSTMENT,DAMAGE_OR_WRITE_OFF`.
+   * The stock-adjustment screen uses this to show only the corrections family.
+   */
+  types: z.string().trim().optional().transform((raw, ctx) => {
+    if (!raw) return undefined;
+    const parts = raw.split(',').map((part) => part.trim()).filter(Boolean);
+    if (parts.length === 0) return undefined;
+    const invalid = parts.filter(
+      (part) => !(INVENTORY_TRANSACTION_TYPES as readonly string[]).includes(part),
+    );
+    if (invalid.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Unknown transaction type: ${invalid.join(', ')}`,
+      });
+      return z.NEVER;
+    }
+    return parts as (typeof INVENTORY_TRANSACTION_TYPES)[number][];
+  }),
+  limit: z.coerce.number().int().min(1).max(500).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
 
 // --- access control schemas ----------------------------------------------
 const roleBodySchema = z.object({
@@ -2895,6 +2936,15 @@ export function registerRoutes(app: Express): Server {
           .max(5000, "Too many rows - import 5000 rows at a time"),
         // Update inventory that already exists (matched by product + store + type)
         updateExisting: z.boolean().optional(),
+        // The original upload. Optional so older clients keep working, but the app always
+        // sends it - an import whose source file is gone cannot be audited.
+        file: z
+          .object({
+            fileName: z.string().trim().min(1).max(255),
+            mimeType: z.string().trim().max(120).optional(),
+            dataUrl: z.string().min(16, "The uploaded file is empty"),
+          })
+          .optional(),
       });
 
       const parsed = importInventorySchema.safeParse(req.body);
@@ -2908,10 +2958,69 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
+      const userId = req.user?.id ?? null;
+
+      // Retain the original upload first: even a file that turns out to be invalid is
+      // evidence of what was submitted, and the bytes are what the audit trail refers to.
+      let importFileId: number | null = null;
+      let storedFile: StoredInventoryImportFile | null = null;
+
+      if (parsed.data.file) {
+        storedFile = await saveInventoryImportFile({
+          fileName: parsed.data.file.fileName,
+          mimeType: parsed.data.file.mimeType,
+          dataUrl: parsed.data.file.dataUrl,
+        });
+
+        const [record] = await db
+          .insert(inventoryImportFiles)
+          .values({
+            originalFileName: storedFile.originalFileName,
+            storedFileUrl: storedFile.storedFileUrl,
+            mimeType: storedFile.mimeType,
+            fileSize: storedFile.fileSize,
+            status: 'processing',
+            totalRows: parsed.data.rows.length,
+            uploadedByUserId: userId,
+          })
+          .returning({ id: inventoryImportFiles.id });
+
+        importFileId = record.id;
+      }
+
       const result = await importInventory(parsed.data.rows, {
         updateExisting: parsed.data.updateExisting,
-        userId: req.user?.id ?? null,
+        userId,
+        importFileId,
+        fileName: storedFile?.originalFileName ?? null,
+      }).catch(async (error) => {
+        // The retained record must never stay at 'processing' - a crashed import has to
+        // read as failed, otherwise the audit trail claims work that never finished.
+        if (importFileId !== null) {
+          await db
+            .update(inventoryImportFiles)
+            .set({ status: 'failed', completedAt: new Date() })
+            .where(eq(inventoryImportFiles.id, importFileId));
+        }
+        throw error;
       });
+
+      if (importFileId !== null) {
+        // The record keeps the outcome (including per-row failures) next to the file.
+        await db
+          .update(inventoryImportFiles)
+          .set({
+            status: result.status,
+            totalRows: result.total,
+            createdRows: result.created,
+            updatedRows: result.updated,
+            skippedRows: result.skipped,
+            failedRows: result.errors.length,
+            result: result.rowResults,
+            completedAt: new Date(),
+          })
+          .where(eq(inventoryImportFiles.id, importFileId));
+      }
 
       const parts: string[] = [];
       if (result.created) parts.push(`${result.created} created`);
@@ -2919,13 +3028,27 @@ export function registerRoutes(app: Express): Server {
       if (result.skipped) parts.push(`${result.skipped} skipped`);
       if (result.errors.length) parts.push(`${result.errors.length} failed`);
 
+      const summary = parts.length ? parts.join(', ') : 'Nothing to import';
+
       res.json({
-        message: parts.length
-          ? `Import finished: ${parts.join(', ')}`
-          : 'Nothing to import',
+        message:
+          result.status === 'failed'
+            ? `Nothing was imported - the file has ${result.errors.length} error${
+                result.errors.length === 1 ? '' : 's'
+              }. Fix the highlighted rows and upload it again.`
+            : `Import finished: ${summary}`,
+        file: storedFile
+          ? { id: importFileId, ...storedFile }
+          : null,
         ...result,
       });
     } catch (error) {
+      if (error instanceof InventoryImportFileError) {
+        return res.status(400).json({
+          message: error.message,
+          suggestion: "Upload a .csv, .xlsx or .xls spreadsheet up to 5 MB",
+        });
+      }
       console.error('Error importing inventory:', error);
       res.status(500).json({
         message: "Failed to import inventory",
@@ -3095,6 +3218,7 @@ export function registerRoutes(app: Express): Server {
         reason: body.data.reason,
         // The module derives stock_take vs stock_adjust itself when no source is given.
         source: body.data.source,
+        transactionType: body.data.transactionType,
         userId: req.user?.id ?? null,
       });
 
@@ -4068,48 +4192,38 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Get inventory transaction history
+  // Inventory transaction log: one row per stock change, whatever caused it.
+  // Query params: productId, storeId, inventoryId, type, importFileId, limit, offset.
   app.get("/api/inventory/transactions", requirePermission('inventory', 'read'), async (req, res) => {
     try {
-      const { productId, storeId, limit = '100', offset = '0' } = req.query;
-
-      const whereConditions = [];
-
-      if (productId) {
-        whereConditions.push(eq(salesTransactionItems.productId, parseInt(productId)));
+      const query = inventoryTransactionQuerySchema.safeParse(req.query);
+      if (!query.success) {
+        return res.status(400).json({
+          message: "Invalid filter",
+          errors: query.error.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message,
+          })),
+        });
       }
 
-      if (storeId) {
-        whereConditions.push(eq(salesTransactions.storeId, parseInt(storeId)));
-      }
-
-      const transactions = await db
-        .select({
-          id: salesTransactionItems.id,
-          transactionId: salesTransactions.id,
-          invoiceNumber: salesTransactions.invoiceNumber,
-          productId: salesTransactionItems.productId,
-          productName: products.name,
-          quantity: salesTransactionItems.quantity,
-          transactionType: salesTransactions.transactionType,
-          transactionDate: salesTransactions.transactionDate,
-          cashierUser: users.username,
-          storeId: salesTransactions.storeId,
-          storeName: stores.name,
-        })
-        .from(salesTransactionItems)
-        .innerJoin(salesTransactions, eq(salesTransactionItems.salesTransactionId, salesTransactions.id))
-        .innerJoin(products, eq(salesTransactionItems.productId, products.id))
-        .leftJoin(users, eq(salesTransactions.cashierUserId, users.id))
-        .leftJoin(stores, eq(salesTransactions.storeId, stores.id))
-        .where(whereConditions.length > 0 ? and(...whereConditions) : undefined)
-        .orderBy(desc(salesTransactions.transactionDate))
-        .limit(parseInt(limit))
-        .offset(parseInt(offset));
+      const scope = await resolveScope(req.user!);
+      const transactions = await listInventoryTransactions(scope, {
+        productId: query.data.productId,
+        storeId: query.data.storeId,
+        inventoryId: query.data.inventoryId,
+        transactionType: query.data.type,
+        transactionTypes: query.data.types,
+        importFileId: query.data.importFileId,
+        limit: query.data.limit,
+        offset: query.data.offset,
+      });
 
       res.json({
         transactions,
         total: transactions.length,
+        limit: query.data.limit ?? 100,
+        offset: query.data.offset ?? 0,
       });
     } catch (error) {
       console.error('Error fetching inventory transactions:', error);
@@ -4119,6 +4233,7 @@ export function registerRoutes(app: Express): Server {
       });
     }
   });
+
 
   // ===============================
   // INTER-STORE TRANSFER ENDPOINTS

@@ -104,6 +104,8 @@ export async function createSale(input: CreateSaleInput) {
     const pricedItems: Array<{
       productId: number; inventoryId: number; quantity: number;
       unitPrice: number; totalPrice: number;
+      /** Stock right before/after this line, so the ledger row can show "12 → 10". */
+      quantityBefore: number; quantityAfter: number;
     }> = [];
 
     for (const [productId, quantity] of Array.from(merged.entries())) {
@@ -145,7 +147,7 @@ export async function createSale(input: CreateSaleInput) {
         .update(inventory)
         .set({ quantity: sql`${inventory.quantity} - ${quantity}`, updatedAt: new Date() })
         .where(and(eq(inventory.id, stockRow.id), gte(inventory.quantity, quantity)))
-        .returning({ id: inventory.id });
+        .returning({ id: inventory.id, quantity: inventory.quantity });
 
       if (!deducted) {
         throw new SaleError(
@@ -161,6 +163,10 @@ export async function createSale(input: CreateSaleInput) {
         quantity,
         unitPrice,
         totalPrice: unitPrice * quantity,
+        // RETURNING gives the post-decrement value from the same statement, so the pair is
+        // correct even when another till sells the same row concurrently.
+        quantityAfter: deducted.quantity,
+        quantityBefore: deducted.quantity + quantity,
       });
     }
 
@@ -206,6 +212,9 @@ export async function createSale(input: CreateSaleInput) {
       storeId,
       delta: -item.quantity,
       reason: 'sale' as const,
+      transactionType: 'SALES_ORDER' as const,
+      quantityBefore: item.quantityBefore,
+      quantityAfter: item.quantityAfter,
       refType: 'sales_transaction',
       refId: salesTransaction.id,
       userId,
@@ -336,6 +345,7 @@ export async function refundSale(input: RefundSaleInput) {
         inventoryId,
         delta: entry.quantity,
         reason: 'refund',
+        transactionType: 'RETURN' as const,
         productId: entry.productId,
         storeId: transaction.storeId,
         refType: 'sales_transaction',
@@ -404,6 +414,7 @@ export async function cancelSale(input: CancelSaleInput) {
         inventoryId: item.inventoryId,
         delta: item.quantity,
         reason: 'cancel',
+        transactionType: 'RETURN' as const,
         productId: item.productId,
         storeId: transaction.storeId,
         refType: 'sales_transaction',

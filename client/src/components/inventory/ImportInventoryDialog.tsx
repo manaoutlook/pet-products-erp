@@ -25,13 +25,37 @@ import {
   type ParsedInventorySpreadsheet,
 } from "@/utils/inventory-spreadsheet";
 
+export interface ImportInventoryRowResult {
+  row: number;
+  sku?: string;
+  product?: string;
+  status: "created" | "updated" | "skipped" | "failed";
+  message?: string;
+  inventoryId?: number;
+  /** null for a created row (there was no stock before). */
+  quantityBefore?: number | null;
+  quantityAfter?: number | null;
+  quantityChange?: number;
+}
+
 export interface ImportInventoryResult {
   message: string;
+  /** 'failed' means the whole file was rejected and nothing was written. */
+  status?: "completed" | "failed";
   total: number;
   created: number;
   updated: number;
   skipped: number;
   errors: { row: number; sku?: string; product?: string; message: string }[];
+  rowResults?: ImportInventoryRowResult[];
+  /** The original upload the server kept for the audit trail. */
+  file?: {
+    id: number;
+    originalFileName: string;
+    storedFileUrl: string;
+    mimeType: string | null;
+    fileSize: number;
+  } | null;
 }
 
 interface ImportInventoryDialogProps {
@@ -42,11 +66,38 @@ interface ImportInventoryDialogProps {
 }
 
 const ACCEPTED_EXTENSIONS = ".csv,.xlsx,.xls";
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB - matches the API body limit
+/** Matches MAX_INVENTORY_IMPORT_BYTES on the server. */
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 
 const cellText = (value: unknown): string => {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+};
+
+/**
+ * The file has to survive the round trip: the server keeps the bytes so the import can be
+ * audited, and the JSON body carries them as a base64 data URL.
+ */
+const readFileAsDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () =>
+      reject(new Error("The file could not be read. Select it again and retry."));
+    reader.readAsDataURL(file);
+  });
+
+const formatFileSize = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+};
+
+const rowStatusLabel: Record<ImportInventoryRowResult["status"], string> = {
+  created: "Created",
+  updated: "Updated",
+  skipped: "Skipped",
+  failed: "Failed",
 };
 
 export function ImportInventoryDialog({
@@ -58,6 +109,8 @@ export function ImportInventoryDialog({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [parsed, setParsed] = useState<ParsedInventorySpreadsheet | null>(null);
+  // The File itself, not just the parsed rows: the bytes are uploaded too.
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isReading, setIsReading] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -66,6 +119,7 @@ export function ImportInventoryDialog({
 
   const reset = () => {
     setParsed(null);
+    setSelectedFile(null);
     setError(null);
     setResult(null);
     setIsReading(false);
@@ -88,8 +142,9 @@ export function ImportInventoryDialog({
 
     if (file.size > MAX_FILE_SIZE) {
       setParsed(null);
+      setSelectedFile(null);
       setError(
-        "The file is larger than 10 MB. Split it into smaller files and import them one at a time."
+        "The file is larger than 5 MB. Split it into smaller files and import them one at a time."
       );
       return;
     }
@@ -99,12 +154,15 @@ export function ImportInventoryDialog({
       const parsedFile = await readSpreadsheetFile(file);
       if (parsedFile.rows.length === 0) {
         setParsed(null);
+        setSelectedFile(null);
         setError("No inventory rows were found in the file (header row only?).");
         return;
       }
       setParsed(parsedFile);
+      setSelectedFile(file);
     } catch (parseError) {
       setParsed(null);
+      setSelectedFile(null);
       setError(parseError instanceof Error ? parseError.message : "The file could not be read.");
     } finally {
       setIsReading(false);
@@ -117,11 +175,21 @@ export function ImportInventoryDialog({
     setIsImporting(true);
     setError(null);
     try {
+      // The server stores this file alongside the rows, so keep sending it even when the
+      // same rows are in the body - it is the auditable original.
+      const file = selectedFile
+        ? {
+            fileName: selectedFile.name,
+            mimeType: selectedFile.type || undefined,
+            dataUrl: await readFileAsDataUrl(selectedFile),
+          }
+        : undefined;
+
       const response = await fetch("/api/inventory/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ rows: parsed.rows, updateExisting }),
+        body: JSON.stringify({ rows: parsed.rows, updateExisting, file }),
       });
 
       if (!response.ok) {
@@ -144,8 +212,18 @@ export function ImportInventoryDialog({
 
       const summary = (await response.json()) as ImportInventoryResult;
       setResult(summary);
-      onImported?.();
-      toast({ title: "Import finished", description: summary.message, variant: "success" });
+
+      if (summary.status === "failed") {
+        // Nothing was written, so the list does not need refetching.
+        toast({
+          title: "Import rejected",
+          description: summary.message,
+          variant: "destructive",
+        });
+      } else {
+        onImported?.();
+        toast({ title: "Import finished", description: summary.message, variant: "success" });
+      }
     } catch (importError) {
       setError(importError instanceof Error ? importError.message : "Failed to import inventory");
     } finally {
@@ -304,8 +382,18 @@ export function ImportInventoryDialog({
 
           {result && (
             <div className="space-y-3">
-              <div className="flex items-start gap-2 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              <div
+                className={
+                  result.status === "failed"
+                    ? "flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+                    : "flex items-start gap-2 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800"
+                }
+              >
+                {result.status === "failed" ? (
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                ) : (
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                )}
                 <div>
                   <p className="font-medium">{result.message}</p>
                   <p className="mt-1 text-xs">
@@ -313,6 +401,21 @@ export function ImportInventoryDialog({
                   </p>
                 </div>
               </div>
+
+              {result.file && (
+                <p className="text-xs text-muted-foreground">
+                  Source file kept for the audit trail:{" "}
+                  <a
+                    className="underline underline-offset-2 hover:text-foreground"
+                    href={result.file.storedFileUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {result.file.originalFileName}
+                  </a>{" "}
+                  ({formatFileSize(result.file.fileSize)})
+                </p>
+              )}
 
               {result.errors.length > 0 && (
                 <div className="space-y-2">
@@ -330,6 +433,47 @@ export function ImportInventoryDialog({
                             {rowError.sku ? <span className="font-medium">{rowError.sku}: </span> : null}
                             {rowError.message}
                           </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              )}
+
+              {result.rowResults && result.rowResults.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">What happened to each row</p>
+                  <div className="max-h-64 overflow-y-auto rounded-md border">
+                    <ul className="divide-y text-sm">
+                      {result.rowResults.map((row) => (
+                        <li key={row.row} className="flex flex-wrap items-center gap-2 p-2">
+                          <span className="w-16 shrink-0 text-xs text-muted-foreground">
+                            Row {row.row}
+                          </span>
+                          <span className="font-medium">{row.sku || row.product || "-"}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {rowStatusLabel[row.status]}
+                          </span>
+                          {row.status === "failed" && row.message ? (
+                            <span className="w-full text-xs text-red-700 sm:w-auto">{row.message}</span>
+                          ) : null}
+                          {row.quantityAfter !== undefined && row.quantityAfter !== null ? (
+                            <span className="ml-auto text-xs">
+                              {row.quantityBefore ?? 0} → {row.quantityAfter}
+                              {typeof row.quantityChange === "number" && row.quantityChange !== 0 ? (
+                                <span
+                                  className={
+                                    row.quantityChange > 0
+                                      ? "ml-1 text-green-700"
+                                      : "ml-1 text-red-700"
+                                  }
+                                >
+                                  ({row.quantityChange > 0 ? "+" : ""}
+                                  {row.quantityChange})
+                                </span>
+                              ) : null}
+                            </span>
+                          ) : null}
                         </li>
                       ))}
                     </ul>

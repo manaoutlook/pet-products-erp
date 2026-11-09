@@ -25,6 +25,10 @@ record directly, which leaves no trace.
 **Fix:** `POST /api/inventory/:id/adjust` with `{ delta | countedQuantity, reason }`, written
 through the ledger above, permission-gated on `inventory:update`, plus a stock-take screen that
 lists counted vs system differences.
+**Status: resolved —** the endpoint lives in `server/stock-adjust.ts`, the screen in
+`client/src/pages/StockTakePage.tsx`, and `client/src/pages/StockAdjustmentsPage.tsx` adds the
+adjust / write-off / recount tabs so breakage and shrinkage are recorded as
+`DAMAGE_OR_WRITE_OFF` instead of as an untyped count variance.
 
 ### 3. Reporting is thin
 **Problem:** `products.landingPrice` is stored but never used in any report (margin is
