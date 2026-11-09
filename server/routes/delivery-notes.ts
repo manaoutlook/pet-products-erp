@@ -5,7 +5,11 @@ import { db } from "@db";
 import { deliveryNoteItems, deliveryNotes } from "@db/schema";
 import { requireAuth, requirePermission } from "../middleware";
 import { validateBody, validateParams, idParamSchema } from "../validate";
-import { SalesOrderError, issueDeliveryNote } from "../sales-orders";
+import { SalesOrderError, attachSignedDocument, issueDeliveryNote } from "../sales-orders";
+import {
+  DeliveryNoteDocumentError,
+  saveSignedDeliveryNoteDocument,
+} from "../delivery-note-documents";
 
 /**
  * Delivery Note endpoints - the outbound mirror of `/api/purchase-orders/:id/goods-receipt`.
@@ -53,11 +57,24 @@ const deliveryNoteSchema = z.object({
     .optional(),
 });
 
+// The signed sheet comes back as a picture: the browser sends a base64 data URL
+// (same shape as POST /api/products/images), the server writes the file and stores the URL.
+const signedDocumentSchema = z.object({
+  image: z.string().min(1, "Upload a picture of the signed delivery note"),
+});
+
 function handleDeliveryNoteError(res: Response, error: unknown, fallback: string) {
   if (error instanceof SalesOrderError) {
     return res.status(error.status).json({
       message: error.message,
       suggestion: error.suggestion,
+    });
+  }
+
+  if (error instanceof DeliveryNoteDocumentError) {
+    return res.status(400).json({
+      message: error.message,
+      suggestion: "Photograph the signed note again and upload the file.",
     });
   }
 
@@ -171,6 +188,49 @@ export function registerDeliveryNoteRoutes(app: Express) {
         });
       } catch (error) {
         return handleDeliveryNoteError(res, error, "Failed to create the delivery note");
+      }
+    }
+  );
+
+  /**
+   * The customer's signature, filed as a picture.
+   *
+   * A note leaves the warehouse unsigned: the driver hands over the printed sheet, the customer
+   * signs it, and the office photographs/scans it back in. This is the only write a note accepts
+   * after issue - it stores the picture plus who filed it and when, and ticks `customerConfirmed`
+   * so a reprint matches the signed copy. Re-uploading replaces the picture.
+   *
+   * Sending the same base64 shape as POST /api/products/images keeps the client on one upload
+   * helper (compression + POST); only the storage directory differs.
+   */
+  app.post(
+    "/api/delivery-notes/:id/signed-document",
+    requireAuth,
+    requirePermission("orders", "update"),
+    validateParams(idParamSchema),
+    validateBody(signedDocumentSchema, "Choose a picture of the signed delivery note"),
+    async (req, res) => {
+      const body = req.body as z.infer<typeof signedDocumentSchema>;
+
+      try {
+        // The file is written before the note is checked, so a missing/cancelled note leaves an
+        // unused picture behind. That is harmless (uploads/ is not indexed and a retry stores a
+        // new file), and it keeps the storage module free of database knowledge.
+        const url = await saveSignedDeliveryNoteDocument(body.image);
+
+        const deliveryNote = await attachSignedDocument(db, {
+          deliveryNoteId: Number(req.params.id),
+          signedDocumentUrl: url,
+          userId: req.user!.id,
+        });
+
+        res.json({
+          message: `Signed document saved - delivery note ${deliveryNote.deliveryNoteNumber} is complete`,
+          url,
+          deliveryNote,
+        });
+      } catch (error) {
+        return handleDeliveryNoteError(res, error, "Failed to save the signed delivery note");
       }
     }
   );

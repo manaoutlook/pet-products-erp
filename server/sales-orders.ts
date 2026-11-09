@@ -326,6 +326,64 @@ export async function issueDeliveryNote(
   };
 }
 
+export interface AttachSignedDocumentInput {
+  deliveryNoteId: number;
+  /** Public URL returned by `saveSignedDeliveryNoteDocument`. */
+  signedDocumentUrl: string;
+  /** Who filed the picture - shown next to the uploaded date. */
+  userId: number;
+}
+
+/**
+ * File the picture of the note the customer signed.
+ *
+ * The note is otherwise never edited after issue; this is the one exception, and it only ever
+ * adds the proof of delivery - the document URL, who filed it and when, plus the "goods received
+ * in good condition" tick the printed sheet carries, so a reprint matches the signed copy.
+ * A cancelled note is refused, and re-filing replaces the previous picture (a blurry first photo
+ * of the sheet is the common case).
+ */
+export async function attachSignedDocument(
+  executor: DbClient,
+  input: AttachSignedDocumentInput
+): Promise<typeof deliveryNotes.$inferSelect> {
+  const [existing] = await executor
+    .select()
+    .from(deliveryNotes)
+    .where(eq(deliveryNotes.id, input.deliveryNoteId));
+
+  if (!existing) {
+    throw new SalesOrderError(
+      `Delivery note ${input.deliveryNoteId} was not found`,
+      404,
+      "Refresh the list and try again."
+    );
+  }
+
+  if (existing.status === "cancelled") {
+    throw new SalesOrderError(
+      `Delivery note ${existing.deliveryNoteNumber} was cancelled and cannot be signed off`,
+      409,
+      "Issue a new delivery note for these goods instead."
+    );
+  }
+
+  const [updated] = await executor
+    .update(deliveryNotes)
+    .set({
+      signedDocumentUrl: input.signedDocumentUrl,
+      signedDocumentUploadedAt: new Date(),
+      signedDocumentUploadedByUserId: input.userId,
+      // The uploaded picture *is* the customer's signature.
+      customerConfirmed: true,
+      updatedAt: new Date(),
+    })
+    .where(eq(deliveryNotes.id, existing.id))
+    .returning();
+
+  return updated;
+}
+
 /** Recompute one line's money from quantity x unit price, so the client cannot fake totals. */
 export function orderLineTotals(line: { quantity: number; unitPrice: number }) {
   return {

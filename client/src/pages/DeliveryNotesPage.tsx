@@ -16,9 +16,10 @@ import { SearchInput } from "@/components/ui/search-input";
 import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
 import { useTableControls } from "@/hooks/use-table-controls";
 import { usePermissions } from "@/hooks/use-permissions";
-import { CheckCircle2, Plus, Printer } from "lucide-react";
+import { CheckCircle2, FileCheck2, Plus, Printer, Upload } from "lucide-react";
 import { DeliveryNoteFormDialog } from "@/components/SalesOrders/DeliveryNoteFormDialog";
 import { DeliveryNotePrintDialog } from "@/components/SalesOrders/DeliveryNotePrint";
+import { SignedDocumentDialog } from "@/components/SalesOrders/SignedDocumentDialog";
 
 interface DeliveryNoteItem {
   id: number;
@@ -38,6 +39,9 @@ interface DeliveryNoteRow {
   phone?: string | null;
   deliveryAddress?: string | null;
   customerConfirmed: boolean;
+  /** Picture of the sheet the customer signed; null until the office files it. */
+  signedDocumentUrl?: string | null;
+  signedDocumentUploadedAt?: string | null;
   remarks?: string | null;
   status: string;
   salesOrder?: {
@@ -58,9 +62,11 @@ function unitsOnNote(note: DeliveryNoteRow): number {
 /**
  * Delivery Notes - the goods-out paper trail (PDF page 2).
  *
- * Notes are issued from a sales order, never edited: once the customer has signed for the goods
- * the document is history, so this screen only lists, filters and reprints them. The "New"
- * button opens the same dialog the Sales Orders screen uses, so there is one issue path.
+ * Notes are issued from a sales order, never typed from scratch: once issued the document is
+ * history, so this screen only lists, filters and reprints them. The one write it accepts is the
+ * customer's signature - the signed sheet comes back as a picture and is filed from the row
+ * ("Upload signed document"), which flips the note from "Awaiting signature" to "Signed/Completed".
+ * The "New" button opens the same dialog the Sales Orders screen uses, so there is one issue path.
  */
 function DeliveryNotesPage() {
   const { hasPermission } = usePermissions();
@@ -185,24 +191,48 @@ function DeliveryNotesPage() {
                           {formatQuantity(unitsOnNote(note))}
                         </TableCell>
                         <TableCell>
-                          {note.customerConfirmed ? (
+                          {note.signedDocumentUrl ? (
                             <Badge variant="success">
                               <CheckCircle2 className="mr-1 h-3 w-3" />
-                              Confirmed
+                              Signed/Completed
                             </Badge>
                           ) : (
                             <Badge variant="warning">Awaiting signature</Badge>
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          <DeliveryNotePrintDialog note={note}>
-                            <Button variant="ghost" size="sm" title="Print delivery note">
-                              <Printer className="h-4 w-4" />
-                              <span className="sr-only">
-                                Print {note.deliveryNoteNumber}
-                              </span>
-                            </Button>
-                          </DeliveryNotePrintDialog>
+                          <div className="flex items-center justify-end gap-1">
+                            <SignedDocumentDialog note={note} canUpdate={canIssue}>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title={
+                                  note.signedDocumentUrl
+                                    ? "View signed document"
+                                    : "Upload signed document"
+                                }
+                              >
+                                {note.signedDocumentUrl ? (
+                                  <FileCheck2 className="h-4 w-4" />
+                                ) : (
+                                  <Upload className="h-4 w-4" />
+                                )}
+                                <span className="sr-only">
+                                  {note.signedDocumentUrl
+                                    ? `View the signed document for ${note.deliveryNoteNumber}`
+                                    : `Upload the signed document for ${note.deliveryNoteNumber}`}
+                                </span>
+                              </Button>
+                            </SignedDocumentDialog>
+                            <DeliveryNotePrintDialog note={note}>
+                              <Button variant="ghost" size="sm" title="Print delivery note">
+                                <Printer className="h-4 w-4" />
+                                <span className="sr-only">
+                                  Print {note.deliveryNoteNumber}
+                                </span>
+                              </Button>
+                            </DeliveryNotePrintDialog>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))

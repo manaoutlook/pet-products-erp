@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -74,7 +73,6 @@ export function DeliveryNoteFormDialog({
   const [salesOrderId, setSalesOrderId] = useState<string | null>(null);
   const [deliveryDate, setDeliveryDate] = useState(() => toDateInputValue(null));
   const [remarks, setRemarks] = useState("");
-  const [customerConfirmed, setCustomerConfirmed] = useState(false);
   const [drafts, setDrafts] = useState<Record<number, DeliveryLineDraft>>({});
   /** The note to offer for printing once it has been issued. */
   const [issuedNote, setIssuedNote] = useState<DeliveryNotePrintData | null>(null);
@@ -134,7 +132,6 @@ export function DeliveryNoteFormDialog({
 
     setDeliveryDate(toDateInputValue(null));
     setRemarks("");
-    setCustomerConfirmed(false);
     setIssuedNote(null);
     setSalesOrderId(initialSalesOrderId ? String(initialSalesOrderId) : null);
   }, [open, initialSalesOrderId]);
@@ -178,7 +175,8 @@ export function DeliveryNoteFormDialog({
           // Noon local time so the printed date never slips to the day before.
           deliveryDate: new Date(`${deliveryDate}T12:00:00`).toISOString(),
           remarks: remarks.trim() || null,
-          customerConfirmed,
+          // The sheet leaves the warehouse unsigned; the signature is filed later as a picture
+          // (SignedDocumentDialog on the Delivery Notes screen).
           items: shippingLines.map(({ line, draft }) => ({
             salesOrderItemId: line.id,
             deliveredQuantity: Number(draft.deliveredQuantity),
@@ -212,7 +210,6 @@ export function DeliveryNoteFormDialog({
           deliveryNoteNumber: number,
           deliveryDate: result.deliveryNote?.deliveryDate ?? new Date().toISOString(),
           customerName: selectedOrder.customerName,
-          customerConfirmed,
           remarks: remarks.trim() || null,
           salesOrder: { orderNumber: selectedOrder.orderNumber },
           items: shippingLines.map(({ line, draft }) => ({
@@ -398,17 +395,6 @@ export function DeliveryNoteFormDialog({
                 value={remarks}
                 onChange={(event) => setRemarks(event.target.value)}
               />
-            </div>
-
-            <div className="flex items-start gap-2">
-              <Checkbox
-                id="customer-confirmed"
-                checked={customerConfirmed}
-                onCheckedChange={(checked) => setCustomerConfirmed(checked === true)}
-              />
-              <Label htmlFor="customer-confirmed" className="text-sm font-normal leading-5">
-                Customer confirmed receipt - goods received in good condition
-              </Label>
             </div>
 
             <div className="flex justify-end gap-2">

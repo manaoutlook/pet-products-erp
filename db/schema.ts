@@ -364,7 +364,18 @@ export const deliveryNotes = pgTable("delivery_notes", {
   deliveryAddress: text("delivery_address"),
   deliveredByUserId: integer("delivered_by_user_id").references(() => users.id).notNull(),
   // "Goods received in good condition." ticked by the customer on the printed note.
+  // Uploading the signed document (POST /api/delivery-notes/:id/signed-document) ticks it,
+  // so a reprint matches the sheet the customer actually signed.
   customerConfirmed: boolean("customer_confirmed").notNull().default(false),
+  // Proof of delivery: the picture of the signed note, uploaded once the customer has signed.
+  // A note without one is still "Awaiting signature"; with one it is "Signed/Completed".
+  // The bytes live in uploads/delivery-notes/, only the short URL is stored (see
+  // server/delivery-note-documents.ts).
+  signedDocumentUrl: text("signed_document_url"),
+  signedDocumentUploadedAt: timestamp("signed_document_uploaded_at"),
+  signedDocumentUploadedByUserId: integer("signed_document_uploaded_by_user_id").references(
+    () => users.id
+  ),
   remarks: text("remarks"),
   status: varchar("status", { length: 20 }).notNull().default('issued'), // 'issued' | 'cancelled'
   createdAt: timestamp("created_at").defaultNow(),

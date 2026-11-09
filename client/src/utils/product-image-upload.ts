@@ -79,12 +79,17 @@ async function compressImage(file: File, dataUrl: string): Promise<string> {
 }
 
 /**
- * Compress and upload one picture, returning the URL to store on the product.
+ * Compress one picture and POST it to `endpoint` as `{ image: <data URL> }`, returning the URL
+ * the server stored.
  *
- * Throws `ProductImageUploadError` with a user-readable message on failure; the
- * caller shows it in a toast.
+ * Shared by every upload screen - product pictures and the signed delivery note - so the
+ * browser-side limits and the compression live in one place; only the endpoint (and therefore
+ * the storage directory) differs.
+ *
+ * Throws `ProductImageUploadError` with a user-readable message on failure; the caller shows it
+ * in a toast.
  */
-export async function uploadProductImage(file: File): Promise<string> {
+export async function uploadImageFile(file: File, endpoint: string): Promise<string> {
   if (!file.type.startsWith("image/")) {
     throw new ProductImageUploadError(`${file.name} is not an image file.`);
   }
@@ -100,7 +105,7 @@ export async function uploadProductImage(file: File): Promise<string> {
 
   let response: Response;
   try {
-    response = await fetch("/api/products/images", {
+    response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ image: dataUrl }),
@@ -129,4 +134,12 @@ export async function uploadProductImage(file: File): Promise<string> {
   }
 
   return body.url;
+}
+
+/**
+ * Compress and upload one product picture, returning the URL to store on the product.
+ * The API writes the file and returns the short URL that is saved on the product.
+ */
+export function uploadProductImage(file: File): Promise<string> {
+  return uploadImageFile(file, "/api/products/images");
 }

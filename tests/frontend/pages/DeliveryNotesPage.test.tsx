@@ -35,6 +35,8 @@ function makeNote(overrides: Record<string, unknown> = {}) {
         phone: '0900000000',
         deliveryAddress: '12 Le Loi, District 1',
         customerConfirmed: false,
+        signedDocumentUrl: null,
+        signedDocumentUploadedAt: null,
         remarks: null,
         status: 'issued',
         salesOrder: { id: 1, orderNumber: 'SO-20261108-1234', customerName: 'Nguyen Van A', status: 'delivered' },
@@ -122,21 +124,40 @@ describe('DeliveryNotesPage', () => {
     });
 
     it('flags a note the customer has not signed for yet', async () => {
-        renderPage([makeNote({ customerConfirmed: false })]);
+        renderPage([makeNote({ signedDocumentUrl: null })]);
 
         await waitFor(() => expect(screen.getByText('DN-20261108-1234')).toBeInTheDocument());
 
         expect(screen.getByText('Awaiting signature')).toBeInTheDocument();
-        expect(screen.queryByText('Confirmed')).not.toBeInTheDocument();
+        expect(screen.queryByText('Signed/Completed')).not.toBeInTheDocument();
     });
 
-    it('shows the sign-off once the customer has confirmed receipt', async () => {
-        renderPage([makeNote({ customerConfirmed: true })]);
+    it('shows Signed/Completed once the signed sheet has been uploaded', async () => {
+        renderPage([
+            makeNote({
+                signedDocumentUrl: '/uploads/delivery-notes/signed.png',
+                signedDocumentUploadedAt: '2026-11-09T09:30:00.000Z',
+            }),
+        ]);
 
         await waitFor(() => expect(screen.getByText('DN-20261108-1234')).toBeInTheDocument());
 
-        expect(screen.getByText('Confirmed')).toBeInTheDocument();
+        expect(screen.getByText('Signed/Completed')).toBeInTheDocument();
         expect(screen.queryByText('Awaiting signature')).not.toBeInTheDocument();
+    });
+
+    it('opens the upload dialog from the row so the signed sheet can be filed', async () => {
+        renderPage([makeNote({ signedDocumentUrl: null })]);
+
+        await waitFor(() => expect(screen.getByText('DN-20261108-1234')).toBeInTheDocument());
+
+        const user = userEvent.setup();
+        await user.click(screen.getByTitle('Upload signed document'));
+
+        const dialog = await screen.findByRole('dialog');
+        expect(within(dialog).getByText(/Signed delivery note - DN-20261108-1234/)).toBeInTheDocument();
+        expect(within(dialog).getByText(/No signed copy on file yet/i)).toBeInTheDocument();
+        expect(within(dialog).getByRole('button', { name: /save signed document/i })).toBeDisabled();
     });
 
     it('hints that the parent order is still short of units', async () => {
