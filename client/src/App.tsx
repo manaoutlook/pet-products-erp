@@ -28,6 +28,8 @@ const StoreAssignmentPage = lazy(() => import("./pages/StoreAssignmentPage"));
 const StorePerformancePage = lazy(() => import("./pages/StorePerformancePage"));
 const SuppliersPage = lazy(() => import("./pages/SuppliersPage"));
 const PurchaseOrdersPage = lazy(() => import("./pages/PurchaseOrdersPage"));
+const SalesOrdersPage = lazy(() => import("./pages/SalesOrdersPage"));
+const DeliveryNotesPage = lazy(() => import("./pages/DeliveryNotesPage"));
 const CustomerProfilesPage = lazy(() => import("./pages/CustomerProfilesPage"));
 const ReceiptsPage = lazy(() => import("./pages/ReceiptsPage"));
 const RegionPage = lazy(() => import("./pages/RegionPage"));
@@ -80,6 +82,12 @@ function App() {
             </Route>
             <Route path="/purchase-orders">
               <RequirePermission module="orders" action="read"><PurchaseOrdersPage /></RequirePermission>
+            </Route>
+            <Route path="/sales-orders">
+              <RequirePermission module="orders" action="read"><SalesOrdersPage /></RequirePermission>
+            </Route>
+            <Route path="/delivery-notes">
+              <RequirePermission module="orders" action="read"><DeliveryNotesPage /></RequirePermission>
             </Route>
             <Route path="/products">
               <RequirePermission module="products" action="read"><ProductsPage /></RequirePermission>

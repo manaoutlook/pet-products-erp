@@ -136,7 +136,7 @@ function RolePermissionsPage() {
 
   const modules = [
     { key: 'products' as const, label: 'Products Module' },
-    { key: 'orders' as const, label: 'Orders Module' },
+    { key: 'orders' as const, label: 'Orders Module (Purchasing & Sales)' },
     { key: 'inventory' as const, label: 'Inventory Module' },
     { key: 'users' as const, label: 'User Management Module' },
     { key: 'stores' as const, label: 'Store Management Module' },

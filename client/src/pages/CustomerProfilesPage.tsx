@@ -28,7 +28,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { formatDate } from "@/utils/format";
 import { CreateCustomerProfileDialog } from "@/components/CustomerProfiles/CreateCustomerProfileDialog";
 import { EditCustomerProfileDialog } from "@/components/CustomerProfiles/EditCustomerProfileDialog";
 import { useToast } from "@/hooks/use-toast";
@@ -43,14 +42,20 @@ import {
 
 interface CustomerProfile {
   id: number;
-  phoneNumber: string;
+  mobileNumber: string;
   name: string;
   email: string;
   address: string;
   photo?: string;
-  petBirthday?: string;
-  petType: 'CAT' | 'DOG';
+  landLineNumber?: string | null;
+  customerType: 'B2B' | 'B2C';
 }
+
+// The dropdown stores the short code; the details view spells it out.
+const CUSTOMER_TYPE_LABELS: Record<CustomerProfile['customerType'], string> = {
+  B2B: 'B2B - Business',
+  B2C: 'B2C - Consumer',
+};
 
 // View Customer Profile Dialog Component
 function ViewCustomerProfileDialog({
@@ -66,51 +71,55 @@ function ViewCustomerProfileDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      {/* Taller than a short window when a photo is present, so cap the height and scroll the
+          body instead of pushing the header off-screen. */}
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Customer Profile Details</DialogTitle>
         </DialogHeader>
-        <div className="space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium text-muted-foreground">Phone Number</label>
-              <p className="mt-1 text-sm text-foreground">{profile.phoneNumber}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-muted-foreground">Name</label>
-              <p className="mt-1 text-sm text-foreground">{profile.name}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-muted-foreground">Email</label>
-              <p className="mt-1 text-sm text-foreground">{profile.email}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-muted-foreground">Pet Type</label>
-              <p className="mt-1 text-sm text-foreground capitalize">{profile.petType.toLowerCase()}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-muted-foreground">Pet Birthday</label>
-              <p className="mt-1 text-sm text-foreground">
-                {profile.petBirthday ? formatDate(profile.petBirthday) : 'Not specified'}
-              </p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-muted-foreground">Address</label>
-              <p className="mt-1 text-sm text-foreground">{profile.address || 'Not specified'}</p>
-            </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label className="text-sm font-medium text-muted-foreground">Mobile Number</label>
+            <p className="mt-1 text-sm text-foreground">{profile.mobileNumber}</p>
           </div>
-          {profile.photo && (
-            <div>
-              <label className="text-sm font-medium text-muted-foreground">Photo</label>
-              <div className="mt-2">
+          <div>
+            <label className="text-sm font-medium text-muted-foreground">Name</label>
+            <p className="mt-1 text-sm text-foreground">{profile.name}</p>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-muted-foreground">Email</label>
+            <p className="mt-1 text-sm text-foreground">{profile.email}</p>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-muted-foreground">Customer Type</label>
+            <p className="mt-1 text-sm text-foreground">
+              {CUSTOMER_TYPE_LABELS[profile.customerType] ?? profile.customerType}
+            </p>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-muted-foreground">Land Line Number</label>
+            <p className="mt-1 text-sm text-foreground">
+              {profile.landLineNumber || 'Not specified'}
+            </p>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-muted-foreground">Photo</label>
+            <div className="mt-2">
+              {profile.photo ? (
                 <img
                   src={profile.photo}
                   alt={`${profile.name}'s photo`}
-                  className="w-32 h-32 object-cover rounded-lg border"
+                  className="h-32 w-32 rounded-lg border object-cover"
                 />
-              </div>
+              ) : (
+                <p className="mt-1 text-sm text-foreground">Not specified</p>
+              )}
             </div>
-          )}
+          </div>
+          <div className="sm:col-span-2">
+            <label className="text-sm font-medium text-muted-foreground">Address</label>
+            <p className="mt-1 text-sm text-foreground">{profile.address || 'Not specified'}</p>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
@@ -139,19 +148,20 @@ function CustomerProfilesPage() {
   const profilesTable = useTableControls(
     customerProfiles,
     {
-      phoneNumber: (profile) => profile.phoneNumber,
+      mobileNumber: (profile) => profile.mobileNumber,
       name: (profile) => profile.name,
       email: (profile) => profile.email,
-      petType: (profile) => profile.petType,
-      petBirthday: (profile) => profile.petBirthday,
+      customerType: (profile) => profile.customerType,
+      landLineNumber: (profile) => profile.landLineNumber,
     },
     {
       // The page level search box stays the primary, whole row search.
       filter: (profile) =>
-        profile.phoneNumber.toLowerCase().includes(search.toLowerCase()) ||
+        profile.mobileNumber.toLowerCase().includes(search.toLowerCase()) ||
         profile.name.toLowerCase().includes(search.toLowerCase()) ||
         profile.email.toLowerCase().includes(search.toLowerCase()) ||
-        profile.petType.toLowerCase().includes(search.toLowerCase()) ||
+        profile.customerType.toLowerCase().includes(search.toLowerCase()) ||
+        (profile.landLineNumber?.toLowerCase() || "").includes(search.toLowerCase()) ||
         (profile.address?.toLowerCase() || "").includes(search.toLowerCase()),
     }
   );
@@ -218,22 +228,22 @@ function CustomerProfilesPage() {
             <Table className="table-actions-sticky min-w-[1000px]">
               <TableHeader>
                 <TableRow>
-                  <ColumnHeader controls={profilesTable} columnKey="phoneNumber" label="Phone Number" filterPlaceholder="Filter phone" />
+                  <ColumnHeader controls={profilesTable} columnKey="mobileNumber" label="Mobile Number" filterPlaceholder="Filter mobile" />
                   <ColumnHeader controls={profilesTable} columnKey="name" label="Name" filterPlaceholder="Filter name" />
                   <ColumnHeader controls={profilesTable} columnKey="email" label="Email" filterPlaceholder="Filter email" />
-                  <ColumnHeader controls={profilesTable} columnKey="petType" label="Pet Type" filterPlaceholder="Filter pet type" />
-                  <ColumnHeader controls={profilesTable} columnKey="petBirthday" label="Pet Birthday" filterPlaceholder="Filter birthday" />
+                  <ColumnHeader controls={profilesTable} columnKey="customerType" label="Customer Type" filterPlaceholder="Filter customer type" />
+                  <ColumnHeader controls={profilesTable} columnKey="landLineNumber" label="Land Line Number" filterPlaceholder="Filter land line" />
                   <TableHead className="align-top">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredProfiles.map((profile) => (
                   <TableRow key={profile.id}>
-                    <TableCell>{profile.phoneNumber}</TableCell>
+                    <TableCell>{profile.mobileNumber}</TableCell>
                     <TableCell>{profile.name}</TableCell>
                     <TableCell>{profile.email}</TableCell>
-                    <TableCell className="capitalize">{profile.petType.toLowerCase()}</TableCell>
-                    <TableCell>{profile.petBirthday ? formatDate(profile.petBirthday) : '-'}</TableCell>
+                    <TableCell>{profile.customerType}</TableCell>
+                    <TableCell>{profile.landLineNumber || '-'}</TableCell>
                     <TableCell>
                       <div className="flex gap-2">
                         <Button

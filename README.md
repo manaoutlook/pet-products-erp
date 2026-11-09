@@ -67,7 +67,7 @@ purpose so every checkout runs the tests against the same database name.
 | `npm run test:db:reset` | Drops and recreates the test schema, then pushes it |
 | `npm run db:push` | Applies `db/schema.ts` to the database |
 | `npm run db:seed` | Sample data (`scripts/seed-sample-data.ts`) |
-| `npm run db:seed-inventory`, `db:seed-customers` | Inventory rows / customer profiles |
+| `npm run db:seed-inventory` | Inventory rows |
 | `npm run stock:reconcile` | Recomputes `inventory.quantity` from the stock ledger and reports drift |
 | `npm run stock:repair-cancelled` | Dry-run report of cancelled receipts whose stock never came back; add `-- --apply` to restore it (`--transaction <id>` to scope one receipt) |
 

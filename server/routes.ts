@@ -2,6 +2,8 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { registerStoreRoutes } from "./routes/stores";
+import { registerSalesOrderRoutes, registerSalesOrderWriteRoutes } from "./routes/sales-orders";
+import { registerDeliveryNoteRoutes } from "./routes/delivery-notes";
 import { db } from "@db";
 import {
   products, inventory, orders, orderItems, users,
@@ -248,6 +250,12 @@ export function registerRoutes(app: Express): Server {
 
   // Store Management endpoints live in server/routes/stores.ts (backlog P2 #9).
   registerStoreRoutes(app);
+
+  // Sales Orders + Delivery Notes. Registered after the store routes and before the rest of
+  // routes.ts for the same reason the store slice moved out: this file keeps shrinking.
+  registerSalesOrderRoutes(app);
+  registerSalesOrderWriteRoutes(app);
+  registerDeliveryNoteRoutes(app);
 
   // Purchase Orders endpoints
   app.get("/api/purchase-orders", requireAuth, async (req, res) => {
@@ -808,11 +816,11 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { phoneNumber, name, email, address, photo, petBirthday, petType } = result.data;
+      const { mobileNumber, name, email, address, photo, landLineNumber, customerType } = result.data;
 
       // Check if customer profile exists
       const existingProfile = await db.query.customerProfiles.findFirst({
-        where: eq(customerProfiles.phoneNumber, phoneNumber),
+        where: eq(customerProfiles.mobileNumber, mobileNumber),
       });
 
       if (existingProfile) {
@@ -825,13 +833,13 @@ export function registerRoutes(app: Express): Server {
       const [newCustomerProfile] = await db
         .insert(customerProfiles)
         .values({
-          phoneNumber,
+          mobileNumber,
           name,
           email,
           address,
           photo: photo || null,
-          petBirthday: petBirthday ? new Date(petBirthday) : null,
-          petType,
+          landLineNumber: landLineNumber || null,
+          customerType,
         })
         .returning();
 
@@ -862,12 +870,12 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { phoneNumber, name, email, address, photo, petBirthday, petType } = result.data;
+      const { mobileNumber, name, email, address, photo, landLineNumber, customerType } = result.data;
 
       // Check if phone number is already used by another profile
       const existingProfile = await db.query.customerProfiles.findFirst({
         where: and(
-          eq(customerProfiles.phoneNumber, phoneNumber),
+          eq(customerProfiles.mobileNumber, mobileNumber),
           sql`id != ${id}`
         ),
       });
@@ -882,13 +890,13 @@ export function registerRoutes(app: Express): Server {
       const [updatedProfile] = await db
         .update(customerProfiles)
         .set({
-          phoneNumber,
+          mobileNumber,
           name,
           email,
           address,
           photo: photo || null,
-          petBirthday: petBirthday ? new Date(petBirthday) : null,
-          petType,
+          landLineNumber: landLineNumber || null,
+          customerType,
           updatedAt: new Date()
         })
         .where(eq(customerProfiles.id, parseInt(id)))
@@ -3690,7 +3698,7 @@ export function registerRoutes(app: Express): Server {
              EXISTS (
                SELECT 1 FROM customer_profiles cp
                WHERE cp.id = ${salesTransactions.customerProfileId}
-               AND (cp.name ILIKE ${`%${searchTerm}%`} OR cp.phone_number ILIKE ${`%${searchTerm}%`})
+               AND (cp.name ILIKE ${`%${searchTerm}%`} OR cp.mobile_number ILIKE ${`%${searchTerm}%`})
              ))
           `);
         }

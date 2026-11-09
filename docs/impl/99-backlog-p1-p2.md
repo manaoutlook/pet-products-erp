@@ -52,9 +52,12 @@ action.
 `createPurchaseOrderSchema`.
 
 ### 7. Pet-profile data is collected but unused
-**Problem:** customer pet profiles (species, breed, birthdate) are captured and never used.
-**Fix:** first concrete use — expiry/age-appropriate product suggestions on the POS customer
-panel, or a “due for re-vaccination / re-purchase” reminder list.
+**Status: resolved — the pet-shaped fields were removed.** A customer profile describes the
+account, so `pet_type` / `pet_birthday` became `customer_type` (`B2B` / `B2C`) and
+`land_line_number`, and `phone_number` became `mobile_number` (see
+`migrations/0016_customer_profiles_customer_type.sql`). Segmenting the customer base by account
+type is what the POS and reporting actually use, so there is no half-collected data left to
+surface.
 
 ### 8. No audit log
 **Problem:** `sales_transaction_actions` and `purchase_order_actions` log some flows; user, role,

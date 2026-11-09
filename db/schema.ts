@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, date, varchar, decimal, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, date, varchar, decimal, index, check } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -266,17 +266,121 @@ export const purchaseOrderActions = pgTable("purchase_order_actions", {
 });
 
 // Customer Profiles table
+//
+// A customer profile describes the *account*, not a pet. `customerType` says whether the
+// account is a business (`B2B`) or an end consumer (`B2C`) - it is rendered as a dropdown
+// and validated against CUSTOMER_TYPES. `mobileNumber` holds the mobile number and is the
+// natural key used to look a customer up at the till; `landLineNumber` is the optional
+// fixed line, which is why it is free text rather than a date.
 export const customerProfiles = pgTable("customer_profiles", {
   id: serial("id").primaryKey(),
-  phoneNumber: varchar("phone_number", { length: 20 }).notNull().unique(),
+  mobileNumber: varchar("mobile_number", { length: 20 }).notNull().unique(), // mobile number
   name: text("name").notNull(),
   email: varchar("email", { length: 255 }).notNull(),
   address: text("address").notNull(),
   photo: text("photo"),
-  petBirthday: date("pet_birthday"),
-  petType: varchar("pet_type", { length: 10 }).notNull(), // 'CAT' or 'DOG'
+  landLineNumber: varchar("land_line_number", { length: 20 }),
+  customerType: varchar("customer_type", { length: 10 }).notNull(), // 'B2B' or 'B2C'
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  // Keep the free-text column inside the dropdown's value domain, so a bad client write
+  // cannot store something the UI can never render.
+  customerTypeCheck: check(
+    "customer_profiles_customer_type_check",
+    sql`${table.customerType} IN ('B2B', 'B2C')`,
+  ),
+}));
+
+/** Allowed `customerProfiles.customerType` values (the dropdown choices). */
+export const CUSTOMER_TYPES = ["B2B", "B2C"] as const;
+export type CustomerType = (typeof CUSTOMER_TYPES)[number];
+
+// Sales Orders table - the customer-facing counterpart of purchaseOrders.
+//
+// AI Agent Note: the customer details are *copied onto the order* instead of being read
+// from customer_profiles at print time. A sales order is a document the customer signed:
+// renaming the company or moving the delivery address later must not silently rewrite a
+// document that was already issued. `customerProfileId` stays as the link for reporting.
+export const salesOrders = pgTable("sales_orders", {
+  id: serial("id").primaryKey(),
+  orderNumber: varchar("order_number", { length: 50 }).notNull().unique(), // SO-YYYYMMDD-NNNN
+  customerProfileId: integer("customer_profile_id").references(() => customerProfiles.id),
+  customerName: text("customer_name").notNull(),
+  companyName: text("company_name"),
+  contactPerson: text("contact_person"),
+  phone: varchar("phone", { length: 20 }),
+  deliveryAddress: text("delivery_address"),
+  orderDate: timestamp("order_date").notNull().defaultNow(),
+  totalAmount: decimal("total_amount", { precision: 15, scale: 2 }).notNull().default("0"), // VND amount
+  specialInstructions: text("special_instructions"),
+  // 'open' | 'partially_delivered' | 'delivered' | 'cancelled' - derived from the lines by
+  // recalculateSalesOrderStatus (server/sales-orders.ts), never set by hand except on cancel.
+  status: varchar("status", { length: 24 }).notNull().default('open'),
+  preparedByUserId: integer("prepared_by_user_id").references(() => users.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Sales Order Items table.
+//
+// productCode/description are snapshots of products.sku / products.name for the same reason
+// as the customer details above: the printed order must keep showing what was ordered even if
+// the catalogue entry is renamed or its SKU is corrected.
+export const salesOrderItems = pgTable("sales_order_items", {
+  id: serial("id").primaryKey(),
+  salesOrderId: integer("sales_order_id").references(() => salesOrders.id, { onDelete: "cascade" }).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  productCode: varchar("product_code", { length: 64 }).notNull(),
+  description: text("description").notNull(),
+  quantity: integer("quantity").notNull(),
+  unitPrice: decimal("unit_price", { precision: 15, scale: 2 }).notNull(), // VND amount
+  totalPrice: decimal("total_price", { precision: 15, scale: 2 }).notNull(), // VND amount
+  // Units already covered by delivery notes. Incremented by POST /api/delivery-notes.
+  deliveredQuantity: integer("delivered_quantity").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Delivery Notes (outbound counterpart of the goods receipt).
+//
+// A short delivery produces one note per shipment; the note carries its own copy of the
+// customer block so it can be reprinted exactly as it was signed.
+export const deliveryNotes = pgTable("delivery_notes", {
+  id: serial("id").primaryKey(),
+  deliveryNoteNumber: varchar("delivery_note_number", { length: 50 }).notNull().unique(), // DN-YYYYMMDD-NNNN
+  salesOrderId: integer("sales_order_id").references(() => salesOrders.id).notNull(),
+  deliveryDate: timestamp("delivery_date").notNull().defaultNow(),
+  // Customer block snapshotted from the sales order at the moment of delivery.
+  customerName: text("customer_name").notNull(),
+  companyName: text("company_name"),
+  contactPerson: text("contact_person"),
+  phone: varchar("phone", { length: 20 }),
+  deliveryAddress: text("delivery_address"),
+  deliveredByUserId: integer("delivered_by_user_id").references(() => users.id).notNull(),
+  // "Goods received in good condition." ticked by the customer on the printed note.
+  customerConfirmed: boolean("customer_confirmed").notNull().default(false),
+  remarks: text("remarks"),
+  status: varchar("status", { length: 20 }).notNull().default('issued'), // 'issued' | 'cancelled'
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Delivery Note Items - one row per order line that travelled on this note.
+//
+// AI Agent Note: orderedQuantity is a snapshot, not a join to salesOrderItems.quantity, so a
+// reprinted note keeps saying "Ordered 10 / Delivered 6" even after the rest of the order has
+// been delivered and the order line's delivered_quantity has moved on.
+export const deliveryNoteItems = pgTable("delivery_note_items", {
+  id: serial("id").primaryKey(),
+  deliveryNoteId: integer("delivery_note_id").references(() => deliveryNotes.id, { onDelete: "cascade" }).notNull(),
+  salesOrderItemId: integer("sales_order_item_id").references(() => salesOrderItems.id, { onDelete: "cascade" }).notNull(),
+  productCode: varchar("product_code", { length: 64 }).notNull(),
+  description: text("description").notNull(),
+  orderedQuantity: integer("ordered_quantity").notNull(),
+  deliveredQuantity: integer("delivered_quantity").notNull(),
+  remarks: text("remarks"),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 // Invoice Counters table - Store-specific invoice numbering
@@ -554,6 +658,7 @@ export const purchaseOrderItemsRelations = relations(purchaseOrderItems, ({ many
 export const customerProfilesRelations = relations(customerProfiles, ({ many }) => ({
   orders: many(orders),
   salesTransactions: many(salesTransactions),
+  salesOrders: many(salesOrders),
 }));
 
 // Add relations for invoice counters
@@ -677,6 +782,58 @@ export const transferHistoryRelations = relations(transferHistory, ({ one }) => 
   }),
 }));
 
+// Add sales order relations
+export const salesOrdersRelations = relations(salesOrders, ({ many, one }) => ({
+  items: many(salesOrderItems),
+  deliveryNotes: many(deliveryNotes),
+  customerProfile: one(customerProfiles, {
+    fields: [salesOrders.customerProfileId],
+    references: [customerProfiles.id],
+  }),
+  preparedByUser: one(users, {
+    fields: [salesOrders.preparedByUserId],
+    references: [users.id],
+  }),
+}));
+
+// Add sales order item relations
+export const salesOrderItemsRelations = relations(salesOrderItems, ({ one, many }) => ({
+  salesOrder: one(salesOrders, {
+    fields: [salesOrderItems.salesOrderId],
+    references: [salesOrders.id],
+  }),
+  product: one(products, {
+    fields: [salesOrderItems.productId],
+    references: [products.id],
+  }),
+  deliveryNoteItems: many(deliveryNoteItems),
+}));
+
+// Add delivery note relations
+export const deliveryNotesRelations = relations(deliveryNotes, ({ many, one }) => ({
+  items: many(deliveryNoteItems),
+  salesOrder: one(salesOrders, {
+    fields: [deliveryNotes.salesOrderId],
+    references: [salesOrders.id],
+  }),
+  deliveredByUser: one(users, {
+    fields: [deliveryNotes.deliveredByUserId],
+    references: [users.id],
+  }),
+}));
+
+// Add delivery note item relations
+export const deliveryNoteItemsRelations = relations(deliveryNoteItems, ({ one }) => ({
+  deliveryNote: one(deliveryNotes, {
+    fields: [deliveryNoteItems.deliveryNoteId],
+    references: [deliveryNotes.id],
+  }),
+  salesOrderItem: one(salesOrderItems, {
+    fields: [deliveryNoteItems.salesOrderItemId],
+    references: [salesOrderItems.id],
+  }),
+}));
+
 // Add regions relations
 export const regionsRelations = relations(regions, ({ one, many }) => ({
   managerUser: one(users, {
@@ -740,13 +897,43 @@ export type InsertPurchaseOrderAction = typeof purchaseOrderActions.$inferInsert
 export type SelectPurchaseOrderAction = typeof purchaseOrderActions.$inferSelect;
 
 // Add customer profile schemas
+//
+// The routes read every field straight off `result.data`, so the required columns are declared
+// here as real validators (rather than relying on the drizzle-derived optionality).
 export const insertCustomerProfileSchema = createInsertSchema(customerProfiles, {
+  mobileNumber: z.string().min(1, "Mobile number is required").max(20, "Mobile number is too long"),
+  name: z.string().min(1, "Name is required"),
+  email: z.string().email("Invalid email address"),
+  address: z.string().min(1, "Address is required"),
   photo: z.string().nullable().optional(),
-  petBirthday: z.string().nullable().optional()
+  landLineNumber: z.string().max(20, "Land line number is too long").nullable().optional(),
+  customerType: z.enum(CUSTOMER_TYPES)
 });
 export const selectCustomerProfileSchema = createSelectSchema(customerProfiles);
 export type InsertCustomerProfile = typeof customerProfiles.$inferInsert;
 export type SelectCustomerProfile = typeof customerProfiles.$inferSelect;
+
+// Add sales order schemas
+export const insertSalesOrderSchema = createInsertSchema(salesOrders);
+export const selectSalesOrderSchema = createSelectSchema(salesOrders);
+export type InsertSalesOrder = typeof salesOrders.$inferInsert;
+export type SelectSalesOrder = typeof salesOrders.$inferSelect;
+
+export const insertSalesOrderItemSchema = createInsertSchema(salesOrderItems);
+export const selectSalesOrderItemSchema = createSelectSchema(salesOrderItems);
+export type InsertSalesOrderItem = typeof salesOrderItems.$inferInsert;
+export type SelectSalesOrderItem = typeof salesOrderItems.$inferSelect;
+
+// Add delivery note schemas
+export const insertDeliveryNoteSchema = createInsertSchema(deliveryNotes);
+export const selectDeliveryNoteSchema = createSelectSchema(deliveryNotes);
+export type InsertDeliveryNote = typeof deliveryNotes.$inferInsert;
+export type SelectDeliveryNote = typeof deliveryNotes.$inferSelect;
+
+export const insertDeliveryNoteItemSchema = createInsertSchema(deliveryNoteItems);
+export const selectDeliveryNoteItemSchema = createSelectSchema(deliveryNoteItems);
+export type InsertDeliveryNoteItem = typeof deliveryNoteItems.$inferInsert;
+export type SelectDeliveryNoteItem = typeof deliveryNoteItems.$inferSelect;
 
 // Add invoice counter schemas
 export const insertInvoiceCounterSchema = createInsertSchema(invoiceCounters);

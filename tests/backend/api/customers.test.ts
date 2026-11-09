@@ -26,85 +26,85 @@ describe('Customer Management Tests', () => {
     describe('Customer Profile Creation', () => {
         it('should create a new customer profile', async () => {
             const [customer] = await db.insert(customerProfiles).values({
-                phoneNumber: '0901234567',
+                mobileNumber: '0901234567',
                 name: 'John Doe',
                 email: 'john@example.com',
                 address: '123 Test Street',
-                petType: 'DOG',
+                customerType: 'B2C',
             }).returning();
 
             expect(customer).toBeDefined();
-            expect(customer.phoneNumber).toBe('0901234567');
+            expect(customer.mobileNumber).toBe('0901234567');
             expect(customer.name).toBe('John Doe');
             expect(customer.email).toBe('john@example.com');
-            expect(customer.petType).toBe('DOG');
+            expect(customer.customerType).toBe('B2C');
         });
 
         it('should create customer with optional fields', async () => {
             const [customer] = await db.insert(customerProfiles).values({
-                phoneNumber: '0909876543',
+                mobileNumber: '0909876543',
                 name: 'Jane Smith',
                 email: 'jane@example.com',
                 address: '456 Customer Ave',
-                petType: 'CAT',
+                customerType: 'B2B',
                 photo: 'profile.jpg',
             }).returning();
 
             expect(customer.photo).toBe('profile.jpg');
         });
 
-        it('should enforce unique phone numbers', async () => {
+        it('should enforce unique mobile numbers', async () => {
             // Create first customer
             await db.insert(customerProfiles).values({
-                phoneNumber: '0901111111',
+                mobileNumber: '0901111111',
                 name: 'John Doe',
                 email: 'john@example.com',
                 address: '123 Test St',
-                petType: 'DOG',
+                customerType: 'B2C',
             });
 
-            // Try to create duplicate phone
+            // Try to create duplicate mobile number
             await expect(async () => {
                 await db.insert(customerProfiles).values({
-                    phoneNumber: '0901111111', // Same phone
+                    mobileNumber: '0901111111', // Same mobile
                     name: 'Jane Doe',
                     email: 'jane@example.com',
                     address: '456 Test St',
-                    petType: 'CAT',
+                    customerType: 'B2B',
                 });
             }).rejects.toThrow();
         });
 
-        it('should support both CAT and DOG pet types', async () => {
-            const [catCustomer] = await db.insert(customerProfiles).values({
-                phoneNumber: '0902222222',
-                name: 'Cat Owner',
-                email: 'cat@example.com',
-                address: '123 Cat St',
-                petType: 'CAT',
+        it('should support both B2B and B2C customer types', async () => {
+            const [businessCustomer] = await db.insert(customerProfiles).values({
+                mobileNumber: '0902222222',
+                name: 'Business Buyer',
+                email: 'business@example.com',
+                address: '123 Trade St',
+                customerType: 'B2B',
             }).returning();
 
-            const [dogCustomer] = await db.insert(customerProfiles).values({
-                phoneNumber: '0903333333',
-                name: 'Dog Owner',
-                email: 'dog@example.com',
-                address: '456 Dog Ave',
-                petType: 'DOG',
+            const [consumerCustomer] = await db.insert(customerProfiles).values({
+                mobileNumber: '0903333333',
+                name: 'Consumer Buyer',
+                email: 'consumer@example.com',
+                address: '456 Market Ave',
+                customerType: 'B2C',
             }).returning();
 
-            expect(catCustomer.petType).toBe('CAT');
-            expect(dogCustomer.petType).toBe('DOG');
+            expect(businessCustomer.customerType).toBe('B2B');
+            expect(consumerCustomer.customerType).toBe('B2C');
         });
     });
 
     describe('Customer Profile Updates', () => {
         it('should update customer information', async () => {
             const [customer] = await db.insert(customerProfiles).values({
-                phoneNumber: '0904444444',
+                mobileNumber: '0904444444',
                 name: 'Original Name',
                 email: 'original@example.com',
                 address: 'Original Address',
-                petType: 'DOG',
+                customerType: 'B2C',
             }).returning();
 
             const [updated] = await db.update(customerProfiles)
@@ -121,25 +121,27 @@ describe('Customer Management Tests', () => {
             expect(updated.address).toBe('Updated Address');
         });
 
-        it('should update pet information', async () => {
+        it('should update customer account information', async () => {
             const [customer] = await db.insert(customerProfiles).values({
-                phoneNumber: '0905555555',
-                name: 'Pet Owner',
-                email: 'pet@example.com',
-                address: 'Pet Address',
-                petType: 'DOG',
+                mobileNumber: '0905555555',
+                name: 'Account Holder',
+                email: 'account@example.com',
+                address: 'Account Address',
+                customerType: 'B2C',
             }).returning();
 
             const [updated] = await db.update(customerProfiles)
                 .set({
-                    petType: 'CAT',
-                    photo: 'new-pet-photo.jpg',
+                    customerType: 'B2B',
+                    landLineNumber: '02838221234',
+                    photo: 'new-account-photo.jpg',
                 })
                 .where(eq(customerProfiles.id, customer.id))
                 .returning();
 
-            expect(updated.petType).toBe('CAT');
-            expect(updated.photo).toBe('new-pet-photo.jpg');
+            expect(updated.customerType).toBe('B2B');
+            expect(updated.landLineNumber).toBe('02838221234');
+            expect(updated.photo).toBe('new-account-photo.jpg');
         });
     });
 
@@ -148,32 +150,32 @@ describe('Customer Management Tests', () => {
             // Create test customers for search tests
             await db.insert(customerProfiles).values([
                 {
-                    phoneNumber: '0901111111',
+                    mobileNumber: '0901111111',
                     name: 'John Smith',
                     email: 'john@example.com',
                     address: '123 Main St',
-                    petType: 'DOG',
+                    customerType: 'B2C',
                 },
                 {
-                    phoneNumber: '0902222222',
+                    mobileNumber: '0902222222',
                     name: 'Jane Johnson',
                     email: 'jane@example.com',
                     address: '456 Oak Ave',
-                    petType: 'CAT',
+                    customerType: 'B2B',
                 },
                 {
-                    phoneNumber: '0903333333',
+                    mobileNumber: '0903333333',
                     name: 'Bob Wilson',
                     email: 'bob@example.com',
                     address: '789 Pine St',
-                    petType: 'DOG',
+                    customerType: 'B2C',
                 }
             ]);
         });
 
-        it('should find customer by phone number', async () => {
+        it('should find customer by mobile number', async () => {
             const customer = await db.query.customerProfiles.findFirst({
-                where: eq(customerProfiles.phoneNumber, '0901111111'),
+                where: eq(customerProfiles.mobileNumber, '0901111111'),
             });
 
             expect(customer).toBeDefined();
@@ -181,9 +183,11 @@ describe('Customer Management Tests', () => {
         });
 
         it('should find customers by name (partial match)', async () => {
+            // 'John' alone also matches the 'Jane Johnson' fixture, so narrow the pattern to keep
+            // this test about LIKE semantics rather than about substring collisions.
             const customers = await db.select()
                 .from(customerProfiles)
-                .where(like(customerProfiles.name, '%John%'));
+                .where(like(customerProfiles.name, '%John Sm%'));
 
             expect(customers).toHaveLength(1);
             expect(customers[0].name).toBe('John Smith');
@@ -198,13 +202,13 @@ describe('Customer Management Tests', () => {
             expect(customer?.name).toBe('Jane Johnson');
         });
 
-        it('should find customers by pet type', async () => {
-            const dogCustomers = await db.select()
+        it('should find customers by customer type', async () => {
+            const consumerCustomers = await db.select()
                 .from(customerProfiles)
-                .where(eq(customerProfiles.petType, 'DOG'));
+                .where(eq(customerProfiles.customerType, 'B2C'));
 
-            expect(dogCustomers).toHaveLength(2);
-            expect(dogCustomers.every(c => c.petType === 'DOG')).toBe(true);
+            expect(consumerCustomers).toHaveLength(2);
+            expect(consumerCustomers.every(c => c.customerType === 'B2C')).toBe(true);
         });
     });
 
@@ -212,11 +216,11 @@ describe('Customer Management Tests', () => {
         it('should link customer to sales transactions', async () => {
             // Create customer
             const [customer] = await db.insert(customerProfiles).values({
-                phoneNumber: '0906666666',
+                mobileNumber: '0906666666',
                 name: 'Purchase Customer',
                 email: 'purchase@example.com',
                 address: 'Purchase Address',
-                petType: 'DOG',
+                customerType: 'B2C',
             }).returning();
 
             // Create sales transactions for this customer
@@ -258,11 +262,11 @@ describe('Customer Management Tests', () => {
         it('should calculate customer total purchase amount', async () => {
             // Create customer
             const [customer] = await db.insert(customerProfiles).values({
-                phoneNumber: '0907777777',
+                mobileNumber: '0907777777',
                 name: 'Total Customer',
                 email: 'total@example.com',
                 address: 'Total Address',
-                petType: 'CAT',
+                customerType: 'B2B',
             }).returning();
 
             // Create transactions
@@ -305,8 +309,8 @@ describe('Customer Management Tests', () => {
                     name: 'No Phone Customer',
                     email: 'nophone@example.com',
                     address: 'No Phone Address',
-                    petType: 'DOG',
-                    // Missing phoneNumber
+                    customerType: 'B2C',
+                    // Missing mobileNumber
                 } as any);
             }).rejects.toThrow();
         });
@@ -314,10 +318,10 @@ describe('Customer Management Tests', () => {
         it('should require name', async () => {
             await expect(async () => {
                 await db.insert(customerProfiles).values({
-                    phoneNumber: '0908888888',
+                    mobileNumber: '0908888888',
                     email: 'noname@example.com',
                     address: 'No Name Address',
-                    petType: 'DOG',
+                    customerType: 'B2C',
                     // Missing name
                 } as any);
             }).rejects.toThrow();
@@ -326,10 +330,10 @@ describe('Customer Management Tests', () => {
         it('should require email', async () => {
             await expect(async () => {
                 await db.insert(customerProfiles).values({
-                    phoneNumber: '0909999999',
+                    mobileNumber: '0909999999',
                     name: 'No Email Customer',
                     address: 'No Email Address',
-                    petType: 'DOG',
+                    customerType: 'B2C',
                     // Missing email
                 } as any);
             }).rejects.toThrow();
@@ -338,35 +342,35 @@ describe('Customer Management Tests', () => {
         it('should require address', async () => {
             await expect(async () => {
                 await db.insert(customerProfiles).values({
-                    phoneNumber: '0900000000',
+                    mobileNumber: '0900000000',
                     name: 'No Address Customer',
                     email: 'noaddress@example.com',
-                    petType: 'DOG',
+                    customerType: 'B2C',
                     // Missing address
                 } as any);
             }).rejects.toThrow();
         });
 
-        it('should require pet type', async () => {
+        it('should require customer type', async () => {
             await expect(async () => {
                 await db.insert(customerProfiles).values({
-                    phoneNumber: '0901212121',
-                    name: 'No Pet Customer',
-                    email: 'nopet@example.com',
-                    address: 'No Pet Address',
-                    // Missing petType
+                    mobileNumber: '0901212121',
+                    name: 'No Type Customer',
+                    email: 'notype@example.com',
+                    address: 'No Type Address',
+                    // Missing customerType
                 } as any);
             }).rejects.toThrow();
         });
 
-        it('should validate pet type values', async () => {
+        it('should reject unknown customer type values', async () => {
             await expect(async () => {
                 await db.insert(customerProfiles).values({
-                    phoneNumber: '0901313131',
-                    name: 'Invalid Pet Customer',
-                    email: 'invalidpet@example.com',
-                    address: 'Invalid Pet Address',
-                    petType: 'INVALID' as any, // Invalid pet type
+                    mobileNumber: '0901313131',
+                    name: 'Invalid Type Customer',
+                    email: 'invalidtype@example.com',
+                    address: 'Invalid Type Address',
+                    customerType: 'INVALID' as any, // Not a customer type
                 });
             }).rejects.toThrow();
         });
@@ -375,11 +379,11 @@ describe('Customer Management Tests', () => {
     describe('Customer Profile Deletion', () => {
         it('should delete customer profile', async () => {
             const [customer] = await db.insert(customerProfiles).values({
-                phoneNumber: '0901414141',
+                mobileNumber: '0901414141',
                 name: 'Delete Customer',
                 email: 'delete@example.com',
                 address: 'Delete Address',
-                petType: 'DOG',
+                customerType: 'B2C',
             }).returning();
 
             await db.delete(customerProfiles).where(eq(customerProfiles.id, customer.id));
@@ -394,11 +398,11 @@ describe('Customer Management Tests', () => {
         it('should handle customer deletion with existing transactions', async () => {
             // Create customer
             const [customer] = await db.insert(customerProfiles).values({
-                phoneNumber: '0901515151',
+                mobileNumber: '0901515151',
                 name: 'Transaction Customer',
                 email: 'transaction@example.com',
                 address: 'Transaction Address',
-                petType: 'CAT',
+                customerType: 'B2B',
             }).returning();
 
             // Create transaction for customer
@@ -435,19 +439,19 @@ describe('Customer Management Tests', () => {
         beforeEach(async () => {
             // Create test customers and transactions for analytics
             const [customer1] = await db.insert(customerProfiles).values({
-                phoneNumber: '0901616161',
+                mobileNumber: '0901616161',
                 name: 'Analytics Customer 1',
                 email: 'analytics1@example.com',
                 address: 'Analytics Address 1',
-                petType: 'DOG',
+                customerType: 'B2C',
             }).returning();
 
             const [customer2] = await db.insert(customerProfiles).values({
-                phoneNumber: '0901717171',
+                mobileNumber: '0901717171',
                 name: 'Analytics Customer 2',
                 email: 'analytics2@example.com',
                 address: 'Analytics Address 2',
-                petType: 'CAT',
+                customerType: 'B2B',
             }).returning();
 
             await db.insert(salesTransactions).values([
@@ -489,22 +493,22 @@ describe('Customer Management Tests', () => {
             expect(customers.length).toBeGreaterThanOrEqual(2);
         });
 
-        it('should count customers by pet type', async () => {
-            const dogCustomers = await db.select()
+        it('should count customers by customer type', async () => {
+            const consumerCustomers = await db.select()
                 .from(customerProfiles)
-                .where(eq(customerProfiles.petType, 'DOG'));
+                .where(eq(customerProfiles.customerType, 'B2C'));
 
-            const catCustomers = await db.select()
+            const businessCustomers = await db.select()
                 .from(customerProfiles)
-                .where(eq(customerProfiles.petType, 'CAT'));
+                .where(eq(customerProfiles.customerType, 'B2B'));
 
-            expect(dogCustomers.length).toBeGreaterThanOrEqual(1);
-            expect(catCustomers.length).toBeGreaterThanOrEqual(1);
+            expect(consumerCustomers.length).toBeGreaterThanOrEqual(1);
+            expect(businessCustomers.length).toBeGreaterThanOrEqual(1);
         });
 
         it('should calculate customer lifetime value', async () => {
             const customer = await db.query.customerProfiles.findFirst({
-                where: eq(customerProfiles.phoneNumber, '0901616161'),
+                where: eq(customerProfiles.mobileNumber, '0901616161'),
                 with: {
                     salesTransactions: true,
                 },

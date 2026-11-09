@@ -33,16 +33,16 @@ import { Loader2, Plus } from "lucide-react";
 const phoneRegex = /^\+?[1-9]\d{1,14}$/;
 
 const customerProfileSchema = z.object({
-  phoneNumber: z.string()
-    .min(1, "Phone number is required")
-    .regex(phoneRegex, "Invalid phone number format"),
+  mobileNumber: z.string()
+    .min(1, "Mobile number is required")
+    .regex(phoneRegex, "Invalid mobile number format"),
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Invalid email address"),
   address: z.string().min(1, "Address is required"),
   photo: z.string().nullable().optional(),
-  petBirthday: z.string().nullable().optional(),
-  petType: z.enum(["CAT", "DOG"], {
-    required_error: "Please select a pet type",
+  landLineNumber: z.string().max(20, "Land line number is too long").nullable().optional(),
+  customerType: z.enum(["B2B", "B2C"], {
+    required_error: "Please select a customer type",
   }),
 });
 
@@ -56,11 +56,11 @@ export function CreateCustomerProfileDialog() {
   const form = useForm<FormData>({
     resolver: zodResolver(customerProfileSchema),
     defaultValues: {
-      phoneNumber: "",
+      mobileNumber: "",
       name: "",
       email: "",
       address: "",
-      petType: undefined,
+      customerType: undefined,
     },
   });
 
@@ -70,10 +70,7 @@ export function CreateCustomerProfileDialog() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          ...data,
-          petBirthday: data.petBirthday ? new Date(data.petBirthday).toISOString() : null,
-        }),
+        body: JSON.stringify(data),
       });
 
       if (!response.ok) {
@@ -119,120 +116,123 @@ export function CreateCustomerProfileDialog() {
           Add Customer Profile
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-2xl">
+      {/* Same layout as the edit dialog: capped height that scrolls, two field columns. */}
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Create Customer Profile</DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <FormField
-              control={form.control}
-              name="phoneNumber"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Phone Number</FormLabel>
-                  <FormControl>
-                    <Input {...field} placeholder="+1234567890" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input type="email" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="address"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Address</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="photo"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Photo URL (Optional)</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="petBirthday"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Pet Birthday (Optional)</FormLabel>
-                  <FormControl>
-                    <Input type="date" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="petType"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Pet Type</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value}
-                  >
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="mobileNumber"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Mobile Number</FormLabel>
                     <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select pet type" />
-                      </SelectTrigger>
+                      <Input {...field} placeholder="+1234567890" />
                     </FormControl>
-                    <SelectContent>
-                      <SelectItem value="CAT">Cat</SelectItem>
-                      <SelectItem value="DOG">Dog</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Name</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email</FormLabel>
+                    <FormControl>
+                      <Input type="email" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="landLineNumber"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Land Line Number (Optional)</FormLabel>
+                    <FormControl>
+                      <Input type="tel" {...field} value={field.value ?? ""} placeholder="+1234567890" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="customerType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Customer Type</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select customer type" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="B2B">B2B - Business</SelectItem>
+                        <SelectItem value="B2C">B2C - Consumer</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="photo"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Photo URL (Optional)</FormLabel>
+                    <FormControl>
+                      <Input {...field} value={field.value ?? ""} placeholder="https://..." />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="address"
+                render={({ field }) => (
+                  <FormItem className="sm:col-span-2">
+                    <FormLabel>Address</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
 
             <div className="flex justify-end gap-4">
               <Button

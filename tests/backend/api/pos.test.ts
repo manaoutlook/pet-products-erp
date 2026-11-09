@@ -122,48 +122,48 @@ describe('Point of Sale (POS) Tests', () => {
     describe('Customer Integration', () => {
         it('should create customer profile', async () => {
             const [customer] = await db.insert(customerProfiles).values({
-                phoneNumber: '0901234567',
+                mobileNumber: '0901234567',
                 name: 'John Doe',
                 email: 'john@example.com',
                 address: '123 Test St',
-                petType: 'DOG',
+                customerType: 'B2C',
             }).returning();
 
             expect(customer).toBeDefined();
-            expect(customer.phoneNumber).toBe('0901234567');
+            expect(customer.mobileNumber).toBe('0901234567');
             expect(customer.name).toBe('John Doe');
-            expect(customer.petType).toBe('DOG');
+            expect(customer.customerType).toBe('B2C');
         });
 
         it('should enforce unique phone numbers for customers', async () => {
             // Create first customer
             await db.insert(customerProfiles).values({
-                phoneNumber: '0901111111',
+                mobileNumber: '0901111111',
                 name: 'John Doe',
                 email: 'john@example.com',
                 address: '123 Test St',
-                petType: 'DOG',
+                customerType: 'B2C',
             });
 
             // Try to create duplicate phone
             await expect(async () => {
                 await db.insert(customerProfiles).values({
-                    phoneNumber: '0901111111', // Same phone
+                    mobileNumber: '0901111111', // Same phone
                     name: 'Jane Doe',
                     email: 'jane@example.com',
                     address: '456 Test St',
-                    petType: 'CAT',
+                    customerType: 'B2B',
                 });
             }).rejects.toThrow();
         });
 
         it('should link transaction to customer', async () => {
             const [customer] = await db.insert(customerProfiles).values({
-                phoneNumber: '0902222222',
+                mobileNumber: '0902222222',
                 name: 'Jane Smith',
                 email: 'jane@example.com',
                 address: '456 Customer St',
-                petType: 'CAT',
+                customerType: 'B2B',
             }).returning();
 
             const [transaction] = await db.insert(salesTransactions).values({
@@ -185,7 +185,7 @@ describe('Point of Sale (POS) Tests', () => {
             });
 
             expect(transactionWithCustomer?.customerProfile?.name).toBe('Jane Smith');
-            expect(transactionWithCustomer?.customerProfile?.phoneNumber).toBe('0902222222');
+            expect(transactionWithCustomer?.customerProfile?.mobileNumber).toBe('0902222222');
         });
     });
 

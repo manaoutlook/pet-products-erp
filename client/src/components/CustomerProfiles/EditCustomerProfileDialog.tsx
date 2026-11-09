@@ -31,16 +31,16 @@ import { Loader2 } from "lucide-react";
 const phoneRegex = /^\+?[1-9]\d{1,14}$/;
 
 const customerProfileSchema = z.object({
-  phoneNumber: z.string()
-    .min(1, "Phone number is required")
-    .regex(phoneRegex, "Invalid phone number format"),
+  mobileNumber: z.string()
+    .min(1, "Mobile number is required")
+    .regex(phoneRegex, "Invalid mobile number format"),
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Invalid email address"),
   address: z.string().min(1, "Address is required"),
   photo: z.string().nullable().optional(),
-  petBirthday: z.string().nullable().optional(),
-  petType: z.enum(["CAT", "DOG"], {
-    required_error: "Please select a pet type",
+  landLineNumber: z.string().max(20, "Land line number is too long").nullable().optional(),
+  customerType: z.enum(["B2B", "B2C"], {
+    required_error: "Please select a customer type",
   }),
 });
 
@@ -48,13 +48,13 @@ type FormData = z.infer<typeof customerProfileSchema>;
 
 interface CustomerProfile {
   id: number;
-  phoneNumber: string;
+  mobileNumber: string;
   name: string;
   email: string;
   address: string;
   photo?: string;
-  petBirthday?: string;
-  petType: 'CAT' | 'DOG';
+  landLineNumber?: string | null;
+  customerType: 'B2B' | 'B2C';
 }
 
 interface EditCustomerProfileDialogProps {
@@ -70,13 +70,13 @@ export function EditCustomerProfileDialog({ profile, open, onOpenChange }: EditC
   const form = useForm<FormData>({
     resolver: zodResolver(customerProfileSchema),
     defaultValues: {
-      phoneNumber: profile.phoneNumber,
+      mobileNumber: profile.mobileNumber,
       name: profile.name,
       email: profile.email,
       address: profile.address,
       photo: profile.photo,
-      petBirthday: profile.petBirthday,
-      petType: profile.petType,
+      landLineNumber: profile.landLineNumber ?? "",
+      customerType: profile.customerType,
     },
   });
 
@@ -89,7 +89,7 @@ export function EditCustomerProfileDialog({ profile, open, onOpenChange }: EditC
         body: JSON.stringify({
           ...data,
           photo: data.photo || null,
-          petBirthday: data.petBirthday ? new Date(data.petBirthday).toISOString() : null,
+          landLineNumber: data.landLineNumber || null,
         }),
       });
 
@@ -129,120 +129,126 @@ export function EditCustomerProfileDialog({ profile, open, onOpenChange }: EditC
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      {/* The form is taller than a short window, so cap the height and scroll: a dialog that
+          is only vertically centred pushes its own header off-screen. */}
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit Customer Profile</DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <FormField
-              control={form.control}
-              name="phoneNumber"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Phone Number</FormLabel>
-                  <FormControl>
-                    <Input {...field} placeholder="+1234567890" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input type="email" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="address"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Address</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="photo"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Photo URL (Optional)</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="petBirthday"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Pet Birthday (Optional)</FormLabel>
-                  <FormControl>
-                    <Input type="date" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="petType"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Pet Type</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value}
-                  >
+            {/* Two columns above `sm`, so the whole account fits without scrolling. */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="mobileNumber"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Mobile Number</FormLabel>
                     <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select pet type" />
-                      </SelectTrigger>
+                      <Input {...field} placeholder="+1234567890" />
                     </FormControl>
-                    <SelectContent>
-                      <SelectItem value="CAT">Cat</SelectItem>
-                      <SelectItem value="DOG">Dog</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Name</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email</FormLabel>
+                    <FormControl>
+                      <Input type="email" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="landLineNumber"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Land Line Number (Optional)</FormLabel>
+                    <FormControl>
+                      <Input type="tel" {...field} value={field.value ?? ""} placeholder="+1234567890" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="customerType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Customer Type</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select customer type" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="B2B">B2B - Business</SelectItem>
+                        <SelectItem value="B2C">B2C - Consumer</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="photo"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Photo URL (Optional)</FormLabel>
+                    <FormControl>
+                      <Input {...field} value={field.value ?? ""} placeholder="https://..." />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Addresses are the one long value here. */}
+              <FormField
+                control={form.control}
+                name="address"
+                render={({ field }) => (
+                  <FormItem className="sm:col-span-2">
+                    <FormLabel>Address</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
 
             <div className="flex justify-end gap-4">
               <Button

@@ -17,6 +17,16 @@ export function generateReceiptNumber(): string {
   return `GRN-${stamp()}-${random(1000, 9000)}`;
 }
 
+/** `SO-YYYYMMDD-NNNN` - the Sales Order number printed on the customer's order form. */
+export function generateSalesOrderNumber(): string {
+  return `SO-${stamp()}-${random(1000, 9000)}`;
+}
+
+/** `DN-YYYYMMDD-NNNN` - the Delivery Note number, one per shipment. */
+export function generateDeliveryNoteNumber(): string {
+  return `DN-${stamp()}-${random(1000, 9000)}`;
+}
+
 /**
  * Barcode printed on an inventory row: `DC`/`ST` + zero-padded store id + SKU + 4 digits.
  *
