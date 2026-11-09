@@ -66,6 +66,9 @@ export function CreateCustomerProfileDialog() {
     },
   });
 
+  // Only a business trades under a company name, so the box is rendered for B2B alone.
+  const isBusiness = form.watch("customerType") === "B2B";
+
   const createCustomerProfile = useMutation({
     mutationFn: async (data: FormData) => {
       const response = await fetch('/api/customer-profiles', {
@@ -107,7 +110,11 @@ export function CreateCustomerProfileDialog() {
   });
 
   const onSubmit = (data: FormData) => {
-    createCustomerProfile.mutate(data);
+    createCustomerProfile.mutate({
+      ...data,
+      // A consumer has no company - never send one the form is not showing.
+      companyName: data.customerType === "B2B" ? data.companyName || null : null,
+    });
   };
 
   return (
@@ -126,6 +133,32 @@ export function CreateCustomerProfileDialog() {
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {/* Asked first: the answer decides whether a company name is collected at all. */}
+              <FormField
+                control={form.control}
+                name="customerType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Customer Type</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select customer type" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="B2B">B2B - Business</SelectItem>
+                        <SelectItem value="B2C">B2C - Consumer</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <FormField
                 control={form.control}
                 name="mobileNumber"
@@ -149,19 +182,26 @@ export function CreateCustomerProfileDialog() {
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name="companyName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Company Name (Optional)</FormLabel>
-                    <FormControl>
-                      <Input {...field} value={field.value ?? ""} placeholder="Acme Pet Supplies Co." />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {isBusiness && (
+                <FormField
+                  control={form.control}
+                  name="companyName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Company Name (Optional)</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          value={field.value ?? ""}
+                          placeholder="Acme Pet Supplies Co."
+                          autoComplete="organization"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
               <FormField
                 control={form.control}
@@ -207,31 +247,6 @@ export function CreateCustomerProfileDialog() {
                         onChange={(event) => field.onChange(normalizePhoneNumber(event.target.value))}
                       />
                     </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="customerType"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Customer Type</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select customer type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="B2B">B2B - Business</SelectItem>
-                        <SelectItem value="B2C">B2C - Consumer</SelectItem>
-                      </SelectContent>
-                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}

@@ -85,6 +85,9 @@ export function EditCustomerProfileDialog({ profile, open, onOpenChange }: EditC
     },
   });
 
+  // Only a business trades under a company name, so the box is rendered for B2B alone.
+  const isBusiness = form.watch("customerType") === "B2B";
+
   const updateCustomerProfile = useMutation({
     mutationFn: async (data: FormData) => {
       const response = await fetch(`/api/customer-profiles/${profile.id}`, {
@@ -93,6 +96,8 @@ export function EditCustomerProfileDialog({ profile, open, onOpenChange }: EditC
         credentials: 'include',
         body: JSON.stringify({
           ...data,
+          // A consumer has no company - never send one the form is not showing.
+          companyName: data.customerType === "B2B" ? data.companyName || null : null,
           photo: data.photo || null,
           landLineNumber: data.landLineNumber || null,
         }),
@@ -144,6 +149,32 @@ export function EditCustomerProfileDialog({ profile, open, onOpenChange }: EditC
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             {/* Two columns above `sm`, so the whole account fits without scrolling. */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {/* Asked first: the answer decides whether a company name is collected at all. */}
+              <FormField
+                control={form.control}
+                name="customerType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Customer Type</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select customer type" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="B2B">B2B - Business</SelectItem>
+                        <SelectItem value="B2C">B2C - Consumer</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <FormField
                 control={form.control}
                 name="mobileNumber"
@@ -167,19 +198,26 @@ export function EditCustomerProfileDialog({ profile, open, onOpenChange }: EditC
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name="companyName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Company Name (Optional)</FormLabel>
-                    <FormControl>
-                      <Input {...field} value={field.value ?? ""} placeholder="Acme Pet Supplies Co." />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {isBusiness && (
+                <FormField
+                  control={form.control}
+                  name="companyName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Company Name (Optional)</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          value={field.value ?? ""}
+                          placeholder="Acme Pet Supplies Co."
+                          autoComplete="organization"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
               <FormField
                 control={form.control}
@@ -225,31 +263,6 @@ export function EditCustomerProfileDialog({ profile, open, onOpenChange }: EditC
                         onChange={(event) => field.onChange(normalizePhoneNumber(event.target.value))}
                       />
                     </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="customerType"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Customer Type</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select customer type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="B2B">B2B - Business</SelectItem>
-                        <SelectItem value="B2C">B2C - Consumer</SelectItem>
-                      </SelectContent>
-                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
