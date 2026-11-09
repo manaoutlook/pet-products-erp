@@ -33,6 +33,7 @@ const DeliveryNotesPage = lazy(() => import("./pages/DeliveryNotesPage"));
 const CustomerProfilesPage = lazy(() => import("./pages/CustomerProfilesPage"));
 const ReceiptsPage = lazy(() => import("./pages/ReceiptsPage"));
 const RegionPage = lazy(() => import("./pages/RegionPage"));
+const CompanyProfilePage = lazy(() => import("./pages/CompanyProfilePage"));
 
 function RouteFallback() {
   return (
@@ -100,6 +101,9 @@ function App() {
             </Route>
             <Route path="/suppliers">
               <RequirePermission module="masterData" action="read"><SuppliersPage /></RequirePermission>
+            </Route>
+            <Route path="/company-profile">
+              <RequirePermission module="masterData" action="read"><CompanyProfilePage /></RequirePermission>
             </Route>
             <Route path="/customers">
               <RequirePermission module="customerProfiles" action="read"><CustomerProfilesPage /></RequirePermission>

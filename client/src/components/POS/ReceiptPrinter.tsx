@@ -9,6 +9,13 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Printer, Download, Receipt, FileText, Search, RotateCcw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
+import { DocumentHeaderNotice, companyHeaderMissingFields } from "@/components/company/CompanyHeader";
+import {
+  companyHeaderPrintLines,
+  companyHeaderProblemMessage,
+  type CompanyHeader,
+} from "@shared/company";
 
 // Dynamic import for jsPDF to avoid SSR issues
 let jsPDF: any = null;
@@ -54,6 +61,11 @@ export interface ReceiptData {
 
 interface ReceiptPrinterProps {
   receiptData: ReceiptData | null;
+  /**
+   * The company letterhead from `useCompanyInfo()`. Every output of this component -
+   * preview, print sheet and PDF - carries it, and a blank field blocks the output.
+   */
+  company?: CompanyHeader | null;
   onPrint?: () => void;
   onClose?: () => void;
 }
@@ -70,6 +82,27 @@ function escapeHtml(value: unknown): string {
 }
 
 /**
+ * The letterhead block on the thermal print sheet.
+ *
+ * Name, registered address and a labelled tax ID - centred, in the same order and with the
+ * same rules as the A4 documents (`buildDocumentCompanyHeader`); no delivery address, no
+ * application title. The receipt has its own 80mm stylesheet, so it re-renders the shared
+ * lines rather than the shared markup.
+ */
+function buildCompanyHeaderBlock(company: CompanyHeader): string {
+  return companyHeaderPrintLines(company)
+    .map((line) => {
+      const body =
+        line.label.length > 0
+          ? `<span class="bold">${escapeHtml(line.label)}:</span> ${escapeHtml(line.value)}`
+          : escapeHtml(line.value);
+
+      return `<div class="${line.emphasis ? 'bold title' : 'small'}">${body}</div>`;
+    })
+    .join('');
+}
+
+/**
  * Build the printable receipt as a standalone document.
  *
  * AI Agent Note: this used to be `printWindow.document.write(receiptRef.current.innerHTML)`,
@@ -78,7 +111,7 @@ function escapeHtml(value: unknown): string {
  * draw. The print sheet owns its own CSS here, on white paper with black ink, and every
  * interpolated value is escaped so a product name cannot break the markup.
  */
-function buildPrintDocument(data: ReceiptData): string {
+function buildPrintDocument(data: ReceiptData, company: CompanyHeader): string {
   const money = (value: number) => `$${Number(value).toFixed(2)}`;
 
   const items = data.items
@@ -129,7 +162,7 @@ function buildPrintDocument(data: ReceiptData): string {
       </head>
       <body>
         <div class="center section">
-          <div class="bold title">${BRAND_NAME}</div>
+          ${buildCompanyHeaderBlock(company)}
           ${data.storeName ? `<div>${escapeHtml(data.storeName)}</div>` : ''}
           <div class="small">Point of Sale Receipt</div>
         </div>
@@ -168,7 +201,7 @@ function buildPrintDocument(data: ReceiptData): string {
     </html>`;
 }
 
-export function ReceiptPrinter({ receiptData, onPrint, onClose }: ReceiptPrinterProps) {
+export function ReceiptPrinter({ receiptData, company, onPrint, onClose }: ReceiptPrinterProps) {
   const receiptRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
@@ -176,7 +209,25 @@ export function ReceiptPrinter({ receiptData, onPrint, onClose }: ReceiptPrinter
     return null;
   }
 
+  // The same rule the screen header and the A4 documents apply: no complete letterhead,
+  // no output. Reported once here so Print, TXT and PDF cannot drift apart.
+  const missingFields = companyHeaderMissingFields(company);
+  const isPrintable = missingFields.length === 0;
+
+  const refuseWhenIncomplete = (): boolean => {
+    if (isPrintable) return false;
+
+    toast({
+      title: "Company letterhead incomplete",
+      description: companyHeaderProblemMessage(missingFields),
+      variant: "destructive",
+    });
+    return true;
+  };
+
   const handlePrint = () => {
+    if (refuseWhenIncomplete()) return;
+
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
       toast({
@@ -187,13 +238,15 @@ export function ReceiptPrinter({ receiptData, onPrint, onClose }: ReceiptPrinter
       return;
     }
 
-    printWindow.document.write(buildPrintDocument(receiptData));
+    printWindow.document.write(buildPrintDocument(receiptData, company as CompanyHeader));
     printWindow.document.close();
     printWindow.print();
     onPrint?.();
   };
 
   const handleDownload = () => {
+    if (refuseWhenIncomplete()) return;
+
     if (receiptRef.current) {
       const receiptContent = receiptRef.current.innerText;
       const blob = new Blob([receiptContent], { type: 'text/plain' });
@@ -215,6 +268,8 @@ export function ReceiptPrinter({ receiptData, onPrint, onClose }: ReceiptPrinter
   };
 
   const handleDownloadPDF = async () => {
+    if (refuseWhenIncomplete()) return;
+
     try {
       const jspdf = await loadJSPDF();
       if (!jspdf) {
@@ -235,10 +290,24 @@ export function ReceiptPrinter({ receiptData, onPrint, onClose }: ReceiptPrinter
 
       let yPosition = 10;
 
-      // Header
-      doc.setFontSize(14);
-      doc.text(BRAND_NAME, 40, yPosition, { align: 'center' });
-      yPosition += 6;
+      // Header - the company letterhead: name, registered address, labelled tax ID.
+      // Centred, no application title, no delivery address (see shared/company.ts).
+      const letterhead = company as CompanyHeader;
+
+      companyHeaderPrintLines(letterhead).forEach((line) => {
+        if (line.emphasis) {
+          doc.setFontSize(12);
+          doc.setFont('helvetica', 'bold');
+        } else {
+          doc.setFontSize(7);
+          doc.setFont('helvetica', 'normal');
+        }
+
+        const text = line.label.length > 0 ? `${line.label}: ${line.value}` : line.value;
+        doc.text(text, 40, yPosition, { align: 'center', maxWidth: 70 });
+        yPosition += line.emphasis ? 5 : 3;
+      });
+      yPosition += 2;
 
       if (receiptData.storeName) {
         doc.setFontSize(10);
@@ -358,15 +427,15 @@ export function ReceiptPrinter({ receiptData, onPrint, onClose }: ReceiptPrinter
             Receipt
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={handleDownload}>
+            <Button variant="outline" size="sm" onClick={handleDownload} disabled={!isPrintable}>
               <Download className="h-4 w-4 mr-1" />
               TXT
             </Button>
-            <Button variant="outline" size="sm" onClick={handleDownloadPDF}>
+            <Button variant="outline" size="sm" onClick={handleDownloadPDF} disabled={!isPrintable}>
               <FileText className="h-4 w-4 mr-1" />
               PDF
             </Button>
-            <Button variant="outline" size="sm" onClick={handlePrint}>
+            <Button variant="outline" size="sm" onClick={handlePrint} disabled={!isPrintable}>
               <Printer className="h-4 w-4 mr-1" />
               Print
             </Button>
@@ -374,6 +443,7 @@ export function ReceiptPrinter({ receiptData, onPrint, onClose }: ReceiptPrinter
         </CardTitle>
       </CardHeader>
       <CardContent>
+        {!isPrintable && <DocumentHeaderNotice missingFields={missingFields} className="mb-4" />}
         {/*
           AI Agent Note: a receipt is "paper", not a themed surface - its ink is fixed so it
           reads the same in light and dark mode. Previously the container was `bg-white` while
@@ -387,9 +457,26 @@ export function ReceiptPrinter({ receiptData, onPrint, onClose }: ReceiptPrinter
           className="font-mono text-sm bg-white text-slate-900 border border-slate-300 p-4 rounded"
           style={{ fontFamily: 'Courier New, monospace' }}
         >
-          {/* Header */}
+          {/* Header - the company letterhead: name, registered address, labelled tax ID. */}
           <div className="text-center mb-4">
-            <div className="font-bold text-lg">{BRAND_NAME}</div>
+            {company ? (
+              companyHeaderPrintLines(company).map((line) => (
+                <div
+                  key={line.key}
+                  className={cn(
+                    "break-words",
+                    line.emphasis ? "font-bold text-lg" : "text-sm"
+                  )}
+                >
+                  {line.label.length > 0 && (
+                    <span className="font-bold">{line.label}: </span>
+                  )}
+                  {line.value || "—"}
+                </div>
+              ))
+            ) : (
+              <div className="font-bold text-lg">—</div>
+            )}
             {receiptData.storeName && (
               <div className="text-sm">{receiptData.storeName}</div>
             )}

@@ -54,6 +54,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useUser } from "@/hooks/use-user";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useCompanyInfo } from "@/hooks/use-company";
 import { ReceiptPrinter, type ReceiptData } from "@/components/POS/ReceiptPrinter";
 
 interface SalesTransaction {
@@ -98,6 +99,8 @@ function ReceiptsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { hasPermission } = usePermissions();
+  // Reprints carry the same letterhead as the original receipt.
+  const { company } = useCompanyInfo();
 
   // Fetch receipts/transactions
   const receiptsQuery = useQuery({
@@ -536,6 +539,7 @@ function ReceiptsPage() {
           <div className="w-full max-w-md max-h-[90vh] overflow-y-auto">
             <ReceiptPrinter
               receiptData={selectedReceipt}
+              company={company}
               onPrint={handlePrintReceipt}
               onClose={() => {
                 setShowReceiptModal(false);

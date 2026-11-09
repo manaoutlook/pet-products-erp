@@ -22,6 +22,7 @@ import {
   Folders,
   Tags,
   Building2,
+  Landmark,
   ChevronRight,
   ClipboardList,
   ClipboardCheck,
@@ -89,6 +90,14 @@ function Sidebar() {
           name: "Suppliers",
           href: "/suppliers",
           icon: Building2,
+          module: 'masterData',
+          action: 'read'
+        },
+        {
+          // The one row every printed document and the screen header read from.
+          name: "Company Profile",
+          href: "/company-profile",
+          icon: Landmark,
           module: 'masterData',
           action: 'read'
         }

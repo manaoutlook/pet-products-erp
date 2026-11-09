@@ -17,6 +17,7 @@ import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
 import { useTableControls } from "@/hooks/use-table-controls";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useToast } from "@/hooks/use-toast";
+import { useCompanyInfo } from "@/hooks/use-company";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -110,6 +111,8 @@ function SalesOrdersPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { hasPermission } = usePermissions();
+  // The letterhead printed on the order and the delivery note issued from it.
+  const { company } = useCompanyInfo();
 
   const canCreate = hasPermission("orders", "create");
   const canUpdate = hasPermission("orders", "update");
@@ -385,7 +388,7 @@ function SalesOrdersPage() {
 
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1">
-                              <SalesOrderPrintDialog order={order}>
+                              <SalesOrderPrintDialog order={order} company={company}>
                                 <Button variant="ghost" size="sm" title="Print sales order">
                                   <Printer className="h-4 w-4" />
                                   <span className="sr-only">Print {order.orderNumber}</span>
@@ -476,6 +479,7 @@ function SalesOrdersPage() {
           if (!next) setDeliveryOrderId(null);
         }}
         initialSalesOrderId={deliveryOrderId}
+        company={company}
       />
 
       {/* One confirm dialog serves both destructive actions: the copy and the verb come from

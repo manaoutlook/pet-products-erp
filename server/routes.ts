@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { registerStoreRoutes } from "./routes/stores";
+import { registerCompanyRoutes } from "./routes/company";
 import { registerSalesOrderRoutes, registerSalesOrderWriteRoutes } from "./routes/sales-orders";
 import { registerDeliveryNoteRoutes } from "./routes/delivery-notes";
 import { db } from "@db";
@@ -250,6 +251,10 @@ export function registerRoutes(app: Express): Server {
 
   // Store Management endpoints live in server/routes/stores.ts (backlog P2 #9).
   registerStoreRoutes(app);
+
+  // The company letterhead. Registered early because every other document reads it - a
+  // route that prints must never be reachable before the thing it prints is queryable.
+  registerCompanyRoutes(app);
 
   // Sales Orders + Delivery Notes. Registered after the store routes and before the rest of
   // routes.ts for the same reason the store slice moved out: this file keeps shrinking.

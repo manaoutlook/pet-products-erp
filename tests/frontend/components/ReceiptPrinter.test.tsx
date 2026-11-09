@@ -3,6 +3,14 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { ReceiptPrinter } from '@/components/POS/ReceiptPrinter';
 import { BRAND_NAME, BRAND_WEBSITE } from '@/config/branding';
 
+/** The letterhead every output is required to carry (shared/company.ts). */
+const company = {
+    companyName: 'Pet Products Trading Co., Ltd.',
+    registeredAddress: '12 Le Loi, District 1, HCMC',
+    deliveryAddress: '99 Nguyen Trai, District 5, HCMC',
+    taxId: '0312345678',
+};
+
 /**
  * Regression cover for the receipt preview that went white-on-white in dark mode.
  *
@@ -39,7 +47,7 @@ afterEach(() => {
 
 describe('ReceiptPrinter preview', () => {
     it('uses fixed paper ink instead of theme foreground tokens', () => {
-        const { container } = render(<ReceiptPrinter receiptData={receiptData} />);
+        const { container } = render(<ReceiptPrinter receiptData={receiptData} company={company} />);
 
         const paper = container.querySelector('.font-mono') as HTMLElement;
         expect(paper).toBeTruthy();
@@ -56,7 +64,7 @@ describe('ReceiptPrinter preview', () => {
     });
 
     it('draws the separators with real utilities (no CSS-less class names)', () => {
-        const { container } = render(<ReceiptPrinter receiptData={receiptData} />);
+        const { container } = render(<ReceiptPrinter receiptData={receiptData} company={company} />);
         const paper = container.querySelector('.font-mono') as HTMLElement;
 
         // `.line` / `.total-line` / `.item` never had any CSS behind them, so the
@@ -70,7 +78,7 @@ describe('ReceiptPrinter preview', () => {
     });
 
     it('renders the receipt content in the preview', () => {
-        render(<ReceiptPrinter receiptData={receiptData} />);
+        render(<ReceiptPrinter receiptData={receiptData} company={company} />);
 
         expect(screen.getByText('DC-20261107-0001')).toBeTruthy();
         expect(screen.getByText('Royal Canin <Adult>')).toBeTruthy();
@@ -79,7 +87,7 @@ describe('ReceiptPrinter preview', () => {
     });
 
     it('shows the shared branding footer, not a per-output domain', () => {
-        const { container } = render(<ReceiptPrinter receiptData={receiptData} />);
+        const { container } = render(<ReceiptPrinter receiptData={receiptData} company={company} />);
         const paper = container.querySelector('.font-mono') as HTMLElement;
 
         // Regression: the downloaded PDF used to advertise a different domain from the
@@ -100,7 +108,7 @@ describe('ReceiptPrinter print sheet', () => {
             print,
         } as unknown as Window);
 
-        render(<ReceiptPrinter receiptData={receiptData} />);
+        render(<ReceiptPrinter receiptData={receiptData} company={company} />);
         fireEvent.click(screen.getByRole('button', { name: /print/i }));
 
         expect(print).toHaveBeenCalled();
@@ -127,12 +135,43 @@ describe('ReceiptPrinter print sheet', () => {
         expect(html).toContain(BRAND_NAME);
         expect(html).not.toContain('petproducts.com');
         expect(html).not.toContain('smartpdf.com');
+
+        // The company letterhead travels with the sheet: company name, registered address
+        // and a labelled tax ID. The delivery address is not part of the heading, and no
+        // application title is printed above it.
+        expect(html).toContain('Pet Products Trading Co., Ltd.');
+        expect(html).toContain('12 Le Loi, District 1, HCMC');
+        expect(html).toContain('Tax ID:');
+        expect(html).toContain('0312345678');
+        expect(html).not.toContain('99 Nguyen Trai, District 5, HCMC');
+        expect(html).not.toContain('Delivery Address');
+        expect(html).not.toContain('Company Name:');
+        expect(html).not.toContain('Registered Address:');
+    });
+
+    it('refuses to print when the company letterhead is incomplete', () => {
+        const open = vi.spyOn(window, 'open');
+
+        render(
+            <ReceiptPrinter
+                receiptData={receiptData}
+                company={{ ...company, taxId: '   ' }}
+            />
+        );
+
+        // The screen names what is missing and every output button is disabled.
+        expect(screen.getByText(/Company letterhead incomplete/i)).toBeInTheDocument();
+        expect(screen.getByRole('alert').textContent).toContain('Tax ID');
+        expect(screen.getByRole('button', { name: /print/i })).toBeDisabled();
+
+        fireEvent.click(screen.getByRole('button', { name: /print/i }));
+        expect(open).not.toHaveBeenCalled();
     });
 
     it('shows a toast instead of a blank tab when pop-ups are blocked', () => {
         vi.spyOn(window, 'open').mockReturnValue(null);
 
-        render(<ReceiptPrinter receiptData={receiptData} />);
+        render(<ReceiptPrinter receiptData={receiptData} company={company} />);
         expect(() => fireEvent.click(screen.getByRole('button', { name: /print/i }))).not.toThrow();
     });
 });

@@ -47,9 +47,26 @@ export const PRINT_DOCUMENT_STYLES = `
     background: #fff;
   }
   h1 { font-size: 18px; letter-spacing: 2px; margin: 0; text-align: center; }
-  .brand { font-size: 12px; font-weight: bold; margin: 0; text-align: center; }
   .subtitle { font-size: 10px; color: #333; margin: 2px 0 0; text-align: center; }
   .header { border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 12px; }
+  /* The letterhead every document opens with (components/company/CompanyHeader.tsx):
+     the company values only, centred - no field labels, no application title. */
+  .company-header {
+    text-align: center;
+    border-bottom: 1px solid #000;
+    padding-bottom: 6px;
+    margin-bottom: 10px;
+    font-size: 10.5px;
+  }
+  .company-header .company-name {
+    font-size: 15px;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+  }
+  .company-header .company-line { word-break: break-word; }
+  /* Only the tax ID keeps a label on paper, so only it needs the label style. */
+  .company-header .company-field-label { font-weight: bold; }
   .meta { display: flex; gap: 24px; margin-top: 10px; font-size: 11px; }
   .meta div { flex: 1; }
   .label { font-weight: bold; }

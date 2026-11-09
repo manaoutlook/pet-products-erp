@@ -38,6 +38,10 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { CreatePurchaseOrderDialog } from "@/components/PurchaseOrders/CreatePurchaseOrderDialog";
 import { ReceiveGoodsDialog } from "@/components/PurchaseOrders/ReceiveGoodsDialog";
+import { printPurchaseOrder } from "@/components/PurchaseOrders/PurchaseOrderPrint";
+import { useCompanyInfo } from "@/hooks/use-company";
+import { companyHeaderMissingFields } from "@/components/company/CompanyHeader";
+import { companyHeaderProblemMessage } from "@shared/company";
 
 interface Supplier {
   id: number;
@@ -127,6 +131,7 @@ function PurchaseOrdersPage() {
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { company } = useCompanyInfo();
 
   const { data: purchaseOrders = [], isLoading } = useQuery<PurchaseOrder[]>({
     queryKey: ['/api/purchase-orders'],
@@ -181,22 +186,51 @@ function PurchaseOrdersPage() {
     },
   });
 
-  const printOrder = (orderNumber: string) => {
-    // Simple print functionality - in a real app you'd generate a proper document
-    const printContent = `
-      Purchase Order: ${orderNumber}
-      Printed on: ${formatDate(new Date())}
-    `;
-    const printWindow = window.open('', '_blank');
-    printWindow?.document.write(printContent);
-    printWindow?.print();
-    printWindow?.close();
+  const printOrder = (order: PurchaseOrder) => {
+    // Every generated document carries the company letterhead; a blank field in it blocks
+    // the print rather than sending an incomplete order to a supplier.
+    const missingFields = companyHeaderMissingFields(company);
+    if (missingFields.length > 0) {
+      toast({
+        title: "Company letterhead incomplete",
+        description: companyHeaderProblemMessage(missingFields),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const printed = printPurchaseOrder(
+      {
+        orderNumber: order.orderNumber,
+        orderDate: order.createdAt,
+        deliveryDate: order.deliveryDate,
+        status: order.status,
+        supplierName: order.supplier?.name ?? "",
+        destinationStoreName: order.destinationStore?.name ?? "",
+        notes: order.notes,
+        totalAmount: order.totalAmount,
+        items: (order.items ?? []).map((item) => ({
+          productCode: item.product?.sku ?? "",
+          description: item.product?.name ?? "",
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+        })),
+      },
+      company
+    );
+
+    if (!printed) {
+      toast({
+        title: "Print Blocked",
+        description: "Allow pop-ups for this site to print the purchase order",
+        variant: "destructive",
+      });
+      return;
+    }
 
     // Log the print action
-    const order = purchaseOrders.find((o: PurchaseOrder) => o.orderNumber === orderNumber);
-    if (order) {
-      logAction.mutate({ orderId: order.id, actionType: 'print' });
-    }
+    logAction.mutate({ orderId: order.id, actionType: 'print' });
   };
 
   const hasAction = (order: PurchaseOrder, actionType: string): boolean => {
@@ -345,7 +379,7 @@ function PurchaseOrdersPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => printOrder(order.orderNumber)}
+                          onClick={() => printOrder(order)}
                           disabled={!canPerformAction(order, 'print')}
                           title="Print Order"
                         >

@@ -1032,6 +1032,32 @@ export const userSessions = pgTable("user_sessions", {
 }));
 
 /**
+ * The company letterhead - exactly one row, forever.
+ *
+ * Every printed document (sales order, delivery note, receipt, purchase order) and the
+ * band at the top of every screen read this row; see `shared/company.ts` for the single
+ * field list both sides use. Two letterheads on two documents is the bug this table is
+ * shaped to prevent, so "there is only one company" is a database fact rather than an
+ * API convention: `id` is pinned to 1 by a CHECK, and the API never inserts a second row.
+ *
+ * Columns are NOT NULL with an empty default because "no letterhead yet" is a valid,
+ * repairable state (the app opens on a fresh database and asks for setup) whereas a NULL
+ * would have to be special-cased by every reader. Completeness is judged field by field
+ * in `missingCompanyFields()`, not by the presence of a row.
+ */
+export const company = pgTable("company", {
+  id: integer("id").primaryKey(),
+  companyName: text("company_name").notNull().default(""),
+  registeredAddress: text("registered_address").notNull().default(""),
+  deliveryAddress: text("delivery_address").notNull().default(""),
+  taxId: text("tax_id").notNull().default(""),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  singletonCheck: check("company_singleton_check", sql`${table.id} = 1`),
+}));
+
+/**
  * Append-only ledger of every stock change.
  *
  * AI Agent Note: `inventory.quantity` is a mutable running total - it says what is on the
@@ -1046,6 +1072,7 @@ export const userSessions = pgTable("user_sessions", {
 export const stockMovements = pgTable("stock_movements", {
   id: serial("id").primaryKey(),
   inventoryId: integer("inventory_id").notNull(),
+
   productId: integer("product_id"),
   storeId: integer("store_id"),
   // Signed change applied to the row: negative leaves the shelf, positive arrives on it.
@@ -1066,3 +1093,11 @@ export const stockMovements = pgTable("stock_movements", {
   inventoryIdx: index("stock_movements_inventory_idx").on(table.inventoryId, table.createdAt),
   reasonIdx: index("stock_movements_reason_idx").on(table.reason),
 }));
+
+// The company letterhead is a singleton, so the whole table is exposed as one
+// insert/select schema pair rather than a list. The primary key is pinned by
+// `COMPANY_SINGLETON_ID` in shared/company.ts and by a CHECK constraint.
+export const insertCompanySchema = createInsertSchema(company);
+export const selectCompanySchema = createSelectSchema(company);
+export type InsertCompany = typeof company.$inferInsert;
+export type SelectCompany = typeof company.$inferSelect;

@@ -12,6 +12,8 @@ import { Loader2, Printer } from "lucide-react";
 import { formatDate, formatQuantity } from "@/utils/format";
 import { printDeliveryNote, type DeliveryNotePrintData } from "./DeliveryNotePrint";
 import { toDateInputValue } from "./SalesOrderFormDialog";
+import { DocumentHeaderNotice, companyHeaderMissingFields } from "@/components/company/CompanyHeader";
+import { companyHeaderProblemMessage, type CompanyHeader } from "@shared/company";
 
 /** An order line as returned by GET /api/sales-orders. */
 interface SalesOrderListLine {
@@ -51,6 +53,8 @@ interface DeliveryNoteFormDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Order to preselect, e.g. when opened from a row's "Deliver" action. */
   initialSalesOrderId?: number | null;
+  /** The letterhead the issued note prints with - same source as the screen header. */
+  company?: CompanyHeader | null;
 }
 
 /**
@@ -66,6 +70,7 @@ export function DeliveryNoteFormDialog({
   open,
   onOpenChange,
   initialSalesOrderId = null,
+  company = null,
 }: DeliveryNoteFormDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -76,6 +81,8 @@ export function DeliveryNoteFormDialog({
   const [drafts, setDrafts] = useState<Record<number, DeliveryLineDraft>>({});
   /** The note to offer for printing once it has been issued. */
   const [issuedNote, setIssuedNote] = useState<DeliveryNotePrintData | null>(null);
+  /** The letterhead is checked before the issued note is offered for printing. */
+  const missingLetterheadFields = companyHeaderMissingFields(company);
 
   const { data: orders = [] } = useQuery<SalesOrderListRow[]>({
     queryKey: ["/api/sales-orders"],
@@ -235,7 +242,16 @@ export function DeliveryNoteFormDialog({
   const handlePrintIssued = () => {
     if (!issuedNote) return;
 
-    if (!printDeliveryNote(issuedNote)) {
+    if (missingLetterheadFields.length > 0) {
+      toast({
+        title: "Company letterhead incomplete",
+        description: companyHeaderProblemMessage(missingLetterheadFields),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!printDeliveryNote(issuedNote, company)) {
       toast({
         title: "Print Blocked",
         description: "Allow pop-ups for this site to print the delivery note",
@@ -273,11 +289,12 @@ export function DeliveryNoteFormDialog({
               <Button variant="outline" onClick={() => onOpenChange(false)}>
                 Done
               </Button>
-              <Button onClick={handlePrintIssued}>
+              <Button onClick={handlePrintIssued} disabled={missingLetterheadFields.length > 0}>
                 <Printer className="mr-2 h-4 w-4" />
                 Print Delivery Note
               </Button>
             </div>
+            <DocumentHeaderNotice missingFields={missingLetterheadFields} />
           </div>
         ) : (
           <div className="space-y-6">

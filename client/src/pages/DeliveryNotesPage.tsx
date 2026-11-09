@@ -20,6 +20,7 @@ import { CheckCircle2, FileCheck2, Plus, Printer, Upload } from "lucide-react";
 import { DeliveryNoteFormDialog } from "@/components/SalesOrders/DeliveryNoteFormDialog";
 import { DeliveryNotePrintDialog } from "@/components/SalesOrders/DeliveryNotePrint";
 import { SignedDocumentDialog } from "@/components/SalesOrders/SignedDocumentDialog";
+import { useCompanyInfo } from "@/hooks/use-company";
 
 interface DeliveryNoteItem {
   id: number;
@@ -71,6 +72,8 @@ function unitsOnNote(note: DeliveryNoteRow): number {
 function DeliveryNotesPage() {
   const { hasPermission } = usePermissions();
   const canIssue = hasPermission("orders", "update");
+  // A reprint must look like the copy the customer signed - same letterhead, same source.
+  const { company } = useCompanyInfo();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [issueOpen, setIssueOpen] = useState(false);
@@ -224,7 +227,7 @@ function DeliveryNotesPage() {
                                 </span>
                               </Button>
                             </SignedDocumentDialog>
-                            <DeliveryNotePrintDialog note={note}>
+                            <DeliveryNotePrintDialog note={note} company={company}>
                               <Button variant="ghost" size="sm" title="Print delivery note">
                                 <Printer className="h-4 w-4" />
                                 <span className="sr-only">
@@ -244,7 +247,7 @@ function DeliveryNotesPage() {
         </CardContent>
       </Card>
 
-      <DeliveryNoteFormDialog open={issueOpen} onOpenChange={setIssueOpen} />
+      <DeliveryNoteFormDialog open={issueOpen} onOpenChange={setIssueOpen} company={company} />
     </div>
   );
 }

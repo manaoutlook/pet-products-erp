@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Store, User, RefreshCw, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useCompanyInfo } from "@/hooks/use-company";
 import { useUser } from "@/hooks/use-user";
 import { usePermissions } from "@/hooks/use-permissions";
 
@@ -70,6 +71,8 @@ function POSPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { hasPermission } = usePermissions();
+  // The letterhead the receipt will print - the same query the screen header reads.
+  const { company } = useCompanyInfo();
 
   // Get user's assigned store
   useEffect(() => {
@@ -314,6 +317,7 @@ function POSPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <ReceiptPrinter
             receiptData={receiptData}
+            company={company}
             onPrint={handlePrintReceipt}
             onClose={handleCloseReceipt}
           />

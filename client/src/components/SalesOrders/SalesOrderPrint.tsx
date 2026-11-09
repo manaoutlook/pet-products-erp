@@ -6,6 +6,12 @@ import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatDate, formatQuantity } from "@/utils/format";
 import { BRAND_NAME, BRAND_WEBSITE } from "@/config/branding";
 import { buildPrintDocument, escapeHtml, openPrintDocument, printValue } from "@/utils/print-document";
+import {
+  buildDocumentCompanyHeader,
+  companyHeaderMissingFields,
+  DocumentHeaderNotice,
+} from "@/components/company/CompanyHeader";
+import { companyHeaderProblemMessage, type CompanyHeader } from "@shared/company";
 
 /** One line on the printed order: the catalogue snapshot stored on the order row. */
 export interface SalesOrderPrintLine {
@@ -44,8 +50,14 @@ function lineAmount(line: SalesOrderPrintLine): number {
  * AI Agent Note: the customer block and product code/description are printed from the values
  * snapshotted on the order, never by joining back to `products` / `customer_profiles` - a
  * reprint of a signed order must not pick up a later rename.
+ *
+ * `company` is the letterhead from `useCompanyInfo()`; an incomplete one throws
+ * `CompanyHeaderError` rather than printing a header with blanks in it.
  */
-export function buildSalesOrderPrintDocument(order: SalesOrderPrintData): string {
+export function buildSalesOrderPrintDocument(
+  order: SalesOrderPrintData,
+  company: CompanyHeader | null | undefined
+): string {
   const items = order.items ?? [];
   const total = order.totalAmount ?? items.reduce((sum, line) => sum + lineAmount(line), 0);
 
@@ -64,8 +76,9 @@ export function buildSalesOrderPrintDocument(order: SalesOrderPrintData): string
     .join('');
 
   const body = `
+    ${buildDocumentCompanyHeader(company)}
+
     <div class="header">
-      <p class="brand">${escapeHtml(BRAND_NAME)}</p>
       <h1>SALES ORDER FORM</h1>
       <div class="meta">
         <div><span class="label">Order No:</span> ${printValue(order.orderNumber)}</div>
@@ -127,12 +140,17 @@ export function buildSalesOrderPrintDocument(order: SalesOrderPrintData): string
 }
 
 /** Print the order, reporting a blocked pop-up instead of failing silently. */
-export function printSalesOrder(order: SalesOrderPrintData): boolean {
-  return openPrintDocument(buildSalesOrderPrintDocument(order));
+export function printSalesOrder(
+  order: SalesOrderPrintData,
+  company: CompanyHeader | null | undefined
+): boolean {
+  return openPrintDocument(buildSalesOrderPrintDocument(order, company));
 }
 
 interface SalesOrderPrintDialogProps {
   order: SalesOrderPrintData;
+  /** The letterhead from `useCompanyInfo()` - the same one the screen header shows. */
+  company: CompanyHeader | null | undefined;
   /** The button that opens the preview (rendered as the dialog trigger). */
   children: ReactNode;
 }
@@ -142,14 +160,27 @@ interface SalesOrderPrintDialogProps {
  *
  * The preview is the print document itself in an iframe, so what the user sees is exactly
  * what the printer receives - a second, hand-built preview would drift from the sheet.
+ * When the letterhead is incomplete the iframe is replaced by the notice and Print is
+ * disabled: a document without a company name, address and tax ID is not a document.
  */
-export function SalesOrderPrintDialog({ order, children }: SalesOrderPrintDialogProps) {
+export function SalesOrderPrintDialog({ order, company, children }: SalesOrderPrintDialogProps) {
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
-  const documentHtml = buildSalesOrderPrintDocument(order);
+  const missingFields = companyHeaderMissingFields(company);
+  const isPrintable = missingFields.length === 0;
+  const documentHtml = isPrintable ? buildSalesOrderPrintDocument(order, company) : null;
 
   const handlePrint = () => {
-    if (!printSalesOrder(order)) {
+    if (!isPrintable) {
+      toast({
+        title: "Company letterhead incomplete",
+        description: companyHeaderProblemMessage(missingFields),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!printSalesOrder(order, company)) {
       toast({
         title: "Print Blocked",
         description: "Allow pop-ups for this site to print the sales order",
@@ -168,16 +199,20 @@ export function SalesOrderPrintDialog({ order, children }: SalesOrderPrintDialog
             A4 preview. Print, then collect the customer's signature and stamp.
           </DialogDescription>
         </DialogHeader>
-        <iframe
-          title={`Sales order ${order.orderNumber}`}
-          srcDoc={documentHtml}
-          className="h-[70vh] w-full rounded-md border bg-white"
-        />
+        {documentHtml ? (
+          <iframe
+            title={`Sales order ${order.orderNumber}`}
+            srcDoc={documentHtml}
+            className="h-[70vh] w-full rounded-md border bg-white"
+          />
+        ) : (
+          <DocumentHeaderNotice missingFields={missingFields} />
+        )}
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => setOpen(false)}>
             Close
           </Button>
-          <Button onClick={handlePrint}>
+          <Button onClick={handlePrint} disabled={!isPrintable}>
             <Printer className="mr-2 h-4 w-4" />
             Print
           </Button>
