@@ -816,7 +816,7 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { mobileNumber, name, email, address, photo, landLineNumber, customerType } = result.data;
+      const { mobileNumber, companyName, contactPerson, email, address, photo, landLineNumber, customerType } = result.data;
 
       // Check if customer profile exists
       const existingProfile = await db.query.customerProfiles.findFirst({
@@ -834,7 +834,8 @@ export function registerRoutes(app: Express): Server {
         .insert(customerProfiles)
         .values({
           mobileNumber,
-          name,
+          companyName,
+          contactPerson,
           email,
           address,
           photo: photo || null,
@@ -870,7 +871,7 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { mobileNumber, name, email, address, photo, landLineNumber, customerType } = result.data;
+      const { mobileNumber, companyName, contactPerson, email, address, photo, landLineNumber, customerType } = result.data;
 
       // Check if phone number is already used by another profile
       const existingProfile = await db.query.customerProfiles.findFirst({
@@ -891,7 +892,8 @@ export function registerRoutes(app: Express): Server {
         .update(customerProfiles)
         .set({
           mobileNumber,
-          name,
+          companyName,
+          contactPerson,
           email,
           address,
           photo: photo || null,

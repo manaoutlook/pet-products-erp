@@ -275,7 +275,7 @@ describe('Role-Based Access Control Integration Tests', () => {
         it('should allow sales associate to create customer profiles', async () => {
             const [customer] = await db.insert(customerProfiles).values({
                 mobileNumber: '0901234567',
-                name: 'Sales Customer',
+                contactPerson: 'Sales Customer',
                 email: 'sales@example.com',
                 address: 'Sales Address',
                 customerType: 'B2C',

@@ -27,7 +27,7 @@ describe('Customer Management Tests', () => {
         it('should create a new customer profile', async () => {
             const [customer] = await db.insert(customerProfiles).values({
                 mobileNumber: '0901234567',
-                name: 'John Doe',
+                contactPerson: 'John Doe',
                 email: 'john@example.com',
                 address: '123 Test Street',
                 customerType: 'B2C',
@@ -35,7 +35,7 @@ describe('Customer Management Tests', () => {
 
             expect(customer).toBeDefined();
             expect(customer.mobileNumber).toBe('0901234567');
-            expect(customer.name).toBe('John Doe');
+            expect(customer.contactPerson).toBe('John Doe');
             expect(customer.email).toBe('john@example.com');
             expect(customer.customerType).toBe('B2C');
         });
@@ -43,7 +43,7 @@ describe('Customer Management Tests', () => {
         it('should create customer with optional fields', async () => {
             const [customer] = await db.insert(customerProfiles).values({
                 mobileNumber: '0909876543',
-                name: 'Jane Smith',
+                contactPerson: 'Jane Smith',
                 email: 'jane@example.com',
                 address: '456 Customer Ave',
                 customerType: 'B2B',
@@ -57,7 +57,7 @@ describe('Customer Management Tests', () => {
             // Create first customer
             await db.insert(customerProfiles).values({
                 mobileNumber: '0901111111',
-                name: 'John Doe',
+                contactPerson: 'John Doe',
                 email: 'john@example.com',
                 address: '123 Test St',
                 customerType: 'B2C',
@@ -67,7 +67,7 @@ describe('Customer Management Tests', () => {
             await expect(async () => {
                 await db.insert(customerProfiles).values({
                     mobileNumber: '0901111111', // Same mobile
-                    name: 'Jane Doe',
+                    contactPerson: 'Jane Doe',
                     email: 'jane@example.com',
                     address: '456 Test St',
                     customerType: 'B2B',
@@ -78,7 +78,7 @@ describe('Customer Management Tests', () => {
         it('should support both B2B and B2C customer types', async () => {
             const [businessCustomer] = await db.insert(customerProfiles).values({
                 mobileNumber: '0902222222',
-                name: 'Business Buyer',
+                contactPerson: 'Business Buyer',
                 email: 'business@example.com',
                 address: '123 Trade St',
                 customerType: 'B2B',
@@ -86,7 +86,7 @@ describe('Customer Management Tests', () => {
 
             const [consumerCustomer] = await db.insert(customerProfiles).values({
                 mobileNumber: '0903333333',
-                name: 'Consumer Buyer',
+                contactPerson: 'Consumer Buyer',
                 email: 'consumer@example.com',
                 address: '456 Market Ave',
                 customerType: 'B2C',
@@ -101,7 +101,7 @@ describe('Customer Management Tests', () => {
         it('should update customer information', async () => {
             const [customer] = await db.insert(customerProfiles).values({
                 mobileNumber: '0904444444',
-                name: 'Original Name',
+                contactPerson: 'Original Name',
                 email: 'original@example.com',
                 address: 'Original Address',
                 customerType: 'B2C',
@@ -109,22 +109,57 @@ describe('Customer Management Tests', () => {
 
             const [updated] = await db.update(customerProfiles)
                 .set({
-                    name: 'Updated Name',
+                    contactPerson: 'Updated Name',
                     email: 'updated@example.com',
                     address: 'Updated Address',
                 })
                 .where(eq(customerProfiles.id, customer.id))
                 .returning();
 
-            expect(updated.name).toBe('Updated Name');
+            expect(updated.contactPerson).toBe('Updated Name');
             expect(updated.email).toBe('updated@example.com');
             expect(updated.address).toBe('Updated Address');
+        });
+
+        it('should store the company name separately from the contact person', async () => {
+            const [customer] = await db.insert(customerProfiles).values({
+                mobileNumber: '0904848484',
+                companyName: 'Acme Pet Supplies Co.',
+                contactPerson: 'Tran Van Binh',
+                email: 'binh@acmepet.example',
+                address: '12 Le Loi, District 1, Ho Chi Minh City',
+                customerType: 'B2B',
+            }).returning();
+
+            expect(customer.companyName).toBe('Acme Pet Supplies Co.');
+            expect(customer.contactPerson).toBe('Tran Van Binh');
+
+            const [updated] = await db.update(customerProfiles)
+                .set({ companyName: 'Acme Pet Supplies JSC' })
+                .where(eq(customerProfiles.id, customer.id))
+                .returning();
+
+            expect(updated.companyName).toBe('Acme Pet Supplies JSC');
+            // Renaming the account must not rewrite who we deal with.
+            expect(updated.contactPerson).toBe('Tran Van Binh');
+        });
+
+        it('should leave the company name empty for a walk-in consumer', async () => {
+            const [customer] = await db.insert(customerProfiles).values({
+                mobileNumber: '0904949494',
+                contactPerson: 'Le Thi Cam',
+                email: 'cam@example.com',
+                address: '99 Hai Ba Trung, District 3, Ho Chi Minh City',
+                customerType: 'B2C',
+            }).returning();
+
+            expect(customer.companyName).toBeNull();
         });
 
         it('should update customer account information', async () => {
             const [customer] = await db.insert(customerProfiles).values({
                 mobileNumber: '0905555555',
-                name: 'Account Holder',
+                contactPerson: 'Account Holder',
                 email: 'account@example.com',
                 address: 'Account Address',
                 customerType: 'B2C',
@@ -151,21 +186,21 @@ describe('Customer Management Tests', () => {
             await db.insert(customerProfiles).values([
                 {
                     mobileNumber: '0901111111',
-                    name: 'John Smith',
+                    contactPerson: 'John Smith',
                     email: 'john@example.com',
                     address: '123 Main St',
                     customerType: 'B2C',
                 },
                 {
                     mobileNumber: '0902222222',
-                    name: 'Jane Johnson',
+                    contactPerson: 'Jane Johnson',
                     email: 'jane@example.com',
                     address: '456 Oak Ave',
                     customerType: 'B2B',
                 },
                 {
                     mobileNumber: '0903333333',
-                    name: 'Bob Wilson',
+                    contactPerson: 'Bob Wilson',
                     email: 'bob@example.com',
                     address: '789 Pine St',
                     customerType: 'B2C',
@@ -179,7 +214,7 @@ describe('Customer Management Tests', () => {
             });
 
             expect(customer).toBeDefined();
-            expect(customer?.name).toBe('John Smith');
+            expect(customer?.contactPerson).toBe('John Smith');
         });
 
         it('should find customers by name (partial match)', async () => {
@@ -187,10 +222,10 @@ describe('Customer Management Tests', () => {
             // this test about LIKE semantics rather than about substring collisions.
             const customers = await db.select()
                 .from(customerProfiles)
-                .where(like(customerProfiles.name, '%John Sm%'));
+                .where(like(customerProfiles.contactPerson, '%John Sm%'));
 
             expect(customers).toHaveLength(1);
-            expect(customers[0].name).toBe('John Smith');
+            expect(customers[0].contactPerson).toBe('John Smith');
         });
 
         it('should find customers by email', async () => {
@@ -199,7 +234,7 @@ describe('Customer Management Tests', () => {
             });
 
             expect(customer).toBeDefined();
-            expect(customer?.name).toBe('Jane Johnson');
+            expect(customer?.contactPerson).toBe('Jane Johnson');
         });
 
         it('should find customers by customer type', async () => {
@@ -217,7 +252,7 @@ describe('Customer Management Tests', () => {
             // Create customer
             const [customer] = await db.insert(customerProfiles).values({
                 mobileNumber: '0906666666',
-                name: 'Purchase Customer',
+                contactPerson: 'Purchase Customer',
                 email: 'purchase@example.com',
                 address: 'Purchase Address',
                 customerType: 'B2C',
@@ -263,7 +298,7 @@ describe('Customer Management Tests', () => {
             // Create customer
             const [customer] = await db.insert(customerProfiles).values({
                 mobileNumber: '0907777777',
-                name: 'Total Customer',
+                contactPerson: 'Total Customer',
                 email: 'total@example.com',
                 address: 'Total Address',
                 customerType: 'B2B',
@@ -306,7 +341,7 @@ describe('Customer Management Tests', () => {
         it('should require phone number', async () => {
             await expect(async () => {
                 await db.insert(customerProfiles).values({
-                    name: 'No Phone Customer',
+                    contactPerson: 'No Phone Customer',
                     email: 'nophone@example.com',
                     address: 'No Phone Address',
                     customerType: 'B2C',
@@ -331,7 +366,7 @@ describe('Customer Management Tests', () => {
             await expect(async () => {
                 await db.insert(customerProfiles).values({
                     mobileNumber: '0909999999',
-                    name: 'No Email Customer',
+                    contactPerson: 'No Email Customer',
                     address: 'No Email Address',
                     customerType: 'B2C',
                     // Missing email
@@ -343,7 +378,7 @@ describe('Customer Management Tests', () => {
             await expect(async () => {
                 await db.insert(customerProfiles).values({
                     mobileNumber: '0900000000',
-                    name: 'No Address Customer',
+                    contactPerson: 'No Address Customer',
                     email: 'noaddress@example.com',
                     customerType: 'B2C',
                     // Missing address
@@ -355,7 +390,7 @@ describe('Customer Management Tests', () => {
             await expect(async () => {
                 await db.insert(customerProfiles).values({
                     mobileNumber: '0901212121',
-                    name: 'No Type Customer',
+                    contactPerson: 'No Type Customer',
                     email: 'notype@example.com',
                     address: 'No Type Address',
                     // Missing customerType
@@ -367,7 +402,7 @@ describe('Customer Management Tests', () => {
             await expect(async () => {
                 await db.insert(customerProfiles).values({
                     mobileNumber: '0901313131',
-                    name: 'Invalid Type Customer',
+                    contactPerson: 'Invalid Type Customer',
                     email: 'invalidtype@example.com',
                     address: 'Invalid Type Address',
                     customerType: 'INVALID' as any, // Not a customer type
@@ -380,7 +415,7 @@ describe('Customer Management Tests', () => {
         it('should delete customer profile', async () => {
             const [customer] = await db.insert(customerProfiles).values({
                 mobileNumber: '0901414141',
-                name: 'Delete Customer',
+                contactPerson: 'Delete Customer',
                 email: 'delete@example.com',
                 address: 'Delete Address',
                 customerType: 'B2C',
@@ -399,7 +434,7 @@ describe('Customer Management Tests', () => {
             // Create customer
             const [customer] = await db.insert(customerProfiles).values({
                 mobileNumber: '0901515151',
-                name: 'Transaction Customer',
+                contactPerson: 'Transaction Customer',
                 email: 'transaction@example.com',
                 address: 'Transaction Address',
                 customerType: 'B2B',
@@ -440,7 +475,7 @@ describe('Customer Management Tests', () => {
             // Create test customers and transactions for analytics
             const [customer1] = await db.insert(customerProfiles).values({
                 mobileNumber: '0901616161',
-                name: 'Analytics Customer 1',
+                contactPerson: 'Analytics Customer 1',
                 email: 'analytics1@example.com',
                 address: 'Analytics Address 1',
                 customerType: 'B2C',
@@ -448,7 +483,7 @@ describe('Customer Management Tests', () => {
 
             const [customer2] = await db.insert(customerProfiles).values({
                 mobileNumber: '0901717171',
-                name: 'Analytics Customer 2',
+                contactPerson: 'Analytics Customer 2',
                 email: 'analytics2@example.com',
                 address: 'Analytics Address 2',
                 customerType: 'B2B',
@@ -525,7 +560,7 @@ describe('Customer Management Tests', () => {
 
     describe('Phone Number Normalisation', () => {
         const baseProfile = {
-            name: 'Nguyen Thi An',
+            contactPerson: 'Nguyen Thi An',
             email: 'an.nguyen@example.com',
             address: '804 Cong Quynh, District 1, Ho Chi Minh City',
             customerType: 'B2C' as const,
@@ -563,6 +598,33 @@ describe('Customer Management Tests', () => {
             expect(() => insertCustomerProfileSchema.parse({
                 ...baseProfile,
                 mobileNumber: '+ - ',
+            })).toThrow();
+        });
+
+        it('trims the company name and stores a blank one as null', () => {
+            const parsed = insertCustomerProfileSchema.parse({
+                ...baseProfile,
+                mobileNumber: '0901234567',
+                companyName: '  Acme Pet Supplies Co.  ',
+            });
+
+            expect(parsed.companyName).toBe('Acme Pet Supplies Co.');
+
+            // A B2C walk-in leaves the box empty; the column is nullable, not "".
+            const blank = insertCustomerProfileSchema.parse({
+                ...baseProfile,
+                mobileNumber: '0901234567',
+                companyName: '   ',
+            });
+
+            expect(blank.companyName).toBeNull();
+        });
+
+        it('still requires a contact person', () => {
+            expect(() => insertCustomerProfileSchema.parse({
+                ...baseProfile,
+                mobileNumber: '0901234567',
+                contactPerson: '',
             })).toThrow();
         });
     });

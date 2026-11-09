@@ -123,7 +123,7 @@ describe('Point of Sale (POS) Tests', () => {
         it('should create customer profile', async () => {
             const [customer] = await db.insert(customerProfiles).values({
                 mobileNumber: '0901234567',
-                name: 'John Doe',
+                contactPerson: 'John Doe',
                 email: 'john@example.com',
                 address: '123 Test St',
                 customerType: 'B2C',
@@ -131,7 +131,7 @@ describe('Point of Sale (POS) Tests', () => {
 
             expect(customer).toBeDefined();
             expect(customer.mobileNumber).toBe('0901234567');
-            expect(customer.name).toBe('John Doe');
+            expect(customer.contactPerson).toBe('John Doe');
             expect(customer.customerType).toBe('B2C');
         });
 
@@ -139,7 +139,7 @@ describe('Point of Sale (POS) Tests', () => {
             // Create first customer
             await db.insert(customerProfiles).values({
                 mobileNumber: '0901111111',
-                name: 'John Doe',
+                contactPerson: 'John Doe',
                 email: 'john@example.com',
                 address: '123 Test St',
                 customerType: 'B2C',
@@ -149,7 +149,7 @@ describe('Point of Sale (POS) Tests', () => {
             await expect(async () => {
                 await db.insert(customerProfiles).values({
                     mobileNumber: '0901111111', // Same phone
-                    name: 'Jane Doe',
+                    contactPerson: 'Jane Doe',
                     email: 'jane@example.com',
                     address: '456 Test St',
                     customerType: 'B2B',
@@ -160,7 +160,7 @@ describe('Point of Sale (POS) Tests', () => {
         it('should link transaction to customer', async () => {
             const [customer] = await db.insert(customerProfiles).values({
                 mobileNumber: '0902222222',
-                name: 'Jane Smith',
+                contactPerson: 'Jane Smith',
                 email: 'jane@example.com',
                 address: '456 Customer St',
                 customerType: 'B2B',
@@ -184,7 +184,7 @@ describe('Point of Sale (POS) Tests', () => {
                 },
             });
 
-            expect(transactionWithCustomer?.customerProfile?.name).toBe('Jane Smith');
+            expect(transactionWithCustomer?.customerProfile?.contactPerson).toBe('Jane Smith');
             expect(transactionWithCustomer?.customerProfile?.mobileNumber).toBe('0902222222');
         });
     });

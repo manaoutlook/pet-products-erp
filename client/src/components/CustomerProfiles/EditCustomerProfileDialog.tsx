@@ -33,7 +33,9 @@ const customerProfileSchema = z.object({
   mobileNumber: z.string()
     .min(1, "Mobile number is required")
     .regex(MOBILE_NUMBER_PATTERN, "Invalid mobile number format"),
-  name: z.string().min(1, "Name is required"),
+  // Optional: a B2C walk-in has no company, so an empty box is sent as null.
+  companyName: z.string().max(255, "Company name is too long").nullable().optional(),
+  contactPerson: z.string().min(1, "Contact person is required"),
   email: z.string().email("Invalid email address"),
   address: z.string().min(1, "Address is required"),
   photo: z.string().nullable().optional(),
@@ -48,7 +50,8 @@ type FormData = z.infer<typeof customerProfileSchema>;
 interface CustomerProfile {
   id: number;
   mobileNumber: string;
-  name: string;
+  companyName?: string | null;
+  contactPerson: string;
   email: string;
   address: string;
   photo?: string;
@@ -72,7 +75,8 @@ export function EditCustomerProfileDialog({ profile, open, onOpenChange }: EditC
       // A profile created before the separators were stripped holds `+84-930-123-456`;
       // normalising here means such a row opens in a state the validator accepts.
       mobileNumber: normalizePhoneNumber(profile.mobileNumber),
-      name: profile.name,
+      companyName: profile.companyName ?? "",
+      contactPerson: profile.contactPerson,
       email: profile.email,
       address: profile.address,
       photo: profile.photo,
@@ -165,12 +169,26 @@ export function EditCustomerProfileDialog({ profile, open, onOpenChange }: EditC
 
               <FormField
                 control={form.control}
-                name="name"
+                name="companyName"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Name</FormLabel>
+                    <FormLabel>Company Name (Optional)</FormLabel>
                     <FormControl>
-                      <Input {...field} />
+                      <Input {...field} value={field.value ?? ""} placeholder="Acme Pet Supplies Co." />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="contactPerson"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Contact Person</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="Nguyen Van A" autoComplete="name" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

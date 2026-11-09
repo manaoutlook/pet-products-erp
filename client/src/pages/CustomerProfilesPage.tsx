@@ -43,7 +43,8 @@ import {
 interface CustomerProfile {
   id: number;
   mobileNumber: string;
-  name: string;
+  companyName?: string | null;
+  contactPerson: string;
   email: string;
   address: string;
   photo?: string;
@@ -79,12 +80,16 @@ function ViewCustomerProfileDialog({
         </DialogHeader>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label className="text-sm font-medium text-muted-foreground">Mobile Number</label>
-            <p className="mt-1 text-sm text-foreground">{profile.mobileNumber}</p>
+            <label className="text-sm font-medium text-muted-foreground">Company Name</label>
+            <p className="mt-1 text-sm text-foreground">{profile.companyName || 'Not specified'}</p>
           </div>
           <div>
-            <label className="text-sm font-medium text-muted-foreground">Name</label>
-            <p className="mt-1 text-sm text-foreground">{profile.name}</p>
+            <label className="text-sm font-medium text-muted-foreground">Contact Person</label>
+            <p className="mt-1 text-sm text-foreground">{profile.contactPerson}</p>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-muted-foreground">Mobile Number</label>
+            <p className="mt-1 text-sm text-foreground">{profile.mobileNumber}</p>
           </div>
           <div>
             <label className="text-sm font-medium text-muted-foreground">Email</label>
@@ -108,7 +113,7 @@ function ViewCustomerProfileDialog({
               {profile.photo ? (
                 <img
                   src={profile.photo}
-                  alt={`${profile.name}'s photo`}
+                  alt={`${profile.contactPerson}'s photo`}
                   className="h-32 w-32 rounded-lg border object-cover"
                 />
               ) : (
@@ -148,8 +153,9 @@ function CustomerProfilesPage() {
   const profilesTable = useTableControls(
     customerProfiles,
     {
+      companyName: (profile) => profile.companyName,
+      contactPerson: (profile) => profile.contactPerson,
       mobileNumber: (profile) => profile.mobileNumber,
-      name: (profile) => profile.name,
       email: (profile) => profile.email,
       customerType: (profile) => profile.customerType,
       landLineNumber: (profile) => profile.landLineNumber,
@@ -157,8 +163,9 @@ function CustomerProfilesPage() {
     {
       // The page level search box stays the primary, whole row search.
       filter: (profile) =>
+        (profile.companyName?.toLowerCase() || "").includes(search.toLowerCase()) ||
+        profile.contactPerson.toLowerCase().includes(search.toLowerCase()) ||
         profile.mobileNumber.toLowerCase().includes(search.toLowerCase()) ||
-        profile.name.toLowerCase().includes(search.toLowerCase()) ||
         profile.email.toLowerCase().includes(search.toLowerCase()) ||
         profile.customerType.toLowerCase().includes(search.toLowerCase()) ||
         (profile.landLineNumber?.toLowerCase() || "").includes(search.toLowerCase()) ||
@@ -225,11 +232,12 @@ function CustomerProfilesPage() {
           ) : (
             <>
             <TableControlsBar controls={profilesTable} noun="customer profiles" />
-            <Table className="table-actions-sticky min-w-[1000px]">
+            <Table className="table-actions-sticky min-w-[1100px]">
               <TableHeader>
                 <TableRow>
+                  <ColumnHeader controls={profilesTable} columnKey="companyName" label="Company Name" filterPlaceholder="Filter company" />
+                  <ColumnHeader controls={profilesTable} columnKey="contactPerson" label="Contact Person" filterPlaceholder="Filter contact" />
                   <ColumnHeader controls={profilesTable} columnKey="mobileNumber" label="Mobile Number" filterPlaceholder="Filter mobile" />
-                  <ColumnHeader controls={profilesTable} columnKey="name" label="Name" filterPlaceholder="Filter name" />
                   <ColumnHeader controls={profilesTable} columnKey="email" label="Email" filterPlaceholder="Filter email" />
                   <ColumnHeader controls={profilesTable} columnKey="customerType" label="Customer Type" filterPlaceholder="Filter customer type" />
                   <ColumnHeader controls={profilesTable} columnKey="landLineNumber" label="Land Line Number" filterPlaceholder="Filter land line" />
@@ -239,8 +247,9 @@ function CustomerProfilesPage() {
               <TableBody>
                 {filteredProfiles.map((profile) => (
                   <TableRow key={profile.id}>
+                    <TableCell>{profile.companyName || '-'}</TableCell>
+                    <TableCell>{profile.contactPerson}</TableCell>
                     <TableCell>{profile.mobileNumber}</TableCell>
-                    <TableCell>{profile.name}</TableCell>
                     <TableCell>{profile.email}</TableCell>
                     <TableCell>{profile.customerType}</TableCell>
                     <TableCell>{profile.landLineNumber || '-'}</TableCell>
@@ -318,7 +327,7 @@ function CustomerProfilesPage() {
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the customer profile
-              for {selectedProfile?.name}.
+              for {selectedProfile?.companyName || selectedProfile?.contactPerson}.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

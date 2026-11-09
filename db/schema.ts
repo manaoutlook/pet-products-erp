@@ -276,7 +276,11 @@ export const purchaseOrderActions = pgTable("purchase_order_actions", {
 export const customerProfiles = pgTable("customer_profiles", {
   id: serial("id").primaryKey(),
   mobileNumber: varchar("mobile_number", { length: 20 }).notNull().unique(), // mobile number
-  name: text("name").notNull(),
+  // A business account is a company plus the person we deal with; a walk-in consumer leaves the
+  // company empty and the contact person is whoever is at the counter. The sales orders copy both
+  // onto the printed paperwork (`sales_orders.company_name` / `.contact_person`).
+  companyName: text("company_name"),
+  contactPerson: text("contact_person").notNull(),
   email: varchar("email", { length: 255 }).notNull(),
   address: text("address").notNull(),
   photo: text("photo"),
@@ -912,7 +916,14 @@ export const insertCustomerProfileSchema = createInsertSchema(customerProfiles, 
     // Checked after normalising, so `+84-930-123-456` is accepted and stored as `+84930123456`,
     // while a value that is only separators (`+ - `) still fails.
     .refine((value) => MOBILE_NUMBER_PATTERN.test(value), "Invalid mobile number format"),
-  name: z.string().min(1, "Name is required"),
+  // Trimmed at the boundary: a B2B profile typed "  Acme  " must not print with the padding,
+  // and an empty box is stored as NULL so `companyName || contactPerson` reads naturally.
+  companyName: z.string()
+    .max(255, "Company name is too long")
+    .optional()
+    .nullable()
+    .transform((value) => value?.trim() || null),
+  contactPerson: z.string().min(1, "Contact person is required"),
   email: z.string().email("Invalid email address"),
   address: z.string().min(1, "Address is required"),
   photo: z.string().nullable().optional(),

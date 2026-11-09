@@ -40,7 +40,8 @@ export interface SalesOrderFormOrder {
 
 interface CustomerProfile {
   id: number;
-  name: string;
+  companyName?: string | null;
+  contactPerson: string;
   mobileNumber: string;
   address: string;
 }
@@ -187,7 +188,10 @@ export function SalesOrderFormDialog({
     () =>
       customers.map((customer) => ({
         value: String(customer.id),
-        label: customer.name,
+        // The company is what the paperwork is addressed to, so lead with it when there is one.
+        label: customer.companyName
+          ? `${customer.companyName} — ${customer.contactPerson}`
+          : customer.contactPerson,
         description: customer.mobileNumber,
       })),
     [customers]
@@ -261,7 +265,13 @@ export function SalesOrderFormDialog({
     if (!customer) return;
 
     // Prefill only what the profile knows; anything already typed wins.
-    if (!form.getValues("customerName")) form.setValue("customerName", customer.name);
+    if (!form.getValues("customerName")) {
+      form.setValue("customerName", customer.companyName || customer.contactPerson);
+    }
+    if (customer.companyName && !form.getValues("companyName")) {
+      form.setValue("companyName", customer.companyName);
+    }
+    if (!form.getValues("contactPerson")) form.setValue("contactPerson", customer.contactPerson);
     if (!form.getValues("phone")) form.setValue("phone", customer.mobileNumber);
     if (!form.getValues("deliveryAddress")) form.setValue("deliveryAddress", customer.address);
   };

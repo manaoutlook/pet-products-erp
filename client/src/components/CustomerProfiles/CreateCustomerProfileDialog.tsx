@@ -35,7 +35,9 @@ const customerProfileSchema = z.object({
   mobileNumber: z.string()
     .min(1, "Mobile number is required")
     .regex(MOBILE_NUMBER_PATTERN, "Invalid mobile number format"),
-  name: z.string().min(1, "Name is required"),
+  // Optional: a B2C walk-in has no company, so an empty box is sent as null.
+  companyName: z.string().max(255, "Company name is too long").nullable().optional(),
+  contactPerson: z.string().min(1, "Contact person is required"),
   email: z.string().email("Invalid email address"),
   address: z.string().min(1, "Address is required"),
   photo: z.string().nullable().optional(),
@@ -56,7 +58,8 @@ export function CreateCustomerProfileDialog() {
     resolver: zodResolver(customerProfileSchema),
     defaultValues: {
       mobileNumber: "",
-      name: "",
+      companyName: "",
+      contactPerson: "",
       email: "",
       address: "",
       customerType: undefined,
@@ -148,12 +151,26 @@ export function CreateCustomerProfileDialog() {
 
               <FormField
                 control={form.control}
-                name="name"
+                name="companyName"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Name</FormLabel>
+                    <FormLabel>Company Name (Optional)</FormLabel>
                     <FormControl>
-                      <Input {...field} />
+                      <Input {...field} value={field.value ?? ""} placeholder="Acme Pet Supplies Co." />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="contactPerson"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Contact Person</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="Nguyen Van A" autoComplete="name" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
