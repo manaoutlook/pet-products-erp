@@ -223,7 +223,9 @@ function RolePermissionsPage() {
           <CardTitle>Manage Role Permissions</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
+          {/* Permission matrix: module columns have their own floor, the wrapper
+              keeps the whole matrix scrollable on small screens. */}
+          <Table className="min-w-[800px]">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[200px]">Role</TableHead>

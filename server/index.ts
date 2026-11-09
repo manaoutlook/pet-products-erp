@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@db";
 import express from "express";
 import helmet from "helmet";
+import path from "node:path";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { errorHandler } from "./error-handler";
@@ -38,6 +39,18 @@ app.use(helmet({
 // larger than the 100kb default (a 1000 row file is several hundred KB).
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: false, limit: "10mb" }));
+
+// Product pictures are written to disk by POST /api/products/images
+// (server/product-images.ts) and referenced by a short URL, so the directory has
+// to be publicly readable. Registered before the Vite/static catch-all so a
+// request for /uploads/... never falls through to index.html.
+app.use(
+  "/uploads",
+  express.static(path.resolve(process.cwd(), "uploads"), {
+    maxAge: "7d",
+    fallthrough: true,
+  })
+);
 
 // Coarse per-IP ceiling for the whole API, before any route does work. Login has
 // its own tighter limiter (server/rate-limit.ts) on top of this one.

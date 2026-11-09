@@ -69,6 +69,7 @@ purpose so every checkout runs the tests against the same database name.
 | `npm run db:seed` | Sample data (`scripts/seed-sample-data.ts`) |
 | `npm run db:seed-inventory`, `db:seed-customers` | Inventory rows / customer profiles |
 | `npm run stock:reconcile` | Recomputes `inventory.quantity` from the stock ledger and reports drift |
+| `npm run stock:repair-cancelled` | Dry-run report of cancelled receipts whose stock never came back; add `-- --apply` to restore it (`--transaction <id>` to scope one receipt) |
 
 Additional seeders live in `scripts/` (`seed-users-roles`, `seed-regions`, `seed-stores-demo`,
 `seed-products`, `seed-orders`, `seed-purchase-orders`, `seed-transfers`); run them with

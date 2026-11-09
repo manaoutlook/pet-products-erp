@@ -1,5 +1,5 @@
 import { pgTable, text, serial, integer, boolean, timestamp, date, varchar, decimal, index } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 import { jsonb } from "drizzle-orm/pg-core";
@@ -123,6 +123,13 @@ export const products = pgTable("products", {
   lengthCm: decimal("length_cm", { precision: 10, scale: 2 }),
   widthCm: decimal("width_cm", { precision: 10, scale: 2 }),
   heightCm: decimal("height_cm", { precision: 10, scale: 2 }),
+  // Product pictures. `imageUrl` is the *featured* picture shown in the product
+  // grid and POS; `galleryImages` keeps up to ten extra pictures that are only
+  // shown on the product details screen. Both hold short URLs served from
+  // /uploads/products (see server/product-images.ts) - never base64 payloads, so
+  // the product list response stays small.
+  imageUrl: text("image_url"),
+  galleryImages: jsonb("gallery_images").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   minStock: integer("min_stock").notNull().default(10),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -191,8 +198,60 @@ export const purchaseOrderItems = pgTable("purchase_order_items", {
   unitPrice: decimal("unit_price", { precision: 15, scale: 2 }).notNull(), // VND amount
   totalPrice: decimal("total_price", { precision: 15, scale: 2 }).notNull(), // VND amount
   deliveredQuantity: integer("delivered_quantity").default(0),
+  // AI Agent Note: the receipt cost of one unit *after* the goods receipt's fees are spread
+  // across the lines (unitPrice + this line's share of shipping/customs/brokerage). Null
+  // until the goods actually arrive - a pending PO has no true cost yet.
+  landedCostPerUnit: decimal("landed_cost_per_unit", { precision: 15, scale: 2 }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Goods Receipts (GRN) table - the physical arrival of a purchase order.
+//
+// AI Agent Note: these figures (actual delivery date, shipping, customs, brokerage, extra
+// fees) are only knowable when the goods land, so they live on their own row and NOT on
+// purchase_orders. Keeping the PO's `deliveryDate` as the *expected* date is what makes
+// on-time delivery measurable; overwriting it would destroy that comparison and the audit
+// trail of who received what. One PO can eventually have several receipts (partial
+// deliveries), so this is a table and not a set of columns on the order.
+export const goodsReceipts = pgTable("goods_receipts", {
+  id: serial("id").primaryKey(),
+  purchaseOrderId: integer("purchase_order_id").references(() => purchaseOrders.id, { onDelete: "cascade" }).notNull(),
+  receiptNumber: varchar("receipt_number", { length: 50 }).notNull().unique(),
+  actualDeliveryDate: timestamp("actual_delivery_date").notNull(),
+  shippingFee: decimal("shipping_fee", { precision: 15, scale: 2 }).notNull().default("0"), // VND amount
+  customsDuty: decimal("customs_duty", { precision: 15, scale: 2 }).notNull().default("0"), // VND amount
+  customsTax: decimal("customs_tax", { precision: 15, scale: 2 }).notNull().default("0"), // VND amount
+  brokerageFee: decimal("brokerage_fee", { precision: 15, scale: 2 }).notNull().default("0"), // VND amount
+  additionalFee: decimal("additional_fee", { precision: 15, scale: 2 }).notNull().default("0"), // VND amount
+  // What the "additional fee" was, so a reader of the record knows why money was spent.
+  additionalFeeNote: text("additional_fee_note"),
+  // Sum of the five fee columns; kept as a column so reports do not have to re-add them.
+  totalAdditionalCost: decimal("total_additional_cost", { precision: 15, scale: 2 }).notNull().default("0"),
+  notes: text("notes"),
+  receivedByUserId: integer("received_by_user_id").references(() => users.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Goods Receipt Items - which purchase order line a receipt covered, and how many units.
+//
+// AI Agent Note: a delivery can be short or arrive in several shipments, so a receipt has to
+// say *what* turned up, not just that "something" did. Without these rows a partial delivery
+// would either lose the shortfall or mark the order fully received. Each row keeps its own
+// copy of the money, because the fees of this particular shipment only apply to the units that
+// were actually on it - a second, later shipment carries its own (different) fees.
+export const goodsReceiptItems = pgTable("goods_receipt_items", {
+  id: serial("id").primaryKey(),
+  goodsReceiptId: integer("goods_receipt_id").references(() => goodsReceipts.id, { onDelete: "cascade" }).notNull(),
+  purchaseOrderItemId: integer("purchase_order_item_id").references(() => purchaseOrderItems.id, { onDelete: "cascade" }).notNull(),
+  quantity: integer("quantity").notNull(), // units received on this shipment
+  unitPrice: decimal("unit_price", { precision: 15, scale: 2 }).notNull(), // VND amount
+  // This line's share of the receipt's fees, so the receipt can be audited line by line.
+  allocatedCost: decimal("allocated_cost", { precision: 15, scale: 2 }).notNull().default("0"),
+  // What one of *these* units cost: unitPrice + allocatedCost / quantity.
+  landedCostPerUnit: decimal("landed_cost_per_unit", { precision: 15, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 // Purchase Order Actions table for tracking order processes
@@ -200,7 +259,7 @@ export const purchaseOrderActions = pgTable("purchase_order_actions", {
   id: serial("id").primaryKey(),
   purchaseOrderId: integer("purchase_order_id").references(() => purchaseOrders.id).notNull(),
   actionType: varchar("action_type", { length: 50 }).notNull(), // 'cancel', 'print', 'invoice_received', 'payment_sent', 'goods_receipt'
-  actionData: jsonb("action_data").$type<{ notes?: string, quantity?: number, reference?: string }>(),
+  actionData: jsonb("action_data").$type<{ notes?: string, quantity?: number, reference?: string, partial?: boolean }>(),
   performedByUserId: integer("performed_by_user_id").references(() => users.id).notNull(),
   performedAt: timestamp("performed_at").notNull().defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -441,6 +500,30 @@ export const purchaseOrdersRelations = relations(purchaseOrders, ({ many, one })
     references: [stores.id],
   }),
   actions: many(purchaseOrderActions),
+  goodsReceipts: many(goodsReceipts),
+}));
+
+export const goodsReceiptsRelations = relations(goodsReceipts, ({ many, one }) => ({
+  purchaseOrder: one(purchaseOrders, {
+    fields: [goodsReceipts.purchaseOrderId],
+    references: [purchaseOrders.id],
+  }),
+  receivedByUser: one(users, {
+    fields: [goodsReceipts.receivedByUserId],
+    references: [users.id],
+  }),
+  items: many(goodsReceiptItems),
+}));
+
+export const goodsReceiptItemsRelations = relations(goodsReceiptItems, ({ one }) => ({
+  receipt: one(goodsReceipts, {
+    fields: [goodsReceiptItems.goodsReceiptId],
+    references: [goodsReceipts.id],
+  }),
+  purchaseOrderItem: one(purchaseOrderItems, {
+    fields: [goodsReceiptItems.purchaseOrderItemId],
+    references: [purchaseOrderItems.id],
+  }),
 }));
 
 // Add relations for purchase order actions
@@ -455,7 +538,7 @@ export const purchaseOrderActionsRelations = relations(purchaseOrderActions, ({ 
   }),
 }));
 
-export const purchaseOrderItemsRelations = relations(purchaseOrderItems, ({ one }) => ({
+export const purchaseOrderItemsRelations = relations(purchaseOrderItems, ({ many, one }) => ({
   purchaseOrder: one(purchaseOrders, {
     fields: [purchaseOrderItems.purchaseOrderId],
     references: [purchaseOrders.id],
@@ -464,6 +547,7 @@ export const purchaseOrderItemsRelations = relations(purchaseOrderItems, ({ one 
     fields: [purchaseOrderItems.productId],
     references: [products.id],
   }),
+  goodsReceiptItems: many(goodsReceiptItems),
 }));
 
 // Add relations for customer profiles

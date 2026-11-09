@@ -427,7 +427,7 @@ function StorePage() {
           ) : (
             <>
             <TableControlsBar controls={storesTable} noun="stores" />
-            <Table>
+            <Table className="table-actions-sticky min-w-[1000px]">
               <TableHeader>
                 <TableRow>
                   <ColumnHeader controls={storesTable} columnKey="name" label="Store Name" filterPlaceholder="Filter store" />

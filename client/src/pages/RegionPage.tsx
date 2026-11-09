@@ -407,7 +407,7 @@ function RegionPage() {
           ) : (
             <>
             <TableControlsBar controls={regionsTable} noun="regions" />
-            <Table>
+            <Table className="table-actions-sticky min-w-[940px]">
               <TableHeader>
                 <TableRow>
                   <ColumnHeader controls={regionsTable} columnKey="name" label="Region Name" filterPlaceholder="Filter region" />

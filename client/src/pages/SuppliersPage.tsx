@@ -471,7 +471,7 @@ function SuppliersPage() {
           ) : (
             <>
             <TableControlsBar controls={suppliersTable} noun="suppliers" />
-            <Table>
+            <Table className="table-actions-sticky min-w-[940px]">
               <TableHeader>
                 <TableRow>
                   {canDeleteSuppliers && (

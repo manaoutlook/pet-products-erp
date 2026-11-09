@@ -455,7 +455,7 @@ function BrandsPage() {
           ) : (
             <>
             <TableControlsBar controls={brandsTable} noun="brands" />
-            <Table>
+            <Table className="table-actions-sticky min-w-[880px]">
               <TableHeader>
                 <TableRow>
                   {canDeleteBrands && (

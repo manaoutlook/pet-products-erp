@@ -54,7 +54,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useUser } from "@/hooks/use-user";
 import { usePermissions } from "@/hooks/use-permissions";
-import { ReceiptPrinter } from "@/components/POS/ReceiptPrinter";
+import { ReceiptPrinter, type ReceiptData } from "@/components/POS/ReceiptPrinter";
 
 interface SalesTransaction {
   id: number;
@@ -85,29 +85,6 @@ interface SalesTransaction {
     unitPrice: string;
     totalPrice: string;
   }>;
-}
-
-interface ReceiptData {
-  invoiceNumber: string;
-  transactionDate: string;
-  cashierName: string;
-  storeName?: string;
-  items: Array<{
-    productId: number;
-    product: {
-      id: number;
-      name: string;
-      sku: string;
-      price: string;
-    };
-    quantity: number;
-    unitPrice: number;
-    totalPrice: number;
-  }>;
-  subtotal: number;
-  tax: number;
-  total: number;
-  paymentMethod: string;
 }
 
 function ReceiptsPage() {
@@ -398,7 +375,7 @@ function ReceiptsPage() {
           ) : receiptsQuery.data && receiptsQuery.data.length > 0 ? (
             <>
             <TableControlsBar controls={receiptsTable} noun="receipts" />
-            <Table>
+            <Table className="table-actions-sticky min-w-[1100px]">
               <TableHeader>
                 <TableRow>
                   <ColumnHeader controls={receiptsTable} columnKey="invoiceNumber" label="Invoice #" filterPlaceholder="Filter invoice #" />
@@ -556,14 +533,16 @@ function ReceiptsPage() {
       {/* Receipt Modal */}
       {showReceiptModal && selectedReceipt && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <ReceiptPrinter
-            receiptData={selectedReceipt}
-            onPrint={handlePrintReceipt}
-            onClose={() => {
-              setShowReceiptModal(false);
-              setSelectedReceipt(null);
-            }}
-          />
+          <div className="w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <ReceiptPrinter
+              receiptData={selectedReceipt}
+              onPrint={handlePrintReceipt}
+              onClose={() => {
+                setShowReceiptModal(false);
+                setSelectedReceipt(null);
+              }}
+            />
+          </div>
         </div>
       )}
     </div>

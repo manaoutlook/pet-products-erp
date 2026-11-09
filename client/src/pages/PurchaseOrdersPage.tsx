@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CreatePurchaseOrderDialog } from "@/components/PurchaseOrders/CreatePurchaseOrderDialog";
+import { ReceiveGoodsDialog } from "@/components/PurchaseOrders/ReceiveGoodsDialog";
 
 interface Supplier {
   id: number;
@@ -46,7 +47,8 @@ interface Supplier {
 interface PurchaseOrderAction {
   id: number;
   actionType: 'cancel' | 'print' | 'invoice_received' | 'payment_sent' | 'goods_receipt';
-  performedByUser: {
+  /** Missing when the user record is gone - the timeline falls back to "Unknown user". */
+  performedByUser?: {
     id: number;
     username: string;
   };
@@ -63,7 +65,9 @@ interface PurchaseOrderItem {
   quantity: number;
   unitPrice: number;
   totalPrice: number;
-  deliveredQuantity: number;
+  deliveredQuantity?: number | null;
+  /** Unit price plus this line's share of the goods receipt's fees. Null until received. */
+  landedCostPerUnit?: number | string | null;
 }
 
 interface PurchaseOrder {
@@ -71,6 +75,7 @@ interface PurchaseOrder {
   orderNumber: string;
   supplier: Supplier;
   createdAt: string;
+  /** The date the supplier promised. The actual arrival lives on the goods receipt. */
   deliveryDate: string;
   totalAmount: number;
   status: 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled';
@@ -81,7 +86,41 @@ interface PurchaseOrder {
     id: number;
     name: string;
   } | null;
+  goodsReceipts?: GoodsReceipt[];
 }
+
+/**
+ * The Goods Receipt Note: what actually happened when the goods arrived, and what the
+ * delivery really cost on top of the invoice. A short delivery produces one receipt per
+ * shipment, each with the lines and quantities it carried.
+ */
+interface GoodsReceipt {
+  id: number;
+  receiptNumber: string;
+  actualDeliveryDate: string;
+  shippingFee: number | string;
+  customsDuty: number | string;
+  customsTax: number | string;
+  brokerageFee: number | string;
+  additionalFee: number | string;
+  additionalFeeNote?: string | null;
+  totalAdditionalCost: number | string;
+  notes?: string | null;
+  receivedByUser?: { id: number; username: string };
+  items?: Array<{
+    id: number;
+    quantity: number;
+    unitPrice: number | string;
+    allocatedCost: number | string;
+    landedCostPerUnit: number | string;
+    purchaseOrderItem?: {
+      id: number;
+      quantity: number;
+      product?: { id: number; name: string; sku: string };
+    };
+  }>;
+}
+
 
 function PurchaseOrdersPage() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -164,6 +203,19 @@ function PurchaseOrdersPage() {
     return order.actions?.some(action => action.actionType === actionType) || false;
   };
 
+  /**
+   * Every line booked in? A purchase order can arrive in several shipments, so "delivered"
+   * is decided by the delivered quantities, not by the fact that a receipt exists.
+   */
+  const isFullyReceived = (order: PurchaseOrder): boolean =>
+    order.items && order.items.length > 0
+      ? order.items.every((item) => (item.deliveredQuantity ?? 0) >= item.quantity)
+      : hasAction(order, 'goods_receipt');
+
+  /** Partly booked in: at least one receipt, but units still owed by the supplier. */
+  const isPartiallyReceived = (order: PurchaseOrder): boolean =>
+    !isFullyReceived(order) && (order.goodsReceipts?.length ?? 0) > 0;
+
   const canPerformAction = (order: PurchaseOrder, actionType: string): boolean => {
     if (order.status === 'cancelled' || order.status === 'delivered') {
       return false;
@@ -179,7 +231,8 @@ function PurchaseOrdersPage() {
       case 'payment_sent':
         return hasAction(order, 'invoice_received');
       case 'goods_receipt':
-        return hasAction(order, 'payment_sent');
+        // Repeatable: each shipment gets its own receipt until every line is complete.
+        return hasAction(order, 'payment_sent') && !isFullyReceived(order);
       default:
         return false;
     }
@@ -253,16 +306,21 @@ function PurchaseOrdersPage() {
           ) : (
             <>
             <TableControlsBar controls={purchaseOrdersTable} noun="purchase orders" />
-            <Table>
+            {/* Wide list: the wrapper scrolls horizontally and the Actions column
+                stays frozen on the right (see `.table-scroll` /
+                `.table-actions-sticky` in index.css). */}
+            <Table className="table-actions-sticky min-w-[1100px]">
               <TableHeader>
                 <TableRow>
                   <ColumnHeader controls={purchaseOrdersTable} columnKey="orderNumber" label="Order Number" filterPlaceholder="Filter order no." />
                   <ColumnHeader controls={purchaseOrdersTable} columnKey="supplier" label="Supplier" filterPlaceholder="Filter supplier" />
                   <ColumnHeader controls={purchaseOrdersTable} columnKey="orderDate" label="Order Date" filterPlaceholder="Filter order date" />
-                  <ColumnHeader controls={purchaseOrdersTable} columnKey="deliveryDate" label="Delivery Date" filterPlaceholder="Filter delivery date" />
+                  <ColumnHeader controls={purchaseOrdersTable} columnKey="deliveryDate" label="Expected Delivery Date" filterPlaceholder="Filter expected delivery" />
                   <ColumnHeader controls={purchaseOrdersTable} columnKey="totalAmount" label="Total Amount (VND)" filterPlaceholder="Filter total" />
                   <ColumnHeader controls={purchaseOrdersTable} columnKey="status" label="Status" filterPlaceholder="Filter status" />
-                  <TableHead className="align-top">Actions</TableHead>
+                  {/* Last column: `.table-actions-sticky` keeps it frozen on the right,
+                      on a single line, while the data columns scroll. */}
+                  <TableHead className="text-right align-top">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -273,9 +331,16 @@ function PurchaseOrdersPage() {
                     <TableCell>{formatDate(order.createdAt)}</TableCell>
                     <TableCell>{formatDate(order.deliveryDate)}</TableCell>
                     <TableCell>{formatNumber(order.totalAmount)}</TableCell>
-                    <TableCell className="capitalize">{order.status}</TableCell>
                     <TableCell>
-                      <div className="flex gap-1 flex-wrap">
+                      <span className="capitalize">{order.status}</span>
+                      {isPartiallyReceived(order) && (
+                        <span className="ml-2 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700">
+                          Partially received
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center justify-end gap-1">
                         {/* Print */}
                         <Button
                           size="sm"
@@ -317,20 +382,23 @@ function PurchaseOrdersPage() {
                           )}
                         </Button>
 
-                        {/* Goods Receipt */}
-                        <Button
-                          size="sm"
-                          variant={hasAction(order, 'goods_receipt') ? "default" : "outline"}
-                          onClick={() => logAction.mutate({ orderId: order.id, actionType: 'goods_receipt' })}
-                          disabled={!canPerformAction(order, 'goods_receipt')}
-                          title="Process Goods Receipt"
-                        >
-                          {hasAction(order, 'goods_receipt') ? (
+                        {/* Goods Receipt - opens the Goods Receipt Note form, which captures the
+                            actual delivery date, what arrived and the costs incurred on arrival.
+                            Stays available after a short delivery so the rest can follow. */}
+                        {isFullyReceived(order) ? (
+                          <Button size="sm" variant="default" disabled title="Goods received in full">
                             <CheckCircle className="h-4 w-4" />
-                          ) : (
-                            <Package className="h-4 w-4" />
-                          )}
-                        </Button>
+                          </Button>
+                        ) : (
+                          <ReceiveGoodsDialog
+                            purchaseOrderId={order.id}
+                            orderNumber={order.orderNumber}
+                            expectedDeliveryDate={order.deliveryDate}
+                            items={order.items}
+                            disabled={!canPerformAction(order, 'goods_receipt')}
+                            disabledReason="Record 'Payment Sent' first"
+                          />
+                        )}
 
                         {/* Cancel */}
                         <Button
@@ -374,7 +442,7 @@ function PurchaseOrdersPage() {
                                       <div><strong>Order Number:</strong> {selectedOrderDetails.orderNumber}</div>
                                       <div><strong>Status:</strong> <span className="capitalize">{selectedOrderDetails.status}</span></div>
                                       <div><strong>Order Date:</strong> {formatDate(selectedOrderDetails.createdAt)}</div>
-                                      <div><strong>Delivery Date:</strong> {formatDate(selectedOrderDetails.deliveryDate)}</div>
+                                      <div><strong>Expected Delivery Date:</strong> {formatDate(selectedOrderDetails.deliveryDate)}</div>
                                       {selectedOrderDetails.notes && (
                                         <div><strong>Notes:</strong> {selectedOrderDetails.notes}</div>
                                       )}
@@ -401,6 +469,7 @@ function PurchaseOrdersPage() {
                                         <TableHead className="text-right">Quantity</TableHead>
                                         <TableHead className="text-right">Unit Price (VND)</TableHead>
                                         <TableHead className="text-right">Total (VND)</TableHead>
+                                        <TableHead className="text-right">Landed Cost/Unit</TableHead>
                                         <TableHead className="text-right">Delivered</TableHead>
                                       </TableRow>
                                     </TableHeader>
@@ -413,8 +482,13 @@ function PurchaseOrdersPage() {
                                           <TableCell className="text-right">{formatNumber(item.unitPrice)}</TableCell>
                                           <TableCell className="text-right">{formatNumber(item.totalPrice)}</TableCell>
                                           <TableCell className="text-right">
-                                            <span className={item.deliveredQuantity === item.quantity ? "text-green-600" : "text-orange-600"}>
-                                              {item.deliveredQuantity}/{item.quantity}
+                                            {item.landedCostPerUnit != null
+                                              ? formatNumber(item.landedCostPerUnit)
+                                              : <span className="text-muted-foreground">-</span>}
+                                          </TableCell>
+                                          <TableCell className="text-right">
+                                            <span className={(item.deliveredQuantity ?? 0) >= item.quantity ? "text-green-600" : "text-orange-600"}>
+                                              {item.deliveredQuantity ?? 0}/{item.quantity}
                                             </span>
                                           </TableCell>
                                         </TableRow>
@@ -422,6 +496,80 @@ function PurchaseOrdersPage() {
                                     </TableBody>
                                   </Table>
                                 </div>
+
+                                {/* Goods Receipt - the actual arrival and what it cost on top of the
+                                    invoice. Kept apart from the order, which keeps the expected date. */}
+                                {selectedOrderDetails.goodsReceipts && selectedOrderDetails.goodsReceipts.length > 0 && (
+                                  <div>
+                                    <h4 className="font-semibold mb-4">Goods Receipt</h4>
+                                    {selectedOrderDetails.goodsReceipts.map((receipt) => {
+                                      const expected = selectedOrderDetails.deliveryDate
+                                        ? new Date(selectedOrderDetails.deliveryDate)
+                                        : null;
+                                      const actual = new Date(receipt.actualDeliveryDate);
+                                      const daysLate = expected
+                                        ? Math.ceil((actual.getTime() - expected.getTime()) / 86400000)
+                                        : 0;
+
+                                      return (
+                                        <div key={receipt.id} className="rounded-lg border p-4 space-y-3">
+                                          <div className="grid grid-cols-2 gap-4 text-sm">
+                                            <div className="space-y-1">
+                                              <div><strong>Receipt Number:</strong> {receipt.receiptNumber}</div>
+                                              <div><strong>Actual Delivery Date:</strong> {formatDateTime(receipt.actualDeliveryDate)}</div>
+                                              <div><strong>Received By:</strong> {receipt.receivedByUser?.username || '-'}</div>
+                                              {expected && (
+                                                <div>
+                                                  <strong>Against Plan:</strong>{' '}
+                                                  <span className={daysLate > 0 ? 'text-orange-600' : 'text-green-600'}>
+                                                    {daysLate > 0 ? `${daysLate} day(s) late` : 'On time'}
+                                                  </span>
+                                                </div>
+                                              )}
+                                            </div>
+                                            <div className="space-y-1">
+                                              <div><strong>Shipping Fee:</strong> {formatCurrency(receipt.shippingFee)}</div>
+                                              <div><strong>Customs Duty:</strong> {formatCurrency(receipt.customsDuty)}</div>
+                                              <div><strong>Customs Tax:</strong> {formatCurrency(receipt.customsTax)}</div>
+                                              <div><strong>Brokerage Fee:</strong> {formatCurrency(receipt.brokerageFee)}</div>
+                                              <div>
+                                                <strong>Additional Fee:</strong> {formatCurrency(receipt.additionalFee)}
+                                                {receipt.additionalFeeNote ? ` (${receipt.additionalFeeNote})` : ''}
+                                              </div>
+                                            </div>
+                                          </div>
+                                          <div className="flex justify-between border-t pt-2 font-medium">
+                                            <span>Total additional cost</span>
+                                            <span>{formatCurrency(receipt.totalAdditionalCost)}</span>
+                                          </div>
+                                          {/* What this shipment carried. A short delivery has its
+                                              own receipt, so the lines are part of the record. */}
+                                          {receipt.items && receipt.items.length > 0 && (
+                                            <div className="border-t pt-2">
+                                              <div className="mb-1 text-sm font-medium">Lines on this receipt</div>
+                                              <div className="space-y-1 text-sm">
+                                                {receipt.items.map((line) => (
+                                                  <div key={line.id} className="flex justify-between">
+                                                    <span>
+                                                      {line.purchaseOrderItem?.product?.name || `Line ${line.purchaseOrderItem?.id ?? ''}`}
+                                                      {line.purchaseOrderItem
+                                                        ? ` (${line.quantity} of ${line.purchaseOrderItem.quantity} units)`
+                                                        : ` (${line.quantity} units)`}
+                                                    </span>
+                                                    <span>{formatNumber(line.landedCostPerUnit)}/unit</span>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          )}
+                                          {receipt.notes && (
+                                            <div className="text-sm"><strong>Notes:</strong> {receipt.notes}</div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
 
                                 {/* Action History Summary */}
                                 {selectedOrderDetails.actions && selectedOrderDetails.actions.length > 0 && (
@@ -444,7 +592,7 @@ function PurchaseOrdersPage() {
                                               <div>
                                                 <div className="font-medium">{getActionLabel(action.actionType)}</div>
                                                 <div className="text-sm text-muted-foreground">
-                                                  by {action.performedByUser.username} on {formatDate(action.performedAt)}
+                                                  by {action.performedByUser?.username ?? 'Unknown user'} on {formatDate(action.performedAt)}
                                                 </div>
                                               </div>
                                             </div>
@@ -486,7 +634,7 @@ function PurchaseOrdersPage() {
                                   No actions recorded yet
                                 </div>
                               ) : (
-                                order.actions
+                                [...order.actions]
                                   .sort((a, b) => new Date(b.performedAt).getTime() - new Date(a.performedAt).getTime())
                                   .map((action: PurchaseOrderAction, index: number) => (
                                     <div key={action.id} className="flex items-start gap-4 p-4 border rounded-lg">
@@ -511,7 +659,7 @@ function PurchaseOrdersPage() {
                                         <div className="flex items-center gap-2 mt-2">
                                           <div className="flex items-center gap-1 text-xs text-muted-foreground">
                                             <User className="h-3 w-3" />
-                                            {action.performedByUser.username}
+                                            {action.performedByUser?.username ?? 'Unknown user'}
                                           </div>
                                           <div className="flex items-center gap-1 text-xs text-muted-foreground ml-4">
                                             <Clock className="h-3 w-3" />

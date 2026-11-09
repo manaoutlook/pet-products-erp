@@ -134,7 +134,7 @@ function OrdersPage() {
           ) : (
             <>
             <TableControlsBar controls={ordersTable} noun="orders" />
-            <Table>
+            <Table className="min-w-[1000px]">
               <TableHeader>
                 <TableRow>
                   <ColumnHeader controls={ordersTable} columnKey="orderId" label="Order ID" filterPlaceholder="Filter order ID" />

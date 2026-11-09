@@ -31,6 +31,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { RichText } from "@/components/RichText";
 import { isHtml } from "@/utils/rich-text";
 import BrandQuickAddModal from "@/components/QuickAdd/BrandQuickAddModal";
+import { ProductImageUpload } from "@/components/products/ProductImageUpload";
+import { MAX_PRODUCT_GALLERY_IMAGES } from "@/utils/product-image-upload";
 import { validatePrice, normalizePrice } from "@/utils/price";
 
 export interface BrandOption {
@@ -94,6 +96,11 @@ export const productSchema = z
     lengthCm: z.number().min(0, "Length must be positive").nullable().optional(),
     widthCm: z.number().min(0, "Width must be positive").nullable().optional(),
     heightCm: z.number().min(0, "Height must be positive").nullable().optional(),
+    // Pictures: `imageUrl` is the featured picture (shown in the product grid) and
+    // `galleryImages` holds up to ten extra pictures. Both are URLs returned by
+    // POST /api/products/images once the file has been uploaded.
+    imageUrl: z.string().nullable().optional(),
+    galleryImages: z.array(z.string()).max(MAX_PRODUCT_GALLERY_IMAGES).optional(),
   })
   // Mandatory-field checks are collected in one place so that a missing B2C
   // price and a missing supplier are both reported on the same submit.
@@ -246,6 +253,19 @@ export function ProductFormDialog({
                     </FormItem>
                   )}
                 />
+                <div className="rounded-md border bg-muted/20 p-3 sm:col-span-2">
+                  <ProductImageUpload
+                    featuredImage={form.watch("imageUrl") ?? null}
+                    galleryImages={form.watch("galleryImages") ?? []}
+                    onFeaturedChange={(url) =>
+                      form.setValue("imageUrl", url, { shouldDirty: true })
+                    }
+                    onGalleryChange={(urls) =>
+                      form.setValue("galleryImages", urls, { shouldDirty: true })
+                    }
+                    disabled={isBusy}
+                  />
+                </div>
                 <FormField
                   control={form.control}
                   name="categoryId"

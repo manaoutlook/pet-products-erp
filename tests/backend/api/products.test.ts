@@ -179,4 +179,87 @@ describe('Products API Tests', () => {
             expect(updated.minStock).toBe(25);
         });
     });
+
+    /**
+     * Product pictures are two separate columns: the featured image that the
+     * product grid renders and the gallery (jsonb array, up to ten URLs). Only
+     * short URLs are stored - the bytes live in uploads/products/.
+     */
+    describe('Product pictures', () => {
+        it('stores a featured picture and the gallery', async () => {
+            const [product] = await db
+                .insert(products)
+                .values({
+                    name: 'Picture Product',
+                    sku: 'PIC-001',
+                    price: '100.00',
+                    categoryId: testData.categories.category.id,
+                    imageUrl: '/uploads/products/featured.png',
+                    galleryImages: [
+                        '/uploads/products/one.png',
+                        '/uploads/products/two.png',
+                    ],
+                })
+                .returning();
+
+            expect(product.imageUrl).toBe('/uploads/products/featured.png');
+            expect(product.galleryImages).toEqual([
+                '/uploads/products/one.png',
+                '/uploads/products/two.png',
+            ]);
+        });
+
+        it('defaults the gallery to an empty array', async () => {
+            const [product] = await db
+                .insert(products)
+                .values({
+                    name: 'No Picture Product',
+                    sku: 'PIC-002',
+                    price: '100.00',
+                    categoryId: testData.categories.category.id,
+                })
+                .returning();
+
+            expect(product.imageUrl).toBeNull();
+            expect(product.galleryImages).toEqual([]);
+        });
+
+        it('can replace the pictures and clear them again', async () => {
+            const [product] = await db
+                .insert(products)
+                .values({
+                    name: 'Picture Product',
+                    sku: 'PIC-003',
+                    price: '100.00',
+                    categoryId: testData.categories.category.id,
+                    imageUrl: '/uploads/products/old.png',
+                    galleryImages: ['/uploads/products/old-1.png'],
+                })
+                .returning();
+
+            const [updated] = await db
+                .update(products)
+                .set({
+                    imageUrl: '/uploads/products/new.png',
+                    galleryImages: ['/uploads/products/new-1.png', '/uploads/products/new-2.png'],
+                })
+                .where(eq(products.id, product.id))
+                .returning();
+
+            expect(updated.imageUrl).toBe('/uploads/products/new.png');
+            expect(updated.galleryImages).toEqual([
+                '/uploads/products/new-1.png',
+                '/uploads/products/new-2.png',
+            ]);
+
+            const [cleared] = await db
+                .update(products)
+                .set({ imageUrl: null, galleryImages: [] })
+                .where(eq(products.id, product.id))
+                .returning();
+
+            expect(cleared.imageUrl).toBeNull();
+            expect(cleared.galleryImages).toEqual([]);
+        });
+    });
 });

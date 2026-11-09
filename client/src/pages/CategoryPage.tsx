@@ -582,7 +582,7 @@ function CategoryPage() {
           ) : (
             <>
             <TableControlsBar controls={categoriesTable} noun="categories" />
-            <Table>
+            <Table className="table-actions-sticky min-w-[1100px]">
               <TableHeader>
                 <TableRow>
                   {canDeleteCategories && (

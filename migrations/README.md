@@ -43,3 +43,6 @@ each change was made, and several are hand-written rather than generated.
 | `0009_user_sessions.sql` | Postgres-backed session store |
 | `0010_stock_movements.sql` | stock ledger |
 | `0011_stock_movements_note.sql` | free-text note on a stock movement |
+| `0012_goods_receipts.sql` | goods receipts (GRN): actual delivery date + import costs, and `purchase_order_items.landed_cost_per_unit` |
+| `0013_goods_receipt_items.sql` | goods receipt lines: what each receipt covered (partial / multi-shipment deliveries) |
+| `0014_products_images.sql` | product pictures: `products.image_url` (featured, shown in the grid) + `products.gallery_images` (up to ten extra picture URLs) |

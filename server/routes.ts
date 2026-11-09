@@ -7,7 +7,7 @@ import {
   products, inventory, orders, orderItems, users,
   roles, stores, userStoreAssignments, regions,
   categories, brands, suppliers, purchaseOrders,
-  purchaseOrderItems, purchaseOrderActions, customerProfiles, insertCustomerProfileSchema,
+  purchaseOrderItems, purchaseOrderActions, goodsReceipts, customerProfiles, insertCustomerProfileSchema,
   insertPurchaseOrderActionSchema, selectPurchaseOrderActionSchema,
   insertUserSchema, updateUserSchema, salesTransactions, salesTransactionItems,
   salesTransactionActions, invoiceCounters,
@@ -39,6 +39,14 @@ import {
 import { adjustStock, listStockTake } from "./stock-adjust";
 import { crypto } from "./auth";
 import { createSale, refundSale, cancelSale, SaleError } from "./sales";
+import { generateInventoryBarcode, generateOrderNumber } from "./numbering";
+import { receiveGoods } from "./goods-receipt";
+import {
+  MAX_GALLERY_IMAGES,
+  ProductImageError,
+  isProductImageUrl,
+  saveProductImage,
+} from "./product-images";
 
 // Schema validations
 const createPurchaseOrderSchema = z.object({
@@ -58,6 +66,32 @@ const updatePurchaseOrderSchema = z.object({
   status: z.enum(['pending', 'confirmed', 'shipped', 'delivered', 'cancelled']),
   deliveryDate: z.string().datetime().optional(),
   notes: z.string().optional(),
+});
+
+// Body of POST /api/purchase-orders/:id/goods-receipt: the figures that only exist once the
+// goods physically arrive. Every fee is optional and defaults to 0, so a domestic delivery
+// with no customs costs still just needs the actual date.
+//
+// `items` is what this shipment carried. Leaving it out means "everything still outstanding",
+// which keeps the old one-click complete delivery working.
+const goodsReceiptSchema = z.object({
+  actualDeliveryDate: z.string().datetime("Valid actual delivery date is required"),
+  shippingFee: z.number().min(0, "Shipping fee cannot be negative").default(0),
+  customsDuty: z.number().min(0, "Customs duty cannot be negative").default(0),
+  customsTax: z.number().min(0, "Customs tax cannot be negative").default(0),
+  brokerageFee: z.number().min(0, "Brokerage fee cannot be negative").default(0),
+  additionalFee: z.number().min(0, "Additional fee cannot be negative").default(0),
+  additionalFeeNote: z.string().max(500).optional(),
+  notes: z.string().max(2000).optional(),
+  items: z
+    .array(
+      z.object({
+        itemId: z.number().int().positive("Line id is required"),
+        quantity: z.number().int().positive("Received quantity must be a whole number"),
+      })
+    )
+    .min(1, "Receive at least one line")
+    .optional(),
 });
 
 // Shared body schemas for the master data screens (Categories, Brands,
@@ -142,22 +176,8 @@ const rolePermissionsSchema = z.object({
 
 
 // Helper functions
-function generateOrderNumber(): string {
-  return `PO-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
-}
-
-function generateInventoryBarcode(
-  inventoryType: 'DC' | 'STORE',
-  productSku: string,
-  storeId?: number | null
-): string {
-  const prefix = inventoryType === 'DC' ? 'DC' : 'ST';
-  const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-
-  // AI Agent Note: In multiple DC mode, storePrefix should always be populated even for Warehouses.
-  const storePrefix = storeId ? storeId.toString().padStart(3, '0') : '000';
-  return `${prefix}${storePrefix}${productSku}${randomNum}`;
-}
+// AI Agent Note: generateOrderNumber / generateInventoryBarcode live in server/numbering.ts
+// so the routes, the imports and the goods receipt all stamp documents the same way.
 
 // AI Agent Note: Builds human readable name lists for validation messages, e.g.
 // ["A"] => "A", ["A", "B"] => "A and B", ["A", "B", "C"] => "A, B and C".
@@ -256,7 +276,12 @@ export function registerRoutes(app: Express): Server {
               performedByUser: true
             }
           },
-          destinationStore: true
+          destinationStore: true,
+          // Light summary only: the list needs to know whether a delivery has partly landed
+          // (so the row can say "partially received" instead of showing a stale status).
+          goodsReceipts: {
+            columns: { id: true, receiptNumber: true, actualDeliveryDate: true }
+          }
         },
         orderBy: [desc(purchaseOrders.updatedAt)],
       });
@@ -427,127 +452,18 @@ export function registerRoutes(app: Express): Server {
           .where(eq(purchaseOrders.id, parseInt(id)));
       }
 
-      // For goods_receipt, update inventory
+      // AI Agent Note: booking goods in is no longer a bare action - it has to carry the
+      // actual delivery date and the import costs, and it stocks inventory atomically.
+      // That lives in POST /api/purchase-orders/:id/goods-receipt (server/goods-receipt.ts).
+      // This branch stays only to fail loudly for any old client instead of silently
+      // stocking inventory without a goods receipt behind it.
       if (actionType === 'goods_receipt') {
-        console.log('Processing goods receipt for order:', id);
-
-        // Check if payment is sent first
-        const paymentAction = await db.query.purchaseOrderActions.findFirst({
-          where: and(
-            eq(purchaseOrderActions.purchaseOrderId, parseInt(id)),
-            eq(purchaseOrderActions.actionType, 'payment_sent')
-          )
+        return res.status(400).json({
+          message: "Use the Receive Goods form to book goods in",
+          suggestion: "POST /api/purchase-orders/:id/goods-receipt with the actual delivery date and costs."
         });
-
-        console.log('Payment action found:', paymentAction ? 'yes' : 'no');
-
-        if (!paymentAction) {
-          return res.status(400).json({
-            message: "Payment must be sent before processing goods receipt"
-          });
-        }
-
-        // Auto-deliver the order and update inventory
-        console.log('Updating order status to delivered...');
-        await db
-          .update(purchaseOrders)
-          .set({
-            status: 'delivered',
-            updatedAt: new Date()
-          })
-          .where(eq(purchaseOrders.id, parseInt(id)));
-
-        // Update inventory (same logic as status update)
-        console.log('Updating inventory...');
-        const purchaseOrderItemList = await db.query.purchaseOrderItems.findMany({
-          where: eq(purchaseOrderItems.purchaseOrderId, parseInt(id))
-        });
-
-        console.log('Found', purchaseOrderItemList.length, 'purchase order items to process');
-
-        for (const item of purchaseOrderItemList) {
-          // AI Agent Note: Search inventory in the specific destination warehouse/store
-          const [currentInventory] = await db
-            .select({
-              id: inventory.id,
-              quantity: inventory.quantity
-            })
-            .from(inventory)
-            .where(
-              and(
-                eq(inventory.productId, item.productId),
-                purchaseOrder.destinationStoreId
-                  ? eq(inventory.storeId, purchaseOrder.destinationStoreId)
-                  : eq(inventory.inventoryType, 'DC')
-              )
-            )
-            .limit(1);
-
-          if (currentInventory) {
-            console.log('Updating existing inventory item:', currentInventory.id, 'quantity:', currentInventory.quantity, '->', currentInventory.quantity + item.quantity);
-            await applyStockChange(db, {
-              inventoryId: currentInventory.id,
-              delta: item.quantity,
-              reason: 'po_receipt',
-              productId: item.productId,
-              storeId: purchaseOrder.destinationStoreId ?? null,
-              refType: 'purchase_order',
-              refId: purchaseOrder.id,
-              userId: req.user?.id ?? null,
-            });
-          } else {
-            const barcode = generateInventoryBarcode('DC', item.productId.toString(), purchaseOrder.destinationStoreId);
-            console.log('Creating new inventory item for product:', item.productId);
-
-            // Check if product exists first
-            const product = await db.query.products.findFirst({
-              where: eq(products.id, item.productId)
-            });
-
-            if (!product) {
-              console.error('Product not found for ID:', item.productId);
-              return res.status(400).json({
-                message: `Product with ID ${item.productId} not found`
-              });
-            }
-
-            const [createdInventory] = await db
-              .insert(inventory)
-              .values({
-                productId: item.productId,
-                quantity: item.quantity,
-                inventoryType: 'DC',
-                storeId: purchaseOrder.destinationStoreId, // Explicitly link to the DC/Warehouse
-                barcode,
-                supplierId: purchaseOrder.supplierId,
-                purchaseDate: new Date().toISOString().split('T')[0] // YYYY-MM-DD format
-              })
-              .returning({ id: inventory.id });
-
-            // The new row starts at item.quantity - record that as its opening balance,
-            // otherwise the ledger never adds up to inventory.quantity for this row.
-            await recordOpeningStock(db, {
-              inventoryId: createdInventory.id,
-              quantity: item.quantity,
-              reason: 'po_receipt',
-              productId: item.productId,
-              storeId: purchaseOrder.destinationStoreId ?? null,
-              refType: 'purchase_order',
-              refId: purchaseOrder.id,
-              userId: req.user?.id ?? null,
-            });
-          }
-
-          console.log('Updating purchase order item delivered quantity:', item.id);
-          await db
-            .update(purchaseOrderItems)
-            .set({
-              deliveredQuantity: item.quantity,
-              updatedAt: new Date()
-            })
-            .where(eq(purchaseOrderItems.id, item.id));
-        }
       }
+
 
       // Create action record
       const [newAction] = await db
@@ -584,6 +500,57 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Receive goods: the physical arrival of a purchase order, with the import costs that are
+  // only knowable now. Creates a Goods Receipt Note for the lines that actually turned up,
+  // stocks the destination warehouse, spreads *this shipment's* fees over its units (landed
+  // cost) and closes the order only when every line is complete - all in one transaction.
+  app.post("/api/purchase-orders/:id/goods-receipt", requireAuth, async (req, res) => {
+    const purchaseOrderId = parseInt(req.params.id);
+    if (Number.isNaN(purchaseOrderId)) {
+      return res.status(400).json({ message: "Invalid purchase order id" });
+    }
+
+    const parsed = goodsReceiptSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: "Invalid input",
+        errors: parsed.error.errors.map((err) => ({
+          field: err.path.join('.'),
+          message: err.message,
+        })),
+      });
+    }
+
+    try {
+      const result = await db.transaction((tx) =>
+        receiveGoods(tx, {
+          ...parsed.data,
+          purchaseOrderId,
+          userId: req.user!.id,
+          actualDeliveryDate: new Date(parsed.data.actualDeliveryDate),
+        })
+      );
+
+      res.status(201).json({
+        message: `Goods received - ${result.receipt.receiptNumber}`,
+        ...result,
+      });
+    } catch (error) {
+      if (error instanceof StockError) {
+        return res.status(error.status).json({
+          message: error.message,
+          suggestion: error.suggestion,
+        });
+      }
+      console.error("Error receiving goods:", error);
+      res.status(500).json({
+        message: "Failed to receive goods",
+        suggestion: "Please try again later",
+      });
+    }
+  });
+
+
   app.get("/api/purchase-orders/:id", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
@@ -597,7 +564,28 @@ export function registerRoutes(app: Express): Server {
               product: true
             }
           },
-          destinationStore: true
+          destinationStore: true,
+          // The goods receipts (actual date + landed costs). Exposed on the detail endpoint so
+          // the order screen can show what each delivery really cost, next to the PO itself.
+          goodsReceipts: {
+            with: {
+              // Only the identity of the receiver - never the user's other columns.
+              receivedByUser: {
+                columns: { id: true, username: true }
+              },
+              // What this particular shipment carried, so a partial delivery is visible.
+              items: {
+                with: {
+                  purchaseOrderItem: {
+                    with: {
+                      product: { columns: { id: true, name: true, sku: true } }
+                    }
+                  }
+                }
+              }
+            },
+            orderBy: [desc(goodsReceipts.createdAt)]
+          }
         }
       });
 
@@ -2166,6 +2154,22 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Products schema
+  // Picture URLs come from POST /api/products/images (an uploaded file) or from an
+  // external http(s) host. The value is stored, never the image bytes. Declared
+  // before `insertProductSchema` because that schema references them.
+  const productImageUrlSchema = z
+    .string()
+    .trim()
+    .min(1, "Image URL cannot be empty")
+    .max(500, "Image URL is too long")
+    .refine(isProductImageUrl, {
+      message: "Image URL must be an upload (/uploads/products/...) or an http(s) URL",
+    });
+
+  const galleryImagesSchema = z
+    .array(productImageUrlSchema)
+    .max(MAX_GALLERY_IMAGES, `Up to ${MAX_GALLERY_IMAGES} extra pictures are allowed`);
+
   const insertProductSchema = z.object({
     name: z.string().min(1, "Product name is required"),
     description: z.string().nullable().optional(),
@@ -2195,6 +2199,11 @@ export function registerRoutes(app: Express): Server {
     lengthCm: z.number().min(0, "Length must be positive").nullable().optional(),
     widthCm: z.number().min(0, "Width must be positive").nullable().optional(),
     heightCm: z.number().min(0, "Height must be positive").nullable().optional(),
+    // Product pictures: one featured image (shown in the product grid) plus up to
+    // ten extra gallery pictures. Both are URLs returned by
+    // POST /api/products/images; an explicit null clears the featured image.
+    imageUrl: productImageUrlSchema.nullable().optional(),
+    galleryImages: galleryImagesSchema.optional(),
   });
 
 
@@ -2220,6 +2229,41 @@ export function registerRoutes(app: Express): Server {
   const toDecimalOrNull = (value: number | null | undefined) =>
     value === undefined || value === null ? null : String(value);
 
+  // Picture URLs come from POST /api/products/images (an uploaded file) or from an
+  // external http(s) host. The value is stored, never the image bytes.
+  // Products API - Upload one product picture (featured or gallery).
+  app.post("/api/products/images", requireAuth, async (req, res) => {
+    const parsed = z
+      .object({
+        image: z.string().min(1, "Image data is required"),
+      })
+      .safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: "Invalid input",
+        errors: parsed.error.errors.map((err) => ({
+          field: err.path.join("."),
+          message: err.message,
+        })),
+      });
+    }
+
+    try {
+      const url = await saveProductImage(parsed.data.image);
+      res.json({ message: "Image uploaded successfully", url });
+    } catch (error) {
+      if (error instanceof ProductImageError) {
+        return res.status(400).json({ message: error.message });
+      }
+      console.error("Error saving product image:", error);
+      res.status(500).json({
+        message: "Failed to save the image",
+        suggestion: "Please try again later",
+      });
+    }
+  });
+
   // Products API - Create product
   app.post("/api/products", requirePermission('products', 'create'), async (req, res) => {
     try {
@@ -2234,7 +2278,7 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { name, sku, price, description, categoryId, minStock, brandId, supplierId, landingPrice, b2bPrice, b2cPrice, weightKg, lengthCm, widthCm, heightCm } = result.data;
+      const { name, sku, price, description, categoryId, minStock, brandId, supplierId, landingPrice, b2bPrice, b2cPrice, weightKg, lengthCm, widthCm, heightCm, imageUrl, galleryImages } = result.data;
 
 
       // Check if SKU already exists
@@ -2310,6 +2354,9 @@ export function registerRoutes(app: Express): Server {
           lengthCm: toDecimalOrNull(lengthCm),
           widthCm: toDecimalOrNull(widthCm),
           heightCm: toDecimalOrNull(heightCm),
+          // Pictures: featured first, then the extra gallery pictures (max 10).
+          imageUrl: imageUrl ?? null,
+          galleryImages: galleryImages ?? [],
         })
         .returning();
 
@@ -2340,7 +2387,7 @@ export function registerRoutes(app: Express): Server {
   app.put("/api/products/:id", requirePermission('products', 'update'), async (req, res) => {
     try {
       const { id } = req.params;
-      const { name, description, sku, price, categoryId, minStock, brandId, supplierId, landingPrice, b2bPrice, b2cPrice, weightKg, lengthCm, widthCm, heightCm } = req.body;
+      const { name, description, sku, price, categoryId, minStock, brandId, supplierId, landingPrice, b2bPrice, b2cPrice, weightKg, lengthCm, widthCm, heightCm, imageUrl, galleryImages } = req.body;
 
 
       if (!name || !sku || !categoryId) {
@@ -2413,6 +2460,22 @@ export function registerRoutes(app: Express): Server {
         }
       }
 
+      // Picture URLs are validated the same way as on create, so a malformed value
+      // cannot be written straight into the product row.
+      if (imageUrl !== undefined && imageUrl !== null) {
+        const parsedImageUrl = productImageUrlSchema.safeParse(imageUrl);
+        if (!parsedImageUrl.success) {
+          return res.status(400).json({ message: parsedImageUrl.error.errors[0]?.message ?? "Invalid image URL" });
+        }
+      }
+
+      if (galleryImages !== undefined) {
+        const parsedGallery = galleryImagesSchema.safeParse(galleryImages);
+        if (!parsedGallery.success) {
+          return res.status(400).json({ message: parsedGallery.error.errors[0]?.message ?? "Invalid gallery images" });
+        }
+      }
+
       // Only include columns that were actually provided — `undefined` values
       // are rejected by the postgres driver.
       const updateValues: Partial<typeof products.$inferInsert> = {
@@ -2473,6 +2536,16 @@ export function registerRoutes(app: Express): Server {
 
       if (heightCm !== undefined) {
         updateValues.heightCm = toDecimalOrNull(heightCm);
+      }
+
+      // Pictures: an explicit null clears the featured image, an empty array clears
+      // the gallery. Both are only touched when the client actually sent them.
+      if (imageUrl !== undefined) {
+        updateValues.imageUrl = imageUrl ?? null;
+      }
+
+      if (galleryImages !== undefined) {
+        updateValues.galleryImages = galleryImages ?? [];
       }
 
       const [updatedProduct] = await db

@@ -2,18 +2,34 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-const Table = React.forwardRef<
-  HTMLTableElement,
-  React.HTMLAttributes<HTMLTableElement>
->(({ className, ...props }, ref) => (
-  <div className="relative w-full overflow-auto">
-    <table
-      ref={ref}
-      className={cn("w-full caption-bottom text-sm", className)}
-      {...props}
-    />
-  </div>
-))
+export interface TableProps extends React.HTMLAttributes<HTMLTableElement> {
+  /**
+   * Extra classes for the scroll wrapper around the `<table>`.
+   *
+   * The wrapper is always `table-scroll` (see index.css): a horizontal scroll container
+   * with an always visible, themed scrollbar. Wide tables should additionally set a
+   * `min-w-[...]` on the `<table>` (and `table-actions-sticky` when the Actions column is
+   * last) so the columns keep their readable width and the wrapper scrolls, instead of the
+   * columns being squeezed - which is how an Actions column ends up invisible.
+   */
+  containerClassName?: string
+}
+
+const Table = React.forwardRef<HTMLTableElement, TableProps>(
+  ({ className, containerClassName, ...props }, ref) => (
+    // `table-scroll` is applied by default so every table in the app gets the
+    // themed, always-visible horizontal scrollbar (see index.css). Combine it
+    // with a `min-w-[...]` on the `<table>` so wide lists overflow and scroll
+    // instead of crushing their columns.
+    <div className={cn("relative w-full overflow-auto table-scroll", containerClassName)}>
+      <table
+        ref={ref}
+        className={cn("w-full caption-bottom text-sm", className)}
+        {...props}
+      />
+    </div>
+  )
+)
 Table.displayName = "Table"
 
 const TableHeader = React.forwardRef<

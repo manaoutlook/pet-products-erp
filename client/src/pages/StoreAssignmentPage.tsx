@@ -246,7 +246,7 @@ function StoreAssignmentPage() {
           ) : (
             <>
             <TableControlsBar controls={assignmentsTable} noun="assignments" />
-            <Table>
+            <Table className="table-actions-sticky min-w-[800px]">
               <TableHeader>
                 <TableRow>
                   <ColumnHeader controls={assignmentsTable} columnKey="user" label="User" filterPlaceholder="Filter user" />

@@ -708,7 +708,7 @@ function TransferPage() {
           ) : (
             <>
             <TableControlsBar controls={transfersTable} noun="transfers" />
-            <Table>
+            <Table className="table-actions-sticky min-w-[1200px]">
               <TableHeader>
                 <TableRow>
                   <ColumnHeader controls={transfersTable} columnKey="transferNumber" label="Transfer #" filterPlaceholder="Filter transfer #" />

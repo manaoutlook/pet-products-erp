@@ -28,7 +28,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Plus, Pencil, Trash2, AlertCircle, Eye, Upload, Download } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, AlertCircle, Eye, Upload, Download, ImageOff } from "lucide-react";
 import { formatPrice } from "@/utils/price";
 import { exportProducts, type ExportFormat } from "@/utils/product-spreadsheet";
 import { ImportProductsDialog } from "@/components/products/ImportProductsDialog";
@@ -104,6 +104,10 @@ interface Product {
   lengthCm?: string | number | null;
   widthCm?: string | number | null;
   heightCm?: string | number | null;
+  // Pictures: the featured image is shown in the list grid, the gallery holds up to
+  // ten extra pictures that are only shown in the product details.
+  imageUrl?: string | null;
+  galleryImages?: string[] | null;
 }
 
 interface Supplier {
@@ -373,6 +377,8 @@ function ProductsPage() {
       lengthCm: null,
       widthCm: null,
       heightCm: null,
+      imageUrl: null,
+      galleryImages: [],
     },
   });
 
@@ -500,6 +506,29 @@ function ProductsPage() {
             <DialogTitle>Product Details</DialogTitle>
           </DialogHeader>
           <div className="space-y-6">
+            {/* Product pictures: the featured image plus the stored gallery. */}
+            {(product.imageUrl || (product.galleryImages?.length ?? 0) > 0) && (
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">Pictures</label>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {product.imageUrl && (
+                    <img
+                      src={product.imageUrl}
+                      alt={`${product.name} featured picture`}
+                      className="h-24 w-24 rounded-md border object-cover"
+                    />
+                  )}
+                  {(product.galleryImages ?? []).map((url, index) => (
+                    <img
+                      key={`${url}-${index}`}
+                      src={url}
+                      alt={`${product.name} picture ${index + 2}`}
+                      className="h-24 w-24 rounded-md border object-cover"
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-sm font-medium text-muted-foreground">Name</label>
@@ -693,6 +722,8 @@ function ProductsPage() {
                     lengthCm: null,
                     widthCm: null,
                     heightCm: null,
+                    imageUrl: null,
+                    galleryImages: [],
                   });
 
                   setIsCreateDialogOpen(true);
@@ -772,7 +803,7 @@ function ProductsPage() {
           ) : (
             <>
             <TableControlsBar controls={productsTable} noun="products" />
-            <Table>
+            <Table className="table-actions-sticky min-w-[1200px]">
               <TableHeader>
                 <TableRow>
                   {canDeleteProducts && (
@@ -787,6 +818,9 @@ function ProductsPage() {
                       />
                     </TableHead>
                   )}
+                  {/* Featured picture only - the extra gallery pictures stay in the
+                      database and are shown in the product details. */}
+                  <TableHead className="w-16 align-top">Image</TableHead>
                   <ColumnHeader controls={productsTable} columnKey="name" label="Name" filterPlaceholder="Filter name" />
                   <ColumnHeader controls={productsTable} columnKey="sku" label="SKU" filterPlaceholder="Filter SKU" />
                   <ColumnHeader controls={productsTable} columnKey="category" label="Category" filterPlaceholder="Filter category" />
@@ -810,6 +844,23 @@ function ProductsPage() {
                           />
                         </TableCell>
                       )}
+                      <TableCell>
+                        {product.imageUrl ? (
+                          <img
+                            src={product.imageUrl}
+                            alt={product.name}
+                            loading="lazy"
+                            className="h-12 w-12 rounded-md border object-cover"
+                          />
+                        ) : (
+                          <div
+                            className="flex h-12 w-12 items-center justify-center rounded-md border border-dashed bg-muted/40 text-muted-foreground"
+                            title="No featured picture"
+                          >
+                            <ImageOff className="h-4 w-4" />
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <div>{product.name}</div>
                         {/* Compact single-line preview - strips any HTML markup. */}
@@ -872,7 +923,8 @@ function ProductsPage() {
                                       lengthCm: product.lengthCm != null ? Number(product.lengthCm) : null,
                                       widthCm: product.widthCm != null ? Number(product.widthCm) : null,
                                       heightCm: product.heightCm != null ? Number(product.heightCm) : null,
-
+                                      imageUrl: product.imageUrl ?? null,
+                                      galleryImages: product.galleryImages ?? [],
                                     });
                                     setIsEditDialogOpen(true);
                                   }}

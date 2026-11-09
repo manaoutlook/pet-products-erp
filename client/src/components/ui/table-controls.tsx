@@ -104,6 +104,11 @@ export function ColumnHeader({
               placeholder={filterPlaceholder ?? `Filter ${label.toLowerCase()}`}
               className={cn(
                 "h-7 py-0 pl-2 text-xs font-normal normal-case tracking-normal",
+                // `min-w-0` lets the column fall back to the header's `min-w-[7rem]` floor
+                // instead of being pinned to the input's intrinsic width. Without it a
+                // table with many filterable columns eats all the available width and
+                // pushes the last column (usually Actions) out of sight.
+                "min-w-0",
                 filterValue ? "pr-6" : "pr-2"
               )}
             />

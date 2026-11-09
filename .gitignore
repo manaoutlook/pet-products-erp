@@ -9,6 +9,9 @@ build/
 *.tsbuildinfo
 server/public/
 
+# Uploaded product pictures (written at runtime by POST /api/products/images)
+uploads/
+
 # Environment files
 .env
 .env.local

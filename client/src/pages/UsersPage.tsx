@@ -331,7 +331,7 @@ function UsersPage() {
           ) : (
             <>
             <TableControlsBar controls={usersTable} noun="users" />
-            <Table>
+            <Table className="table-actions-sticky min-w-[800px]">
               <TableHeader>
                 <TableRow>
                   <ColumnHeader controls={usersTable} columnKey="username" label="Username" filterPlaceholder="Filter username" />

@@ -383,7 +383,7 @@ function RolesPage() {
           ) : (
             <>
             <TableControlsBar controls={rolesTable} noun="roles" />
-            <Table>
+            <Table className="table-actions-sticky min-w-[880px]">
               <TableHeader>
                 <TableRow>
                   <ColumnHeader controls={rolesTable} columnKey="name" label="Name" filterPlaceholder="Filter name" />

@@ -215,7 +215,7 @@ function CustomerProfilesPage() {
           ) : (
             <>
             <TableControlsBar controls={profilesTable} noun="customer profiles" />
-            <Table>
+            <Table className="table-actions-sticky min-w-[1000px]">
               <TableHeader>
                 <TableRow>
                   <ColumnHeader controls={profilesTable} columnKey="phoneNumber" label="Phone Number" filterPlaceholder="Filter phone" />

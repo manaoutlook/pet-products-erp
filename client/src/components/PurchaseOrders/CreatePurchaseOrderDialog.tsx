@@ -207,7 +207,7 @@ export function CreatePurchaseOrderDialog() {
               name="deliveryDate"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Delivery Date</FormLabel>
+                  <FormLabel>Expected Delivery Date</FormLabel>
                   <FormControl>
                     <Input
                       type="datetime-local"

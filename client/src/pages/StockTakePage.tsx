@@ -264,7 +264,7 @@ export default function StockTakePage() {
               Loading inventory...
             </div>
           ) : (
-            <Table>
+            <Table className="min-w-[1300px]">
               <TableHeader>
                 <TableRow>
                   <ColumnHeader controls={table} columnKey="product" label="Product" />

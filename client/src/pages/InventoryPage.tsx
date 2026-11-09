@@ -824,7 +824,9 @@ function InventoryPage() {
           ) : (
             <>
             <TableControlsBar controls={inventoryTable} noun="inventory items" />
-            <Table>
+            {/* Actions sits before Barcode here, so only the scroll wrapper is
+                used (no frozen last column) - the bar keeps every column reachable. */}
+            <Table className="min-w-[1300px]">
               <TableHeader>
                 <TableRow>
                   <ColumnHeader controls={inventoryTable} columnKey="type" label="Type" filterPlaceholder="Filter type" />
