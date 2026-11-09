@@ -29,13 +29,12 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Plus } from "lucide-react";
-
-const phoneRegex = /^\+?[1-9]\d{1,14}$/;
+import { MOBILE_NUMBER_PATTERN, normalizePhoneNumber } from "@shared/phone";
 
 const customerProfileSchema = z.object({
   mobileNumber: z.string()
     .min(1, "Mobile number is required")
-    .regex(phoneRegex, "Invalid mobile number format"),
+    .regex(MOBILE_NUMBER_PATTERN, "Invalid mobile number format"),
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Invalid email address"),
   address: z.string().min(1, "Address is required"),
@@ -131,7 +130,16 @@ export function CreateCustomerProfileDialog() {
                   <FormItem>
                     <FormLabel>Mobile Number</FormLabel>
                     <FormControl>
-                      <Input {...field} placeholder="+1234567890" />
+                      {/* Separators are stripped as you type, so a pasted `+84-930-123-456`
+                          becomes `+84930123456` and passes the format check. */}
+                      <Input
+                        {...field}
+                        type="tel"
+                        inputMode="tel"
+                        autoComplete="tel"
+                        placeholder="+84930123456"
+                        onChange={(event) => field.onChange(normalizePhoneNumber(event.target.value))}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -173,7 +181,14 @@ export function CreateCustomerProfileDialog() {
                   <FormItem>
                     <FormLabel>Land Line Number (Optional)</FormLabel>
                     <FormControl>
-                      <Input type="tel" {...field} value={field.value ?? ""} placeholder="+1234567890" />
+                      <Input
+                        type="tel"
+                        {...field}
+                        value={field.value ?? ""}
+                        inputMode="tel"
+                        placeholder="+8428123456"
+                        onChange={(event) => field.onChange(normalizePhoneNumber(event.target.value))}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

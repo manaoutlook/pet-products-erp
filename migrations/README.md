@@ -48,3 +48,4 @@ each change was made, and several are hand-written rather than generated.
 | `0014_products_images.sql` | product pictures: `products.image_url` (featured, shown in the grid) + `products.gallery_images` (up to ten extra picture URLs) |
 | `0015_sales_orders_delivery_notes.sql` | sales orders + delivery notes: `sales_orders`, `sales_order_items`, `delivery_notes`, `delivery_note_items` |
 | `0016_customer_profiles_customer_type.sql` | customer profiles describe the account, not a pet: `phone_number` → `mobile_number`, `pet_type` → `customer_type` (`B2B` / `B2C`, enforced by a `CHECK`), `pet_birthday` (date) → `land_line_number` (varchar) |
+| `0017_normalize_customer_phone_numbers.sql` | strips the separators the legacy rows carried from `customer_profiles.mobile_number` / `land_line_number` (`+84-930-123-456` → `+84930123456`), so a seeded profile can be saved from the edit form |

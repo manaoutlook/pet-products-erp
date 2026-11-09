@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll } from 'vitest';
 import { db } from '../../../db';
-import { customerProfiles, salesTransactions } from '../../../db/schema';
+import { customerProfiles, salesTransactions, insertCustomerProfileSchema } from '../../../db/schema';
 import { cleanDatabase, resetSequences, seedTestData, resetTestDatabase } from '../../helpers/test-db';
 import { eq, like } from 'drizzle-orm';
 
@@ -520,6 +520,50 @@ describe('Customer Management Tests', () => {
             );
 
             expect(lifetimeValue).toBe(80000); // 50000 + 30000
+        });
+    });
+
+    describe('Phone Number Normalisation', () => {
+        const baseProfile = {
+            name: 'Nguyen Thi An',
+            email: 'an.nguyen@example.com',
+            address: '804 Cong Quynh, District 1, Ho Chi Minh City',
+            customerType: 'B2C' as const,
+        };
+
+        it('stores a mobile number without the separators the user pasted', () => {
+            const parsed = insertCustomerProfileSchema.parse({
+                ...baseProfile,
+                mobileNumber: '+84-930-123-456',
+            });
+
+            expect(parsed.mobileNumber).toBe('+84930123456');
+        });
+
+        it('normalises the optional land line in the same way', () => {
+            const parsed = insertCustomerProfileSchema.parse({
+                ...baseProfile,
+                mobileNumber: '0901234567',
+                landLineNumber: '+84 28 1234 567',
+            });
+
+            expect(parsed.landLineNumber).toBe('+84281234567');
+        });
+
+        it('leaves the land line null when it is not supplied', () => {
+            const parsed = insertCustomerProfileSchema.parse({
+                ...baseProfile,
+                mobileNumber: '0901234567',
+            });
+
+            expect(parsed.landLineNumber).toBeNull();
+        });
+
+        it('rejects a mobile number that is only separators', () => {
+            expect(() => insertCustomerProfileSchema.parse({
+                ...baseProfile,
+                mobileNumber: '+ - ',
+            })).toThrow();
         });
     });
 });

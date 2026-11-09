@@ -3,6 +3,7 @@ import { relations, sql } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 import { jsonb } from "drizzle-orm/pg-core";
+import { normalizePhoneNumber, MOBILE_NUMBER_PATTERN } from "../shared/phone";
 
 
 type Permissions = {
@@ -900,13 +901,25 @@ export type SelectPurchaseOrderAction = typeof purchaseOrderActions.$inferSelect
 //
 // The routes read every field straight off `result.data`, so the required columns are declared
 // here as real validators (rather than relying on the drizzle-derived optionality).
+// Phone numbers are normalised (separators stripped, leading `+` kept) before they are stored,
+// so the API cannot accept `+84-930-123-456` and `+84930123456` as two different customers.
+// shared/phone.ts does the same thing in the form as the user types.
 export const insertCustomerProfileSchema = createInsertSchema(customerProfiles, {
-  mobileNumber: z.string().min(1, "Mobile number is required").max(20, "Mobile number is too long"),
+  mobileNumber: z.string()
+    .transform(normalizePhoneNumber)
+    .refine((value) => value.length > 0, "Mobile number is required")
+    .refine((value) => value.length <= 20, "Mobile number is too long")
+    // Checked after normalising, so `+84-930-123-456` is accepted and stored as `+84930123456`,
+    // while a value that is only separators (`+ - `) still fails.
+    .refine((value) => MOBILE_NUMBER_PATTERN.test(value), "Invalid mobile number format"),
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Invalid email address"),
   address: z.string().min(1, "Address is required"),
   photo: z.string().nullable().optional(),
-  landLineNumber: z.string().max(20, "Land line number is too long").nullable().optional(),
+  landLineNumber: z.string()
+    .nullable()
+    .optional()
+    .transform((value) => (value ? normalizePhoneNumber(value).slice(0, 20) : null)),
   customerType: z.enum(CUSTOMER_TYPES)
 });
 export const selectCustomerProfileSchema = createSelectSchema(customerProfiles);
