@@ -1,19 +1,32 @@
 import { db } from "@db";
 import {
+  customerProfiles,
   inventory,
   products,
   salesTransactionActions,
   salesTransactionItems,
   salesTransactions,
   userStoreAssignments,
+  vatCompanies,
 } from "@db/schema";
 import { and, eq, gte, sql } from "drizzle-orm";
-import { generateInvoiceNumber } from "./invoice-counter";
+import { generateInvoiceNumber, generateVatCompanyInvoiceNumber } from "./invoice-counter";
 import { applyStockChange, recordStockMovements } from "./stock-ledger";
+import { computeSaleTotals, VAT_RATE } from "../shared/tax";
+import { VAT_COMPANY_SEEDS } from "../shared/invoice";
 
 export interface SaleItemInput {
   productId: number;
   quantity: number;
+}
+
+export interface SaleBuyerInput {
+  name: string;
+  companyName?: string | null;
+  taxId?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
 }
 
 export interface CreateSaleInput {
@@ -22,6 +35,25 @@ export interface CreateSaleInput {
   paymentMethod: string;
   customerProfileId?: number | null;
   transactionType?: 'STORE_SALE' | 'DC_SALE';
+  /**
+   * True when the customer asked for a VAT invoice (`Print with VAT`).
+   *
+   * AI Agent Note - the VAT choice is part of creating the sale, not of rendering it.
+   * `sales_transactions.subtotal` / `vat_rate` / `vat_amount` / `total_amount` are written
+   * once here, and every document (till receipt, A4 invoice, reprint) reads them back.
+   * A sale created with `withVat: false` must never be re-printed "with VAT" later - that
+   * would be a different legal document; the shop would have to issue a new invoice.
+   */
+  withVat?: boolean;
+  /** Which licensed company issues the VAT invoice. Required when `withVat` is true. */
+  vatCompanyId?: number | null;
+  /**
+   * The buyer block, typed at the counter or copied from a customer profile.
+   *
+   * A VAT invoice is invalid without a buyer, and the details must be frozen onto the sale -
+   * editing the customer profile later must not change an invoice already issued.
+   */
+  buyer?: SaleBuyerInput | null;
 }
 
 /**
@@ -84,6 +116,125 @@ export async function createSale(input: CreateSaleInput) {
     storeId = assignment.storeId;
   }
 
+  // ---------------------------------------------------------------------------------
+  // VAT invoice (or plain retail sale)
+  // ---------------------------------------------------------------------------------
+  // `HỘ KINH DOANH TIỆN ÍCH GIA ĐÌNH` may not issue a VAT invoice. A customer who asks for
+  // one is invoiced by one of the licensed companies below, and that company's name, tax
+  // code and address are what the invoice prints - not the household letterhead.
+  //
+  // The choice is validated here and recorded on the sale (`vat_company_id`), so a reprint
+  // years later still knows which company issued it and which number sequence it came from
+  // (CI-... or HI-...). Both are read-only lookups on a tiny table; doing them before the
+  // transaction keeps the write window short.
+  const withVat = input.withVat === true;
+  let vatCompany: typeof vatCompanies.$inferSelect | null = null;
+
+  if (withVat) {
+    if (transactionType === 'DC_SALE') {
+      throw new SaleError(
+        'A VAT invoice cannot be issued for a DC sale',
+        400,
+        'DC sales are internal transfers, not customer invoices',
+      );
+    }
+
+    const requestedId = Number(input.vatCompanyId);
+    if (!Number.isInteger(requestedId) || requestedId <= 0) {
+      throw new SaleError(
+        'Select the company that issues the VAT invoice',
+        400,
+        `Choose ${VAT_COMPANY_SEEDS.map((c) => `${c.code} (${c.name})`).join(' or ')}`,
+      );
+    }
+
+    vatCompany = (await db.query.vatCompanies.findFirst({
+      where: eq(vatCompanies.id, requestedId),
+    })) ?? null;
+
+    if (!vatCompany) {
+      throw new SaleError('The selected VAT company does not exist', 400,
+        'Reload the VAT Companies screen and try again');
+    }
+    if (!vatCompany.isActive) {
+      throw new SaleError(
+        `VAT invoices cannot be issued under ${vatCompany.name} because it is inactive`,
+        400,
+        'Activate the company in the VAT Companies screen or choose another one',
+      );
+    }
+    // A VAT invoice is invalid without the seller's legal name, address and tax code.
+    const missing: string[] = [];
+    if (!vatCompany.name?.trim()) missing.push('Company name');
+    if (!vatCompany.taxId?.trim()) missing.push('Tax code');
+    if (!vatCompany.address?.trim()) missing.push('Address');
+    if (missing.length > 0) {
+      throw new SaleError(
+        `${vatCompany.name || vatCompany.code} cannot issue a VAT invoice: ${missing.join(', ')} missing`,
+        400,
+        'Complete the company details in the VAT Companies screen first',
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------------------
+  // Buyer snapshot
+  // ---------------------------------------------------------------------------------
+  // AI Agent Note: the buyer is copied onto the sale, not merely referenced. A VAT invoice is
+  // invalid without a buyer, and a customer profile that is edited or deleted next month must
+  // not be able to rewrite an invoice that was already printed. Precedence:
+  //   1. the details typed at the counter (`input.buyer`), which is how a walk-in company buys;
+  //   2. the customer profile attached to the sale;
+  //   3. nothing - allowed for a retail sale, refused for a VAT invoice (below).
+  const buyerFromInput = input.buyer ?? null;
+  let buyerSnapshot = {
+    name: buyerFromInput?.name?.trim() ?? '',
+    companyName: buyerFromInput?.companyName?.trim() || null,
+    taxId: buyerFromInput?.taxId?.trim() || null,
+    address: buyerFromInput?.address?.trim() || null,
+    phone: buyerFromInput?.phone?.trim() || null,
+    email: buyerFromInput?.email?.trim() || null,
+  };
+
+  if (customerProfileId) {
+    const profile = await db.query.customerProfiles.findFirst({
+      where: eq(customerProfiles.id, customerProfileId),
+      columns: {
+        contactPerson: true,
+        companyName: true,
+        mobileNumber: true,
+        address: true,
+        email: true,
+        // The buyer's tax code is what a VAT invoice prints against the customer, so the
+        // profile is the natural source when the counter did not type one.
+        taxId: true,
+      },
+    });
+
+    if (profile) {
+      buyerSnapshot = {
+        name:
+          buyerSnapshot.name ||
+          profile.contactPerson ||
+          profile.companyName ||
+          profile.mobileNumber,
+        companyName: buyerSnapshot.companyName || profile.companyName,
+        taxId: buyerSnapshot.taxId || profile.taxId || null,
+        address: buyerSnapshot.address || profile.address,
+        phone: buyerSnapshot.phone || profile.mobileNumber,
+        email: buyerSnapshot.email || profile.email,
+      };
+    }
+  }
+
+  if (withVat && !buyerSnapshot.name) {
+    throw new SaleError(
+      'A VAT invoice needs the buyer name and address',
+      400,
+      'Enter the buyer details at checkout, or attach a customer profile to the sale',
+    );
+  }
+
   // Merge duplicate product ids: the same product twice in one cart must consume one
   // combined quantity, otherwise the stock guard below is evaluated per line.
   const merged = new Map<number, number>();
@@ -99,11 +250,21 @@ export async function createSale(input: CreateSaleInput) {
   }
 
   const saleId = await db.transaction(async (tx) => {
-    const invoiceNumber = await generateInvoiceNumber(storeId, transactionType, tx);
+    // AI Agent Note - the invoice number is allocated inside this transaction, and it comes
+    // from a different book depending on the customer's choice:
+    //   with VAT -> that company's own sequence (CI-YYYYMMDD-NNNN / HI-YYYYMMDD-NNNN)
+    //   no VAT   -> the store's retail sequence (STR001-YYYYMMDD-NNNN)
+    // Both counter increments roll back with the sale, so a failed sale never burns a
+    // number out of the company's tax book.
+    const invoiceNumber = vatCompany
+      ? await generateVatCompanyInvoiceNumber(vatCompany.id, vatCompany.code, tx)
+      : await generateInvoiceNumber(storeId, transactionType, tx);
 
     const pricedItems: Array<{
       productId: number; inventoryId: number; quantity: number;
       unitPrice: number; totalPrice: number;
+      /** Snapshot of the catalogue at sale time - see db/schema.ts sales_transaction_items. */
+      productCode: string; description: string;
       /** Stock right before/after this line, so the ledger row can show "12 → 10". */
       quantityBefore: number; quantityAfter: number;
     }> = [];
@@ -163,6 +324,11 @@ export async function createSale(input: CreateSaleInput) {
         quantity,
         unitPrice,
         totalPrice: unitPrice * quantity,
+        // The name and SKU are copied onto the sale now. `productId` still points at the
+        // product for reporting, but the invoice prints these strings - so renaming the
+        // product tomorrow cannot change what an already-issued invoice says.
+        productCode: product.sku ?? '',
+        description: product.name ?? '',
         // RETURNING gives the post-decrement value from the same statement, so the pair is
         // correct even when another till sells the same row concurrently.
         quantityAfter: deducted.quantity,
@@ -170,7 +336,23 @@ export async function createSale(input: CreateSaleInput) {
       });
     }
 
-    const totalAmount = pricedItems.reduce((sum, item) => sum + item.totalPrice, 0);
+    // ---------------------------------------------------------------------------------
+    // The money, computed once
+    // ---------------------------------------------------------------------------------
+    // Catalogue prices are VAT-EXCLUSIVE. `computeSaleTotals` is the single implementation
+    // of the rule (shared/tax.ts) and the only place VAT is added:
+    //   subtotal    = sum(line totals)
+    //   vatAmount   = withVat ? round(subtotal * VAT_RATE) : 0
+    //   totalAmount = subtotal + vatAmount
+    // These three numbers are stored and never recomputed. Before this, the till added 10%
+    // in the browser, the database stored the VAT-exclusive total, and a reprint divided the
+    // total by 1.1 - a 100,000 sale showed 110,000 at the till, 100,000 in the database and
+    // 90,909.09 + 9,090.91 on the reprint. Do not reintroduce a `* 0.1` or `/ 1.1` anywhere.
+    const totals = computeSaleTotals(
+      pricedItems.reduce((sum, item) => sum + item.totalPrice, 0),
+      withVat,
+      VAT_RATE,
+    );
 
     const [salesTransaction] = await tx
       .insert(salesTransactions)
@@ -180,7 +362,18 @@ export async function createSale(input: CreateSaleInput) {
         transactionType,
         cashierUserId: userId,
         customerProfileId: customerProfileId || null,
-        totalAmount: totalAmount.toString(),
+        subtotal: totals.subtotal.toString(),
+        vatRate: totals.vatRate.toString(),
+        vatAmount: totals.vatAmount.toString(),
+        totalAmount: totals.total.toString(),
+        printedWithVat: withVat,
+        vatCompanyId: vatCompany?.id ?? null,
+        buyerName: buyerSnapshot.name,
+        buyerCompanyName: buyerSnapshot.companyName,
+        buyerTaxId: buyerSnapshot.taxId,
+        buyerAddress: buyerSnapshot.address,
+        buyerPhone: buyerSnapshot.phone,
+        buyerEmail: buyerSnapshot.email,
         paymentMethod,
         status: 'completed',
       })
@@ -191,6 +384,8 @@ export async function createSale(input: CreateSaleInput) {
         salesTransactionId: salesTransaction.id,
         productId: item.productId,
         inventoryId: item.inventoryId,
+        productCode: item.productCode,
+        description: item.description,
         quantity: item.quantity,
         unitPrice: item.unitPrice.toString(),
         totalPrice: item.totalPrice.toString(),
@@ -200,7 +395,15 @@ export async function createSale(input: CreateSaleInput) {
     await tx.insert(salesTransactionActions).values({
       salesTransactionId: salesTransaction.id,
       actionType: 'sale_completed',
-      actionData: actionData({ itemsCount: pricedItems.length, totalAmount }),
+      actionData: actionData({
+        itemsCount: pricedItems.length,
+        subtotal: totals.subtotal,
+        vatAmount: totals.vatAmount,
+        totalAmount: totals.total,
+        withVat,
+        vatCompany: vatCompany?.code ?? null,
+        invoiceNumber,
+      }),
       performedByUserId: userId,
     });
 
@@ -224,7 +427,7 @@ export async function createSale(input: CreateSaleInput) {
   });
 
   // Re-read after commit so the response keeps the shape the client already expects
-  // (relations: items/products/inventory/store/cashier/customer).
+  // (relations: items/products/inventory/store/cashier/customer/vatCompany).
   return db.query.salesTransactions.findFirst({
     where: eq(salesTransactions.id, saleId),
     with: {
@@ -232,10 +435,32 @@ export async function createSale(input: CreateSaleInput) {
       store: true,
       cashierUser: true,
       customerProfile: true,
+      vatCompany: true,
     },
   });
 }
 
+/**
+ * Why there is no credit-note document (yet) - decision recorded 2026-11-09.
+ *
+ * A refund/cancellation is NOT an edit of the invoice. It:
+ *   1. flips `sales_transactions.status` to `refunded` / `cancelled`, so every reprint of
+ *      that invoice is stamped CANCELLED (see shared/invoice.ts isCancelledStatus) and can
+ *      never be passed off as a valid document;
+ *   2. writes a `sales_transaction_actions` audit row (who, when, how much, why);
+ *   3. puts the stock back through the ledger with `RETURN` movements.
+ *
+ * That is a complete audit trail, but it is not the same paper as a credit note (a formal
+ * document that links to the original invoice, lists the returned lines, reverses the VAT
+ * and carries its own number). The owner has not asked for one yet, so no credit note is
+ * issued and the UI must not imply that one exists.
+ *
+ * If a credit note is added later: give it its own sequence (e.g. `CN-YYYYMMDD-NNNN`), its
+ * own archived PDF, a reference to the cancelled invoice number and the same seller block
+ * as the invoice it corrects. Re-issuing a corrected invoice is done the other way round:
+ * cancel the wrong invoice (status change above + the sale is reversed), then ring up and
+ * invoice the correction as a NEW sale with a NEW number. Never overwrite an issued one.
+ */
 export interface RefundItemInput {
   id: number;
   quantity: number;

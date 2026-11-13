@@ -6,6 +6,8 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Trash2, Plus, Minus, ShoppingCart, CreditCard } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { formatCurrency } from "@/utils/format";
+import { sumLineTotals } from "@shared/tax";
 
 interface Product {
   id: number;
@@ -50,9 +52,15 @@ export function CartManager({
   const { toast } = useToast();
 
   const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
-  const subtotal = cartItems.reduce((sum, item) => sum + item.totalPrice, 0);
-  const tax = subtotal * 0.1; // 10% tax
-  const total = subtotal + tax;
+
+  // AI Agent Note: catalogue prices are VAT-EXCLUSIVE and the VAT choice is made at checkout
+  // ("Print with VAT?"), so the cart shows the VAT-exclusive subtotal and nothing else. The old
+  // `subtotal * 0.1` here was one of three copies of the 10% rule and made the till disagree
+  // with the sale it was about to write. The final total (with or without VAT) is shown in the
+  // checkout dialog, computed by shared/tax.ts - the same function the server stores from.
+  const subtotal = sumLineTotals(
+    cartItems.map((item) => ({ quantity: item.quantity, unitPrice: item.unitPrice }))
+  );
 
   const paymentMethods = [
     { id: "cash", label: "Cash", icon: "💵" },
@@ -183,17 +191,17 @@ export function CartManager({
         <div className="border-t bg-muted/50 px-6 py-4">
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <span>Subtotal:</span>
-              <span>${subtotal.toFixed(2)}</span>
+              <span>Subtotal (excl. VAT):</span>
+              <span>{formatCurrency(subtotal)}</span>
             </div>
-            <div className="flex justify-between">
-              <span>Tax (10%):</span>
-              <span>${tax.toFixed(2)}</span>
+            <div className="flex justify-between text-muted-foreground">
+              <span>VAT:</span>
+              <span>Asked at checkout</span>
             </div>
             <Separator />
             <div className="flex justify-between font-semibold text-lg">
-              <span>Total:</span>
-              <span>${total.toFixed(2)}</span>
+              <span>Total so far:</span>
+              <span>{formatCurrency(subtotal)}</span>
             </div>
           </div>
 
@@ -223,7 +231,7 @@ export function CartManager({
               disabled={isProcessing || cartItems.length === 0}
             >
               <CreditCard className="h-4 w-4 mr-2" />
-              {isProcessing ? "Processing..." : `Checkout - $${total.toFixed(2)}`}
+              {isProcessing ? "Processing..." : `Checkout - ${formatCurrency(subtotal)}`}
             </Button>
           </div>
         </div>

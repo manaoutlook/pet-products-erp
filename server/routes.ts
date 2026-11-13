@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { registerStoreRoutes } from "./routes/stores";
 import { registerCompanyRoutes } from "./routes/company";
+import { registerVatCompanyRoutes } from "./routes/vat-companies";
 import { registerSalesOrderRoutes, registerSalesOrderWriteRoutes } from "./routes/sales-orders";
 import { registerDeliveryNoteRoutes } from "./routes/delivery-notes";
 import { db } from "@db";
@@ -22,6 +23,7 @@ import {
 import { sql } from "drizzle-orm";
 import { eq, and, or, desc, gte, lt, isNull, gt } from "drizzle-orm";
 import { requireRole, requireAuth, requirePermission } from "./middleware";
+import { checkHierarchicalPermission } from "../shared/permissions";
 import { importProducts } from "./product-import";
 import { importInventory } from "./inventory-import";
 import {
@@ -49,6 +51,11 @@ import { adjustStock, listStockTake } from "./stock-adjust";
 import { listInventoryTransactions } from "./inventory-transactions";
 import { crypto } from "./auth";
 import { createSale, refundSale, cancelSale, SaleError } from "./sales";
+import {
+  InvoiceDocumentError,
+  archiveIssuedInvoiceDocument,
+  buildInvoicePayload,
+} from "./invoice-documents";
 import { generateInventoryBarcode, generateOrderNumber } from "./numbering";
 import { receiveGoods } from "./goods-receipt";
 import {
@@ -130,11 +137,26 @@ const saleItemSchema = z.object({
   quantity: z.number().int().positive("quantity must be a positive integer"),
 });
 
+const saleBuyerSchema = z.object({
+  name: z.string().trim().min(1, "Buyer name is required").max(200),
+  companyName: z.string().trim().max(200).nullish(),
+  taxId: z.string().trim().max(50).nullish(),
+  address: z.string().trim().max(500).nullish(),
+  phone: z.string().trim().max(50).nullish(),
+  email: z.string().trim().max(200).nullish(),
+});
+
 const createSaleSchema = z.object({
   items: z.array(saleItemSchema).min(1, "Add at least one item"),
   paymentMethod: z.string().min(1, "Payment method is required").max(50),
   customerProfileId: z.number().int().positive().nullish(),
   transactionType: z.enum(['STORE_SALE', 'DC_SALE']).optional(),
+  // The till asks "Print with VAT?" before the sale is written. VAT cannot be added to a
+  // sale afterwards - it would be a new legal document - so the choice is part of creation.
+  withVat: z.boolean().optional(),
+  vatCompanyId: z.number().int().positive().nullish(),
+  // The buyer block for a VAT invoice, snapshotted onto the sale by createSale.
+  buyer: saleBuyerSchema.nullish(),
 });
 
 const refundSaleSchema = z.object({
@@ -296,6 +318,11 @@ export function registerRoutes(app: Express): Server {
   // The company letterhead. Registered early because every other document reads it - a
   // route that prints must never be reachable before the thing it prints is queryable.
   registerCompanyRoutes(app);
+
+  // The two companies a VAT invoice may be issued under (CI / HI), each with its own
+  // invoice number sequence. Registered next to the company letterhead because both are the
+  // seller block of a printed document.
+  registerVatCompanyRoutes(app);
 
   // Sales Orders + Delivery Notes. Registered after the store routes and before the rest of
   // routes.ts for the same reason the store slice moved out: this file keeps shrinking.
@@ -862,7 +889,7 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { mobileNumber, companyName, contactPerson, email, address, photo, landLineNumber, customerType } = result.data;
+      const { mobileNumber, companyName, contactPerson, email, address, photo, landLineNumber, taxId, customerType } = result.data;
 
       // Check if customer profile exists
       const existingProfile = await db.query.customerProfiles.findFirst({
@@ -886,6 +913,9 @@ export function registerRoutes(app: Express): Server {
           address,
           photo: photo || null,
           landLineNumber: landLineNumber || null,
+          // `""` (no tax code) rather than null: the column is NOT NULL and an invoice prints
+          // the buyer block by presence, not by nullness.
+          taxId,
           customerType,
         })
         .returning();
@@ -917,7 +947,7 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { mobileNumber, companyName, contactPerson, email, address, photo, landLineNumber, customerType } = result.data;
+      const { mobileNumber, companyName, contactPerson, email, address, photo, landLineNumber, taxId, customerType } = result.data;
 
       // Check if phone number is already used by another profile
       const existingProfile = await db.query.customerProfiles.findFirst({
@@ -944,6 +974,7 @@ export function registerRoutes(app: Express): Server {
           address,
           photo: photo || null,
           landLineNumber: landLineNumber || null,
+          taxId,
           customerType,
           updatedAt: new Date()
         })
@@ -3705,7 +3736,7 @@ export function registerRoutes(app: Express): Server {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
-      const { items, paymentMethod, customerProfileId, transactionType } = req.body;
+      const { items, paymentMethod, customerProfileId, transactionType, withVat, vatCompanyId, buyer } = req.body;
 
       const transaction = await createSale({
         userId: user.id,
@@ -3713,6 +3744,9 @@ export function registerRoutes(app: Express): Server {
         paymentMethod,
         customerProfileId,
         transactionType,
+        withVat,
+        vatCompanyId,
+        buyer,
       });
 
       res.json({
@@ -3921,27 +3955,57 @@ export function registerRoutes(app: Express): Server {
       }
 
       // Format transaction data for receipt generation
+      //
+      // AI Agent Note: these numbers are READ from the sale. This block used to contain
+      //   subtotal: total / 1.1, tax: total - total / 1.1
+      // which is the bug that made one 100,000 sale print as 110,000 at the till, 100,000 in
+      // the database and 90,909.09 + 9,090.91 on the reprint. `subtotal`, `vatRate`,
+      // `vatAmount` and `totalAmount` are written once by createSale (shared/tax.ts) and must
+      // never be derived from each other here.
+      //
+      // `product.name`/`sku` in the receipt lines come from the SNAPSHOT columns on the sale
+      // item, not from the live product row, so a rename cannot change an issued receipt.
       const receiptData = {
         invoiceNumber: transaction.invoiceNumber,
         transactionDate: transaction.transactionDate,
-        cashierName: transaction.cashierUser?.username || 'Unknown',
-        storeName: transaction.store?.name,
-        items: transaction.items.map(item => ({
-          productId: item.productId,
-          product: {
-            id: item.product.id,
-            name: item.product.name,
-            sku: item.product.sku,
-            price: item.unitPrice,
-          },
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          totalPrice: item.totalPrice,
-        })),
-        subtotal: parseFloat(transaction.totalAmount) / 1.1, // Remove 10% tax
-        tax: parseFloat(transaction.totalAmount) - (parseFloat(transaction.totalAmount) / 1.1),
+        cashierName:
+          (transaction.cashierUser as { username?: string } | null)?.username || 'Unknown',
+        storeName: (transaction.store as { name?: string } | null)?.name,
+        status: transaction.status,
+        withVat: transaction.printedWithVat,
+        items: transaction.items.map(item => {
+          const productRow = item.product as { id: number; name: string; sku: string } | null;
+          return {
+            productId: item.productId,
+            product: {
+              id: productRow?.id ?? item.productId,
+              name: item.description?.trim() || productRow?.name || '',
+              sku: item.productCode?.trim() || productRow?.sku || '',
+              price: item.unitPrice,
+            },
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            totalPrice: item.totalPrice,
+          };
+        }),
+        subtotal: parseFloat(transaction.subtotal),
+        vatRate: parseFloat(transaction.vatRate),
+        tax: parseFloat(transaction.vatAmount),
         total: parseFloat(transaction.totalAmount),
         paymentMethod: transaction.paymentMethod,
+        // The buyer block is the snapshot stored on the sale (see createSale), so a reprint
+        // still shows the buyer as they were when the invoice was issued.
+        buyer: transaction.buyerName
+          ? {
+              name: transaction.buyerName,
+              companyName: transaction.buyerCompanyName,
+              taxId: transaction.buyerTaxId,
+              address: transaction.buyerAddress,
+              phone: transaction.buyerPhone,
+              email: transaction.buyerEmail,
+            }
+          : null,
+        archivedDocumentUrl: transaction.archivedDocumentUrl,
       };
 
       res.json({
@@ -3956,6 +4020,122 @@ export function registerRoutes(app: Express): Server {
       });
     }
   });
+
+  // ---------------------------------------------------------------------------------
+  // Issued invoice document
+  // ---------------------------------------------------------------------------------
+  // GET  /api/sales-transactions/:id/invoice           - everything the A4 invoice prints
+  // POST /api/sales-transactions/:id/invoice/archive   - store the PDF that was issued
+  //
+  // AI Agent Note: the payload is built from the stored sale only (server/invoice-documents.ts),
+  // so the till receipt, the A4 invoice and a reprint a year from now all show the same
+  // numbers, the same buyer and the same product names. The PDF is archived on first issue and
+  // then re-served from /uploads/invoices/, so a reprint cannot differ from the issued copy.
+  //
+  // Invoice access is `pos:create` OR `receipts:read` rather than a single module: the cashier
+  // who just rang the sale up must be able to print it, and the back office must be able to
+  // reprint it, without granting one the other's screen.
+  const requireInvoiceAccess = async (req: any, res: any, next: any) => {
+    const user = req.user;
+    if (!user?.role) {
+      return res.status(403).json({ message: "Access denied: No role assigned" });
+    }
+    if (user.role.name === 'admin') return next();
+
+    const level = user.role.hierarchyLevel || 'staff';
+    const allowed =
+      checkHierarchicalPermission(level, 'pos', 'create', user.role.permissions) ||
+      checkHierarchicalPermission(level, 'receipts', 'read', user.role.permissions);
+
+    if (!allowed) {
+      return res.status(403).json({
+        message: "Access denied: Insufficient permission to print invoices",
+        suggestion: "Ask for POS create or Receipts read permission",
+      });
+    }
+    next();
+  };
+
+  app.get(
+    "/api/sales-transactions/:id/invoice",
+    requireAuth,
+    requireInvoiceAccess,
+    validateParams(idParamSchema, "Use a numeric transaction id"),
+    async (req, res) => {
+      try {
+        const transactionId = Number(req.params.id);
+
+        // Scope is checked against the sale, not the invoice number, so a foreign invoice is a
+        // clear 403 instead of a misleading 404 (same rule as GET /:id).
+        const owner = await db.query.salesTransactions.findFirst({
+          where: eq(salesTransactions.id, transactionId),
+          columns: { id: true, storeId: true, cashierUserId: true },
+        });
+
+        const scope = await resolveScope(req.user!);
+        const foreign =
+          !owner ||
+          (scopeDenies(scope, owner.storeId) && owner.cashierUserId !== req.user!.id);
+
+        if (foreign) {
+          return res.status(404).json({
+            message: "Sales transaction not found",
+            suggestion: "Verify the transaction ID",
+          });
+        }
+
+        const invoice = await buildInvoicePayload(transactionId);
+        res.json({ invoice });
+      } catch (error) {
+        if (error instanceof InvoiceDocumentError) {
+          return res.status(error.status).json({ message: error.message });
+        }
+        console.error('Error building invoice document:', error);
+        res.status(500).json({
+          message: "Failed to build the invoice document",
+          suggestion: "Please try again later"
+        });
+      }
+    }
+  );
+
+  app.post(
+    "/api/sales-transactions/:id/invoice/archive",
+    requireAuth,
+    requireInvoiceAccess,
+    validateParams(idParamSchema, "Use a numeric transaction id"),
+    async (req, res) => {
+      try {
+        const transactionId = Number(req.params.id);
+        const documentHtml = typeof req.body?.document === 'string' ? req.body.document : '';
+
+        if (!documentHtml) {
+          return res.status(400).json({
+            message: "The invoice document is required",
+            suggestion: "Build the A4 document in the browser and post it in `document`"
+          });
+        }
+
+        const result = await archiveIssuedInvoiceDocument(transactionId, documentHtml);
+        res.json({
+          archivedDocumentUrl: result.url,
+          // `created: false` means a copy already existed and it was kept untouched - the
+          // client prints that file instead of the one it just rendered.
+          created: result.created,
+          message: result.created ? "Invoice archived" : "Invoice was already archived",
+        });
+      } catch (error) {
+        if (error instanceof InvoiceDocumentError) {
+          return res.status(error.status).json({ message: error.message });
+        }
+        console.error('Error archiving invoice document:', error);
+        res.status(500).json({
+          message: "Failed to archive the invoice document",
+          suggestion: "Please try again later"
+        });
+      }
+    }
+  );
 
   // Process refund for sales transaction
   app.post("/api/sales-transactions/:id/refund", requirePermission('receipts', 'update'), validateParams(idParamSchema, "Use a numeric transaction id"), validateBody(refundSaleSchema, "Check the refund amount and quantities"), async (req, res) => {

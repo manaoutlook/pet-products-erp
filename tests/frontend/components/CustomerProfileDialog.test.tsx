@@ -142,4 +142,37 @@ describe('Customer profile dialogs - customer type drives the company name', () 
         expect(body.customerType).toBe('B2C');
         expect(body.companyName).toBeNull();
     });
+
+    // The tax code is what a VAT invoice prints against the buyer, so it is captured once on the
+    // profile - in the digits-and-dash form, without the grouping spaces the customer pastes.
+    it('sends the tax code without the grouping spaces the customer pastes', async () => {
+        const user = userEvent.setup();
+        wrap(<CreateCustomerProfileDialog />);
+
+        await user.click(screen.getByRole('button', { name: /add customer profile/i }));
+        const dialog = await screen.findByRole('dialog');
+
+        await user.click(within(dialog).getByRole('combobox'));
+        await user.click(await screen.findByRole('option', { name: 'B2B - Business' }));
+
+        await user.type(within(dialog).getByLabelText('Mobile Number'), '0901234567');
+        await user.type(within(dialog).getByLabelText('Company Name (Optional)'), 'Conqueror Trading Co.');
+        await user.type(within(dialog).getByLabelText('Contact Person'), 'Le Thi Hoa');
+        await user.type(within(dialog).getByLabelText('Email'), 'hoa@conqueror.example');
+        await user.type(within(dialog).getByLabelText('Tax Code (Optional)'), '0313 623 838');
+        await user.type(within(dialog).getByLabelText('Address'), '1 Nguyen Hue, District 1');
+
+        await user.click(within(dialog).getByRole('button', { name: /create customer profile/i }));
+
+        await waitFor(() => {
+            expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+                '/api/customer-profiles',
+                expect.objectContaining({ method: 'POST' })
+            );
+        });
+
+        const postCall = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === 'POST');
+        const body = JSON.parse(postCall![1]!.body as string);
+        expect(body.taxId).toBe('0313623838');
+    });
 });

@@ -628,4 +628,65 @@ describe('Customer Management Tests', () => {
             })).toThrow();
         });
     });
+
+    // A VAT invoice prints the buyer's tax code (mã số thuế). The POS fills the buyer block from
+    // the selected customer profile, so the code has to live on the profile - and it has to be
+    // stored in the one form an invoice can print, not however the customer spelled it out.
+    describe('Tax Code (VAT invoice buyer)', () => {
+        const businessProfile = {
+            mobileNumber: '0901234567',
+            companyName: 'Conqueror Trading Co.',
+            contactPerson: 'Le Thi Hoa',
+            email: 'hoa@conqueror.example',
+            address: '1 Nguyen Hue, District 1, Ho Chi Minh City',
+            customerType: 'B2B' as const,
+        };
+
+        it('stores the tax code on the profile', async () => {
+            const [customer] = await db.insert(customerProfiles).values({
+                ...businessProfile,
+                taxId: '0313623838',
+            }).returning();
+
+            expect(customer.taxId).toBe('0313623838');
+        });
+
+        it('leaves the tax code empty for a consumer who has none', async () => {
+            const [customer] = await db.insert(customerProfiles).values({
+                mobileNumber: '0901234568',
+                contactPerson: 'Nguyen Thi Mai',
+                email: 'mai@example.com',
+                address: '99 Hai Ba Trung, District 3',
+                customerType: 'B2C',
+            }).returning();
+
+            // NOT NULL DEFAULT '': "no tax code" is one representation, not '' vs NULL.
+            expect(customer.taxId).toBe('');
+        });
+
+        it('drops the grouping spaces the tax office prints', () => {
+            const parsed = insertCustomerProfileSchema.parse({
+                ...businessProfile,
+                taxId: '0313 623 838',
+            });
+
+            expect(parsed.taxId).toBe('0313623838');
+        });
+
+        it('keeps the dash of a branch suffix', () => {
+            const parsed = insertCustomerProfileSchema.parse({
+                ...businessProfile,
+                taxId: '0313623838-001',
+            });
+
+            expect(parsed.taxId).toBe('0313623838-001');
+        });
+
+        it('rejects a code that is not 10 digits plus an optional branch suffix', () => {
+            expect(() => insertCustomerProfileSchema.parse({
+                ...businessProfile,
+                taxId: '03136238', // eight digits - one keystroke short on an invoice
+            })).toThrow();
+        });
+    });
 });

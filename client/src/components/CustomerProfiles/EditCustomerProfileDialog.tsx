@@ -28,6 +28,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { MOBILE_NUMBER_PATTERN, normalizePhoneNumber } from "@shared/phone";
+import { TAX_CODE_PATTERN, normalizeTaxCode } from "@shared/tax-code";
 
 const customerProfileSchema = z.object({
   mobileNumber: z.string()
@@ -40,6 +41,16 @@ const customerProfileSchema = z.object({
   address: z.string().min(1, "Address is required"),
   photo: z.string().nullable().optional(),
   landLineNumber: z.string().max(20, "Land line number is too long").nullable().optional(),
+  // Needed to issue a VAT invoice to this customer; optional because most walk-ins have none.
+  taxId: z
+    .string()
+    .max(50, "Tax code is too long")
+    .nullable()
+    .optional()
+    .refine(
+      (value) => !value || TAX_CODE_PATTERN.test(normalizeTaxCode(value)),
+      "A tax code is 10 digits, or 10 digits plus a 3 digit branch suffix (0313623838-001)"
+    ),
   customerType: z.enum(["B2B", "B2C"], {
     required_error: "Please select a customer type",
   }),
@@ -56,6 +67,8 @@ interface CustomerProfile {
   address: string;
   photo?: string;
   landLineNumber?: string | null;
+  /** Empty / missing on profiles created before the column existed. */
+  taxId?: string | null;
   customerType: 'B2B' | 'B2C';
 }
 
@@ -81,6 +94,7 @@ export function EditCustomerProfileDialog({ profile, open, onOpenChange }: EditC
       address: profile.address,
       photo: profile.photo,
       landLineNumber: normalizePhoneNumber(profile.landLineNumber),
+      taxId: normalizeTaxCode(profile.taxId),
       customerType: profile.customerType,
     },
   });
@@ -102,6 +116,7 @@ export function EditCustomerProfileDialog({ profile, open, onOpenChange }: EditC
           companyName: data.customerType === "B2B" ? data.companyName || null : null,
           photo: data.photo || null,
           landLineNumber: data.landLineNumber || null,
+          taxId: normalizeTaxCode(data.taxId),
         }),
       });
 
@@ -282,6 +297,27 @@ export function EditCustomerProfileDialog({ profile, open, onOpenChange }: EditC
                     <FormLabel>Photo URL (Optional)</FormLabel>
                     <FormControl>
                       <Input {...field} value={field.value ?? ""} placeholder="https://..." />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Printed against the buyer on a VAT invoice; spaces are dropped as you type. */}
+              <FormField
+                control={form.control}
+                name="taxId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tax Code (Optional)</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        value={field.value ?? ""}
+                        inputMode="numeric"
+                        placeholder="0313623838"
+                        onChange={(event) => field.onChange(normalizeTaxCode(event.target.value))}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

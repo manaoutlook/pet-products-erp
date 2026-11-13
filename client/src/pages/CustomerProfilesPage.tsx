@@ -49,6 +49,8 @@ interface CustomerProfile {
   address: string;
   photo?: string;
   landLineNumber?: string | null;
+  /** Buyer tax code (mã số thuế), printed on a VAT invoice. */
+  taxId?: string | null;
   customerType: 'B2B' | 'B2C';
 }
 
@@ -161,6 +163,7 @@ function CustomerProfilesPage() {
       email: (profile) => profile.email,
       customerType: (profile) => profile.customerType,
       landLineNumber: (profile) => profile.landLineNumber,
+      taxId: (profile) => profile.taxId,
     },
     {
       // The page level search box stays the primary, whole row search.
@@ -171,6 +174,7 @@ function CustomerProfilesPage() {
         profile.email.toLowerCase().includes(search.toLowerCase()) ||
         profile.customerType.toLowerCase().includes(search.toLowerCase()) ||
         (profile.landLineNumber?.toLowerCase() || "").includes(search.toLowerCase()) ||
+        (profile.taxId?.toLowerCase() || "").includes(search.toLowerCase()) ||
         (profile.address?.toLowerCase() || "").includes(search.toLowerCase()),
     }
   );
@@ -243,6 +247,7 @@ function CustomerProfilesPage() {
                   <ColumnHeader controls={profilesTable} columnKey="email" label="Email" filterPlaceholder="Filter email" />
                   <ColumnHeader controls={profilesTable} columnKey="customerType" label="Customer Type" filterPlaceholder="Filter customer type" />
                   <ColumnHeader controls={profilesTable} columnKey="landLineNumber" label="Land Line Number" filterPlaceholder="Filter land line" />
+                  <ColumnHeader controls={profilesTable} columnKey="taxId" label="Tax Code" filterPlaceholder="Filter tax code" />
                   <TableHead className="align-top">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -255,6 +260,7 @@ function CustomerProfilesPage() {
                     <TableCell>{profile.email}</TableCell>
                     <TableCell>{profile.customerType}</TableCell>
                     <TableCell>{profile.landLineNumber || '-'}</TableCell>
+                    <TableCell className="font-mono text-xs">{profile.taxId || '-'}</TableCell>
                     <TableCell>
                       <div className="flex gap-2">
                         <Button

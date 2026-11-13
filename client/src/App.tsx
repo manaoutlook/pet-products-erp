@@ -35,6 +35,7 @@ const CustomerProfilesPage = lazy(() => import("./pages/CustomerProfilesPage"));
 const ReceiptsPage = lazy(() => import("./pages/ReceiptsPage"));
 const RegionPage = lazy(() => import("./pages/RegionPage"));
 const CompanyProfilePage = lazy(() => import("./pages/CompanyProfilePage"));
+const VatCompaniesPage = lazy(() => import("./pages/VatCompaniesPage"));
 
 function RouteFallback() {
   return (
@@ -108,6 +109,14 @@ function App() {
             </Route>
             <Route path="/company-profile">
               <RequirePermission module="masterData" action="read"><CompanyProfilePage /></RequirePermission>
+            </Route>
+            {/*
+              VAT Companies: the two legal entities that may issue a VAT invoice. The household
+              business on the Company Profile cannot, so this screen is the one that holds the
+              seller details printed on a VAT invoice (and their own invoice number sequences).
+            */}
+            <Route path="/vat-companies">
+              <RequirePermission module="masterData" action="read"><VatCompaniesPage /></RequirePermission>
             </Route>
             <Route path="/customers">
               <RequirePermission module="customerProfiles" action="read"><CustomerProfilesPage /></RequirePermission>

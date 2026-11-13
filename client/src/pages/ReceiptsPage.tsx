@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { formatDate } from "@/utils/format";
+import { formatCurrency, formatDate } from "@/utils/format";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -56,12 +56,20 @@ import { useUser } from "@/hooks/use-user";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useCompanyInfo } from "@/hooks/use-company";
 import { ReceiptPrinter, type ReceiptData } from "@/components/POS/ReceiptPrinter";
+import { InvoicePrintDialog } from "@/components/POS/InvoicePrint";
+import type { InvoicePayload } from "@shared/invoice";
 
 interface SalesTransaction {
   id: number;
   invoiceNumber: string;
   transactionDate: string;
+  subtotal: string;
+  vatRate: string;
+  vatAmount: string;
   totalAmount: string;
+  printedWithVat: boolean;
+  vatCompanyId: number | null;
+  archivedDocumentUrl: string | null;
   paymentMethod: string;
   status: string;
   transactionType: string;
@@ -76,6 +84,8 @@ interface SalesTransaction {
   items: Array<{
     id: number;
     productId: number;
+    productCode?: string;
+    description?: string;
     product: {
       id: number;
       name: string;
@@ -94,6 +104,11 @@ function ReceiptsPage() {
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [refundReason, setRefundReason] = useState("");
   const [refundAmount, setRefundAmount] = useState("");
+
+  // A4 invoice state (same payload shape the POS uses).
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [invoice, setInvoice] = useState<InvoicePayload | null>(null);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
 
   const { user } = useUser();
   const { toast } = useToast();
@@ -212,11 +227,46 @@ function ReceiptsPage() {
     },
   });
 
-  const handleViewReceipt = (transaction: SalesTransaction) => {
-    // Convert transaction data to receipt format
-    const subtotal = parseFloat(transaction.totalAmount) / 1.1;
-    const tax = parseFloat(transaction.totalAmount) - subtotal;
+  /**
+   * Load the A4 invoice for one sale.
+   *
+   * Same endpoint the POS uses: the payload is built server-side from the stored sale, and the
+   * PDF/document that was issued is served from the archive, so this reprint and the copy
+   * printed at the till are the same document.
+   */
+  const openInvoice = async (transactionId: number) => {
+    setInvoiceOpen(true);
+    setInvoice(null);
+    setInvoiceLoading(true);
 
+    try {
+      const response = await fetch(`/api/sales-transactions/${transactionId}/invoice`, {
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to load the invoice');
+      }
+
+      const data = await response.json();
+      setInvoice(data.invoice);
+    } catch (error) {
+      setInvoiceOpen(false);
+      toast({
+        title: "Invoice unavailable",
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: "destructive",
+      });
+    } finally {
+      setInvoiceLoading(false);
+    }
+  };
+
+  const handleViewReceipt = (transaction: SalesTransaction) => {
+    // AI Agent Note: these are the stored numbers of the sale. This used to back-calculate the
+    // tax with `total / 1.1`, so a 100,000 sale reprinted as 90,909.09 + 9,090.91 while the same
+    // sale printed 110,000 at the till. Never derive one of these from another here.
     const receiptData: ReceiptData = {
       invoiceNumber: transaction.invoiceNumber,
       transactionDate: transaction.transactionDate,
@@ -224,15 +274,24 @@ function ReceiptsPage() {
       storeName: transaction.store?.name,
       items: transaction.items.map(item => ({
         productId: item.productId,
-        product: item.product,
+        // Snapshot first: a product renamed after the sale must not change this receipt.
+        product: {
+          ...item.product,
+          name: item.description?.trim() || item.product.name,
+          sku: item.productCode?.trim() || item.product.sku,
+        },
         quantity: item.quantity,
         unitPrice: parseFloat(item.unitPrice),
         totalPrice: parseFloat(item.totalPrice),
+        inventoryId: item.id,
       })),
-      subtotal,
-      tax,
+      subtotal: parseFloat(transaction.subtotal ?? '0'),
+      tax: parseFloat(transaction.vatAmount ?? '0'),
       total: parseFloat(transaction.totalAmount),
       paymentMethod: transaction.paymentMethod,
+      vatRate: parseFloat(transaction.vatRate ?? '0'),
+      withVat: transaction.printedWithVat,
+      status: transaction.status,
     };
 
     setSelectedReceipt(receiptData);
@@ -406,7 +465,7 @@ function ReceiptsPage() {
                       {transaction.store?.name || 'DC'}
                     </TableCell>
                     <TableCell>
-                      ${parseFloat(transaction.totalAmount).toFixed(2)}
+                      {formatCurrency(transaction.totalAmount)}
                     </TableCell>
                     <TableCell>
                       {getStatusBadge(transaction.status)}
@@ -429,6 +488,20 @@ function ReceiptsPage() {
                         >
                           <Printer className="h-4 w-4 mr-1" />
                           Print
+                        </Button>
+
+                        {/*
+                          The A4 tax invoice. Rebuilt from the stored sale and printed from the
+                          archived copy, so it is byte-for-byte the document that was issued -
+                          including the product names as they were then.
+                        */}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openInvoice(transaction.id)}
+                        >
+                          <FileText className="h-4 w-4 mr-1" />
+                          Invoice
                         </Button>
 
                         {hasPermission('receipts', 'update') && canCancel(transaction) && (
@@ -549,6 +622,16 @@ function ReceiptsPage() {
           </div>
         </div>
       )}
+      {/* A4 invoice of the selected sale - printed from the archived issued copy */}
+      <InvoicePrintDialog
+        invoice={invoice}
+        open={invoiceOpen}
+        onOpenChange={setInvoiceOpen}
+        loading={invoiceLoading}
+        onArchived={() => {
+          queryClient.invalidateQueries({ queryKey: ['/api/sales-transactions'] });
+        }}
+      />
     </div>
   );
 }

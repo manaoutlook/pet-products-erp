@@ -6,6 +6,7 @@ import express from "express";
 import helmet from "helmet";
 import path from "node:path";
 import { registerRoutes } from "./routes";
+import { ensureVatCompanySeeds } from "./routes/vat-companies";
 import { setupVite, serveStatic, log } from "./vite";
 import { errorHandler } from "./error-handler";
 import { apiLimiter } from "./rate-limit";
@@ -101,6 +102,11 @@ app.use(errorHandler);
 // Only start the server if not running in test mode
 if (process.env.NODE_ENV !== 'test') {
   (async () => {
+    // The two licensed VAT companies (CI / HI) must exist before the first invoice is issued.
+    // Migration 0022 seeds them, but a database built by `npm run db:push` has the table and no
+    // rows - see server/routes/vat-companies.ts.
+    await ensureVatCompanySeeds();
+
     // importantly only setup vite in development and after
     // setting up all the other routes so the catch-all route
     // doesn't interfere with the other routes

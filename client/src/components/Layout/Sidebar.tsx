@@ -101,6 +101,15 @@ function Sidebar() {
           icon: Landmark,
           module: 'masterData',
           action: 'read'
+        },
+        {
+          // The companies that issue VAT invoices (CI / HI). The household business on the
+          // Company Profile may not issue one, so a VAT sale prints these details instead.
+          name: "VAT Companies",
+          href: "/vat-companies",
+          icon: Landmark,
+          module: 'masterData',
+          action: 'read'
         }
       ]
     },

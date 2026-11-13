@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { formatDateTime } from "@/utils/format";
+import { formatCurrency, formatDateTime } from "@/utils/format";
 import { BRAND_NAME, BRAND_WEBSITE } from "@/config/branding";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,11 +53,37 @@ export interface ReceiptData {
   cashierName: string;
   storeName?: string;
   items: CartItem[];
+  /**
+   * AI Agent Note: subtotal / tax / total are the numbers STORED on the sale
+   * (`sales_transactions.subtotal` / `vat_amount` / `total_amount`). The receipt must never
+   * compute them - the old `subtotal * 0.1` here is why the till showed 110,000 for a sale the
+   * database recorded as 100,000.
+   */
   subtotal: number;
   tax: number;
   total: number;
   paymentMethod: string;
+  /** Rate that produced `tax` (0 for a retail sale with no VAT invoice). */
+  vatRate?: number;
+  /** True when the customer asked for a VAT invoice. */
+  withVat?: boolean;
+  /** 'completed' | 'refunded' | 'cancelled' - printed so a void copy is recognisable. */
+  status?: string;
 }
+
+/**
+ * Label of the VAT line on any output of this component.
+ *
+ * A retail sale (no VAT invoice) prints "VAT" with a zero amount; a VAT sale prints the stored
+ * rate. Hardcoding "Tax (10%)" was the third copy of the 10% rule and it lied as soon as the
+ * rate or the customer's choice differed.
+ */
+function vatLineLabel(data: ReceiptData): string {
+  if (!data.withVat) return 'VAT (not invoiced)';
+  const rate = Number(data.vatRate ?? 0);
+  return `VAT (${Number.isFinite(rate) ? `${(rate * 100).toFixed(0)}%` : '0%'})`;
+}
+
 
 interface ReceiptPrinterProps {
   receiptData: ReceiptData | null;
@@ -112,7 +138,9 @@ function buildCompanyHeaderBlock(company: CompanyHeader): string {
  * interpolated value is escaped so a product name cannot break the markup.
  */
 function buildPrintDocument(data: ReceiptData, company: CompanyHeader): string {
-  const money = (value: number) => `$${Number(value).toFixed(2)}`;
+  // VND, formatted once for the whole app (utils/format.ts) - the receipt must show the
+  // same figure as the invoice and the sale screen.
+  const money = (value: number) => formatCurrency(value);
 
   const items = data.items
     .map(
@@ -184,7 +212,7 @@ function buildPrintDocument(data: ReceiptData, company: CompanyHeader): string {
 
         <div class="section">
           <div class="row"><span>Subtotal:</span><span>${money(data.subtotal)}</span></div>
-          <div class="row"><span>Tax (10%):</span><span>${money(data.tax)}</span></div>
+          <div class="row"><span>${vatLineLabel(data)}:</span><span>${money(data.tax)}</span></div>
           <div class="total-line"></div>
           <div class="row bold total"><span>TOTAL:</span><span>${money(data.total)}</span></div>
         </div>
@@ -350,12 +378,12 @@ export function ReceiptPrinter({ receiptData, company, onPrint, onClose }: Recei
           ? item.product.name.substring(0, 22) + '...'
           : item.product.name;
         doc.text(productName, 5, yPosition);
-        doc.text(`$${Number(item.unitPrice).toFixed(2)}`, 70, yPosition, { align: 'right' });
+        doc.text(formatCurrency(item.unitPrice), 70, yPosition, { align: 'right' });
         yPosition += 3;
 
         doc.setFontSize(6);
         doc.text(`Qty: ${item.quantity}`, 5, yPosition);
-        doc.text(`Total: $${Number(item.totalPrice).toFixed(2)}`, 70, yPosition, { align: 'right' });
+        doc.text(`Total: ${formatCurrency(item.totalPrice)}`, 70, yPosition, { align: 'right' });
         doc.setFontSize(8);
         yPosition += 4;
       });
@@ -365,10 +393,10 @@ export function ReceiptPrinter({ receiptData, company, onPrint, onClose }: Recei
       yPosition += 6;
 
       // Totals
-      doc.text(`Subtotal: $${receiptData.subtotal.toFixed(2)}`, 70, yPosition, { align: 'right' });
+      doc.text(`Subtotal: ${formatCurrency(receiptData.subtotal)}`, 70, yPosition, { align: 'right' });
       yPosition += 4;
 
-      doc.text(`Tax (10%): $${receiptData.tax.toFixed(2)}`, 70, yPosition, { align: 'right' });
+      doc.text(`${vatLineLabel(receiptData)}: ${formatCurrency(receiptData.tax)}`, 70, yPosition, { align: 'right' });
       yPosition += 4;
 
       // Total line
@@ -377,7 +405,7 @@ export function ReceiptPrinter({ receiptData, company, onPrint, onClose }: Recei
       yPosition += 6;
 
       doc.setFontSize(10);
-      doc.text(`TOTAL: $${receiptData.total.toFixed(2)}`, 70, yPosition, { align: 'right' });
+      doc.text(`TOTAL: ${formatCurrency(receiptData.total)}`, 70, yPosition, { align: 'right' });
       yPosition += 8;
 
       // Line
@@ -532,8 +560,8 @@ export function ReceiptPrinter({ receiptData, company, onPrint, onClose }: Recei
               <span>${receiptData.subtotal.toFixed(2)}</span>
             </div>
             <div className="flex justify-between">
-              <span>Tax (10%):</span>
-              <span>${receiptData.tax.toFixed(2)}</span>
+              <span>{vatLineLabel(receiptData)}:</span>
+              <span>{formatCurrency(receiptData.tax)}</span>
             </div>
             <div className="border-t-2 border-slate-800 my-2"></div>
             <div className="flex justify-between font-bold text-lg">

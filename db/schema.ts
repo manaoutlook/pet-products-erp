@@ -1,9 +1,10 @@
-import { pgTable, text, serial, integer, boolean, timestamp, date, varchar, decimal, index, check } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, date, varchar, decimal, index, check, uniqueIndex } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 import { jsonb } from "drizzle-orm/pg-core";
 import { normalizePhoneNumber, MOBILE_NUMBER_PATTERN } from "../shared/phone";
+import { normalizeTaxCode, TAX_CODE_PATTERN } from "../shared/tax-code";
 
 
 type Permissions = {
@@ -285,6 +286,11 @@ export const customerProfiles = pgTable("customer_profiles", {
   address: text("address").notNull(),
   photo: text("photo"),
   landLineNumber: varchar("land_line_number", { length: 20 }),
+  // A business's tax code (mã số thuế) is what a VAT invoice must show against the buyer.
+  // Kept on the profile so the POS can fill the buyer block from the customer instead of the
+  // cashier re-typing it - the sale still snapshots the value, so editing this later never
+  // rewrites an invoice that was already issued. Empty for a consumer who has none.
+  taxId: varchar("tax_id", { length: 50 }).notNull().default(""),
   customerType: varchar("customer_type", { length: 10 }).notNull(), // 'B2B' or 'B2C'
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -399,17 +405,68 @@ export const deliveryNoteItems = pgTable("delivery_note_items", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// VAT Companies table - the legal entities a VAT invoice may be issued under
+//
+// AI Agent Note: "HỘ KINH DOANH TIỆN ÍCH GIA ĐÌNH" is a household business and is NOT
+// allowed to issue a VAT invoice. When a customer asks for one, the sale is invoiced
+// under one of the two licensed companies below instead - the company name, tax code and
+// address printed on the invoice are that row's, never the household business letterhead.
+// Each company owns its own invoice number sequence (`CI-...` / `HI-...`), so the two
+// books of VAT invoices cannot collide. A non-VAT invoice (retail receipt) keeps using the
+// store sequence and prints the Company Profile letterhead.
+export const vatCompanies = pgTable("vat_companies", {
+  id: serial("id").primaryKey(),
+  code: varchar("code", { length: 10 }).notNull().unique(), // 'CI' = Conqueror International, 'HI' = Hasim International
+  name: varchar("name", { length: 200 }).notNull(),
+  taxId: varchar("tax_id", { length: 50 }).notNull().default(""),
+  address: text("address").notNull().default(""),
+  phone: varchar("phone", { length: 50 }),
+  email: varchar("email", { length: 200 }),
+  bankAccount: text("bank_account"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Invoice Counters table - Store-specific invoice numbering
 export const invoiceCounters = pgTable("invoice_counters", {
   id: serial("id").primaryKey(),
   storeId: integer("store_id").references(() => stores.id),
-  counterType: varchar("counter_type", { length: 10 }).notNull(), // 'STORE' or 'DC'
+  // 'STORE' | 'DC' (per store) | 'VAT_COMPANY' (one independent sequence per VAT company)
+  counterType: varchar("counter_type", { length: 20 }).notNull(),
+  // Only set when counterType = 'VAT_COMPANY'. A VAT company's sequence is global (not per
+  // store) because the invoice is issued by the company, not by the shop that rang it up.
+  vatCompanyId: integer("vat_company_id").references(() => vatCompanies.id),
   currentNumber: integer("current_number").notNull().default(0),
   prefix: varchar("prefix", { length: 20 }).notNull(),
   lastUpdated: timestamp("last_updated").defaultNow(),
-});
+}, (table) => ({
+  // AI Agent Note: one row per VAT company, enforced by the database. Postgres treats
+  // NULLs as distinct, so this index constrains only the VAT_COMPANY rows (where
+  // vat_company_id is always set) and leaves the existing STORE/DC rows untouched.
+  // Without it two simultaneous sales could each insert a CI counter row and hand out the
+  // same invoice number from two sequences.
+  vatCompanySequence: uniqueIndex("invoice_counters_vat_company_unique").on(
+    table.counterType,
+    table.vatCompanyId
+  ),
+}));
 
 // Sales Transactions table - POS sales records
+//
+// AI Agent Note - the money on a sale is computed ONCE, here, and never again:
+//   subtotal  = sum of the line totals (catalogue prices are VAT-EXCLUSIVE)
+//   vatAmount = subtotal x vatRate   (only when the sale was invoiced with VAT)
+//   totalAmount = subtotal + vatAmount
+// The till, the stored row and every reprint read these three columns. Nothing is allowed
+// to recompute a tax rate from a total (the old `total / 1.1` reprint path is why 110,000
+// at the till became 90,909.09 + 9,090.91 + 100,000 on the receipt). If a sale is not
+// invoiced with VAT, vatRate and vatAmount are 0 and totalAmount equals subtotal.
+//
+// `vatCompanyId` is the legal entity that issued the VAT invoice (see `vatCompanies`).
+// It is NULL for a non-VAT retail sale, which is the normal case for this household
+// business. `archivedDocumentUrl` is the immutable copy of the PDF that was actually
+// issued; it is written once and then re-served forever.
 export const salesTransactions = pgTable("sales_transactions", {
   id: serial("id").primaryKey(),
   invoiceNumber: varchar("invoice_number", { length: 50 }).notNull().unique(),
@@ -417,20 +474,46 @@ export const salesTransactions = pgTable("sales_transactions", {
   transactionType: varchar("transaction_type", { length: 20 }).notNull(), // 'STORE_SALE' or 'DC_SALE'
   cashierUserId: integer("cashier_user_id").notNull().references(() => users.id),
   customerProfileId: integer("customer_profile_id").references(() => customerProfiles.id),
-  totalAmount: decimal("total_amount", { precision: 15, scale: 2 }).notNull(), // VND amount
+  subtotal: decimal("subtotal", { precision: 15, scale: 2 }).notNull().default("0"), // VAT-exclusive
+  vatRate: decimal("vat_rate", { precision: 5, scale: 4 }).notNull().default("0"), // 0.1000 = 10%
+  vatAmount: decimal("vat_amount", { precision: 15, scale: 2 }).notNull().default("0"),
+  totalAmount: decimal("total_amount", { precision: 15, scale: 2 }).notNull(), // subtotal + vatAmount
+  printedWithVat: boolean("printed_with_vat").notNull().default(false),
+  vatCompanyId: integer("vat_company_id").references(() => vatCompanies.id),
+  // Buyer block, snapshotted at sale time (see `sales_transaction_items.description` for the
+  // same reason). A VAT invoice is invalid without a buyer, and editing or deleting a customer
+  // profile tomorrow must not change an invoice that was already issued.
+  buyerName: text("buyer_name").notNull().default(""),
+  buyerCompanyName: varchar("buyer_company_name", { length: 200 }),
+  buyerTaxId: varchar("buyer_tax_id", { length: 50 }),
+  buyerAddress: text("buyer_address"),
+  buyerPhone: varchar("buyer_phone", { length: 50 }),
+  buyerEmail: varchar("buyer_email", { length: 200 }),
   paymentMethod: varchar("payment_method", { length: 20 }).notNull(),
   transactionDate: timestamp("transaction_date").defaultNow(),
   status: varchar("status", { length: 20 }).notNull().default('completed'), // 'completed', 'refunded', 'voided'
+  // The issued PDF/Document copy. Written once (see server/invoice-documents.ts); a reprint
+  // downloads this file instead of re-rendering, so the paper cannot change later.
+  archivedDocumentUrl: text("archived_document_url"),
+  archivedAt: timestamp("archived_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 // Sales Transaction Items table - Sale line items with inventory tracking
+//
+// AI Agent Note - `productCode` and `description` are SNAPSHOTS taken when the sale is
+// written, exactly like `sales_order_items` does. `productId` still points at the product
+// for reporting, but an invoice is a legal document: if the product is renamed or its SKU
+// changes tomorrow, a reprint of this invoice must still show the name and code that were
+// sold. Never render an invoice line from the joined `products` row.
 export const salesTransactionItems = pgTable("sales_transaction_items", {
   id: serial("id").primaryKey(),
   salesTransactionId: integer("sales_transaction_id").notNull().references(() => salesTransactions.id),
   productId: integer("product_id").notNull().references(() => products.id),
   inventoryId: integer("inventory_id").notNull().references(() => inventory.id), // Specific inventory deducted
+  productCode: varchar("product_code", { length: 64 }).notNull().default(""), // snapshot of products.sku
+  description: text("description").notNull().default(""), // snapshot of products.name
   quantity: integer("quantity").notNull(),
   unitPrice: decimal("unit_price", { precision: 15, scale: 2 }).notNull(), // VND amount
   totalPrice: decimal("total_price", { precision: 15, scale: 2 }).notNull(), // VND amount
@@ -683,6 +766,16 @@ export const invoiceCountersRelations = relations(invoiceCounters, ({ one }) => 
     fields: [invoiceCounters.storeId],
     references: [stores.id],
   }),
+  vatCompany: one(vatCompanies, {
+    fields: [invoiceCounters.vatCompanyId],
+    references: [vatCompanies.id],
+  }),
+}));
+
+// Add relations for the VAT companies (one sequence, many invoices)
+export const vatCompaniesRelations = relations(vatCompanies, ({ many }) => ({
+  salesTransactions: many(salesTransactions),
+  invoiceCounters: many(invoiceCounters),
 }));
 
 // Add relations for sales transactions
@@ -700,6 +793,10 @@ export const salesTransactionsRelations = relations(salesTransactions, ({ many, 
   customerProfile: one(customerProfiles, {
     fields: [salesTransactions.customerProfileId],
     references: [customerProfiles.id],
+  }),
+  vatCompany: one(vatCompanies, {
+    fields: [salesTransactions.vatCompanyId],
+    references: [vatCompanies.id],
   }),
 }));
 
@@ -942,6 +1039,14 @@ export const insertCustomerProfileSchema = createInsertSchema(customerProfiles, 
     .nullable()
     .optional()
     .transform((value) => (value ? normalizePhoneNumber(value).slice(0, 20) : null)),
+  // Optional: a consumer has none. Grouping spaces are stripped, then the shape is checked, so a
+  // pasted `0313 623 838` is stored as `0313623838` and a typo can never reach an invoice.
+  taxId: z.string()
+    .max(50, "Tax code is too long")
+    .nullable()
+    .optional()
+    .transform((value) => normalizeTaxCode(value))
+    .refine((value) => value === "" || TAX_CODE_PATTERN.test(value), "Invalid tax code format"),
   customerType: z.enum(CUSTOMER_TYPES)
 });
 export const selectCustomerProfileSchema = createSelectSchema(customerProfiles);
@@ -975,6 +1080,12 @@ export const insertInvoiceCounterSchema = createInsertSchema(invoiceCounters);
 export const selectInvoiceCounterSchema = createSelectSchema(invoiceCounters);
 export type InsertInvoiceCounter = typeof invoiceCounters.$inferInsert;
 export type SelectInvoiceCounter = typeof invoiceCounters.$inferSelect;
+
+// VAT company schemas
+export const insertVatCompanySchema = createInsertSchema(vatCompanies);
+export const selectVatCompanySchema = createSelectSchema(vatCompanies);
+export type InsertVatCompany = typeof vatCompanies.$inferInsert;
+export type SelectVatCompany = typeof vatCompanies.$inferSelect;
 
 // Add sales transaction schemas
 export const insertSalesTransactionSchema = createInsertSchema(salesTransactions);

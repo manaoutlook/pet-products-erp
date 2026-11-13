@@ -30,6 +30,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Plus } from "lucide-react";
 import { MOBILE_NUMBER_PATTERN, normalizePhoneNumber } from "@shared/phone";
+import { TAX_CODE_PATTERN, normalizeTaxCode } from "@shared/tax-code";
 
 const customerProfileSchema = z.object({
   mobileNumber: z.string()
@@ -42,6 +43,16 @@ const customerProfileSchema = z.object({
   address: z.string().min(1, "Address is required"),
   photo: z.string().nullable().optional(),
   landLineNumber: z.string().max(20, "Land line number is too long").nullable().optional(),
+  // Needed to issue a VAT invoice to this customer; optional because most walk-ins have none.
+  taxId: z
+    .string()
+    .max(50, "Tax code is too long")
+    .nullable()
+    .optional()
+    .refine(
+      (value) => !value || TAX_CODE_PATTERN.test(normalizeTaxCode(value)),
+      "A tax code is 10 digits, or 10 digits plus a 3 digit branch suffix (0313623838-001)"
+    ),
   customerType: z.enum(["B2B", "B2C"], {
     required_error: "Please select a customer type",
   }),
@@ -62,6 +73,7 @@ export function CreateCustomerProfileDialog() {
       contactPerson: "",
       email: "",
       address: "",
+      taxId: "",
       customerType: undefined,
     },
   });
@@ -116,6 +128,8 @@ export function CreateCustomerProfileDialog() {
       ...data,
       // A consumer has no company - never send one the form is not showing.
       companyName: data.customerType === "B2B" ? data.companyName || null : null,
+      // Grouping spaces removed so the stored value is what the invoice prints.
+      taxId: normalizeTaxCode(data.taxId),
     });
   };
 
@@ -266,6 +280,29 @@ export function CreateCustomerProfileDialog() {
                     <FormLabel>Photo URL (Optional)</FormLabel>
                     <FormControl>
                       <Input {...field} value={field.value ?? ""} placeholder="https://..." />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="taxId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tax Code (Optional)</FormLabel>
+                    <FormControl>
+                      {/* Printed against the buyer on a VAT invoice. Spaces are dropped as you
+                          type (`0313 623 838` -> `0313623838`); the dashes of a branch suffix
+                          are part of the code and are kept. */}
+                      <Input
+                        {...field}
+                        value={field.value ?? ""}
+                        inputMode="numeric"
+                        placeholder="0313623838"
+                        onChange={(event) => field.onChange(normalizeTaxCode(event.target.value))}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
