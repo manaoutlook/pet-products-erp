@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { databaseUnavailableBody, isDatabaseUnavailable } from "./db-errors";
 
 /**
  * Shape of the errors our routes raise. Most routes answer directly with
@@ -41,14 +42,23 @@ export function errorHandler(
 
   const status = resolveStatus(err);
   const isServerError = status >= 500;
+  // A database that cannot be reached is an infrastructure outage, not a bug in
+  // this request. It answers 503 with a message that is safe to show in
+  // production (and, unlike a raw driver message, is actionable).
+  const databaseDown = isDatabaseUnavailable(err);
 
   // Log every failure once. Request bodies are deliberately not logged - they
   // can contain passwords and customer data (see step 02).
-  const logLine = `${req.method} ${req.originalUrl} -> ${status}: ${err?.message ?? "unknown error"}`;
+  const logLine = `${req.method} ${req.originalUrl} -> ${databaseDown ? 503 : status}: ${err?.message ?? "unknown error"}`;
   if (isServerError) {
     console.error("[api] " + logLine, err?.stack ?? "");
   } else {
     console.warn("[api] " + logLine);
+  }
+
+  if (databaseDown) {
+    res.status(503).json(databaseUnavailableBody());
+    return;
   }
 
   // Never leak internal messages (raw SQL, driver errors) in production.

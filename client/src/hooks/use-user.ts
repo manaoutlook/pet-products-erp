@@ -3,6 +3,7 @@ import type { InsertUser, SelectUser } from "@db/schema";
 
 type RequestResult = {
   message: string;
+  suggestion?: string;
   user?: {
     id: number;
     username: string;
@@ -11,6 +12,45 @@ type RequestResult = {
     };
   };
 };
+
+/**
+ * An API failure that still carries the server's advice.
+ *
+ * AI Agent Note: non-2xx bodies are JSON shaped `{ message, suggestion }`.
+ * Throwing the raw body text put the whole JSON blob in the alert title
+ * (`{"message":"Internal server error",...}`) - the sentence the user needs was
+ * buried inside it. Parse it here so the login card can show the message and
+ * suggestion as separate lines.
+ */
+export interface ApiError extends Error {
+  status?: number;
+  suggestion?: string;
+}
+
+function toApiError(status: number, responseText: string, statusText: string): ApiError {
+  let message = responseText || statusText || 'Request failed';
+  let suggestion: string | undefined;
+
+  try {
+    const payload = responseText ? JSON.parse(responseText) : null;
+    if (payload && typeof payload === 'object') {
+      if (typeof payload.message === 'string' && payload.message) {
+        message = payload.message;
+      }
+      if (typeof payload.suggestion === 'string' && payload.suggestion) {
+        suggestion = payload.suggestion;
+      }
+    }
+  } catch {
+    // Body was not JSON (proxy error page, empty response, ...) - the raw text
+    // is still the most specific thing we have.
+  }
+
+  const error = new Error(message) as ApiError;
+  error.status = status;
+  if (suggestion) error.suggestion = suggestion;
+  return error;
+}
 
 async function handleRequest(
   url: string,
@@ -31,7 +71,7 @@ async function handleRequest(
     console.log(`Response status: ${response.status}`, { responseText });
 
     if (!response.ok) {
-      throw new Error(responseText || response.statusText || 'Request failed');
+      throw toApiError(response.status, responseText, response.statusText);
     }
 
     // Only try to parse as JSON if we have content
@@ -40,7 +80,10 @@ async function handleRequest(
     return result;
   } catch (e: any) {
     console.error('Request failed:', e);
-    throw new Error(e.message || 'An error occurred');
+    // Rethrow what we already shaped so `status`/`suggestion` survive the trip
+    // to the caller (the login card reads `suggestion`).
+    if (e instanceof Error) throw e;
+    throw new Error('An error occurred');
   }
 }
 

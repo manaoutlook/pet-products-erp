@@ -4,6 +4,10 @@ import { type Express } from "express";
 import session from "express-session";
 import { DrizzleSessionStore } from "./session-store";
 import { loginLimiter } from "./rate-limit";
+import {
+  databaseUnavailableBody,
+  isDatabaseUnavailable,
+} from "./db-errors";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { users, roles } from "@db/schema";
@@ -288,6 +292,15 @@ export function setupAuth(app: Express) {
   app.post("/api/login", loginLimiter, (req, res, next) => {
     passport.authenticate("local", (err: any, user: Express.User | false, info: any) => {
       if (err) {
+        // AI Agent Note: a dead database is not a server bug - the credential
+        // query never ran. Answer 503 with the real reason instead of a generic
+        // 500, otherwise a stopped Postgres reads as "wrong password" to the
+        // person at the login screen and as an app crash to the operator.
+        if (isDatabaseUnavailable(err)) {
+          console.error('[auth] login unavailable: database unreachable:', err instanceof Error ? err.message : 'unknown error');
+          return res.status(503).json(databaseUnavailableBody());
+        }
+
         console.error('Login authentication error:', err instanceof Error ? err.message : 'unknown error');
         return res.status(500).json({
           message: "Internal server error",
@@ -308,6 +321,13 @@ export function setupAuth(app: Express) {
 
       req.logIn(user, (err) => {
         if (err) {
+          // Sessions live in Postgres (server/session-store.ts), so a positive
+          // credential check can still end here when the database drops.
+          if (isDatabaseUnavailable(err)) {
+            console.error('[auth] login unavailable: session store unreachable:', err instanceof Error ? err.message : 'unknown error');
+            return res.status(503).json(databaseUnavailableBody());
+          }
+
           console.error('Login session error:', err instanceof Error ? err.message : 'unknown error');
           return res.status(500).json({
             message: "Failed to create session",

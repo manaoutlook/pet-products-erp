@@ -66,7 +66,10 @@ function AuthPage() {
       console.error('Authentication error:', error);
       setAuthError({
         message: error.message || "Authentication failed",
-        suggestion: "Please try again later. If the problem persists, contact support."
+        // Prefer the server's advice ("Check that PostgreSQL is running...")
+        // over a generic retry line; fall back only when it sent none.
+        suggestion: error.suggestion
+          || "Please try again later. If the problem persists, contact support."
       });
     }
   };
