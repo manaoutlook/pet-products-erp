@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, date, varchar, decimal, index, check, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, date, varchar, decimal, index, check, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -97,7 +97,10 @@ export const categories = pgTable("categories", {
   id: serial("id").primaryKey(),
   name: text("name").notNull().unique(),
   description: text("description"),
-  parentId: integer("parent_id").references(() => categories.id), // Self-referencing for N-level subcategories
+  // The explicit `AnyPgColumn` return type breaks the circular type inference on this
+  // self-reference; without it `categories` falls back to `any` and the whole schema's
+  // relation types collapse (which showed up as dozens of bogus errors in server/routes.ts).
+  parentId: integer("parent_id").references((): AnyPgColumn => categories.id), // Self-referencing for N-level subcategories
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -564,7 +567,19 @@ export const transferActions = pgTable("transfer_actions", {
   id: serial("id").primaryKey(),
   transferRequestId: integer("transfer_request_id").notNull().references(() => transferRequests.id, { onDelete: 'cascade' }),
   actionType: varchar("action_type", { length: 50 }).notNull(),
-  actionData: jsonb("action_data").$type<{ notes?: string, approvedQuantity?: number, rejectionReason?: string }>(),
+  // The audit payload each transfer action writes (creation count, approval totals, rejection
+  // reason, who executed/cancelled it, free-text notes). Declared explicitly so the `values()`
+  // calls in server/routes.ts type-check instead of rejecting every extra key.
+  actionData: jsonb("action_data").$type<{
+    notes?: string;
+    approvedQuantity?: number;
+    rejectionReason?: string;
+    itemCount?: number;
+    approvedItems?: number;
+    reason?: string;
+    executedBy?: string;
+    cancelledBy?: string;
+  }>(),
   performedByUserId: integer("performed_by_user_id").notNull().references(() => users.id),
   performedAt: timestamp("performed_at").notNull().defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),

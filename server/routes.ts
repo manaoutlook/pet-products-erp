@@ -402,7 +402,7 @@ export function registerRoutes(app: Express): Server {
         .insert(purchaseOrders)
         .values({
           orderNumber,
-          supplierId: parseInt(supplierId),
+          supplierId,
           destinationStoreId: destinationStoreId || null,
           deliveryDate: new Date(deliveryDate),
           status: 'pending',
@@ -416,10 +416,10 @@ export function registerRoutes(app: Express): Server {
         db.insert(purchaseOrderItems)
           .values({
             purchaseOrderId: newPurchaseOrder.id,
-            productId: parseInt(item.productId),
-            quantity: parseInt(item.quantity),
-            unitPrice: parseFloat(item.unitPrice).toString(), // Store as string for decimal
-            totalPrice: (parseInt(item.quantity) * parseFloat(item.unitPrice)).toString(), // Store as string for decimal
+            productId: item.productId,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice.toString(), // Store as string for decimal
+            totalPrice: (item.quantity * item.unitPrice).toString(), // Store as string for decimal
             deliveredQuantity: 0
           })
       ));
@@ -555,10 +555,9 @@ export function registerRoutes(app: Express): Server {
           actionData: actionData || null,
           performedByUserId: req.user!.id,
         })
-        .returning({
-          ...purchaseOrderActions,
-          performedByUser: true
-        });
+        // `performedByUser` is a relation, not a column, so it cannot be spread into
+        // `returning()`. The full row (with its user) is fetched below instead.
+        .returning();
 
       // Fetch complete action with user info
       const actionWithUser = await db.query.purchaseOrderActions.findFirst({
@@ -775,7 +774,8 @@ export function registerRoutes(app: Express): Server {
                 storeId: currentPO.destinationStoreId, // Explicitly link to the DC/Warehouse
                 barcode,
                 supplierId: currentPO.supplierId,
-                purchaseDate: new Date()
+                // `purchase_date` is a date column, which drizzle types as a 'YYYY-MM-DD' string.
+                purchaseDate: new Date().toISOString().split('T')[0]
               })
               .returning({ id: inventory.id });
 
@@ -3354,7 +3354,7 @@ export function registerRoutes(app: Express): Server {
           )
         )
         .groupBy(stores.id, sql`date_trunc('month', ${orders.createdAt})`)
-        .orderBy([stores.id, sql`date_trunc('month', ${orders.createdAt})`]);
+        .orderBy(stores.id, sql`date_trunc('month', ${orders.createdAt})`);
 
       // Get inventory status
       const inventoryStatus = await db
@@ -4278,7 +4278,7 @@ export function registerRoutes(app: Express): Server {
           const sufficientStock = inventoryItem.quantity >= item.quantity;
           stockCheckResults.push({
             productId: item.productId,
-            productName: inventoryItem.product.name,
+            productName: inventoryItem.product?.name ?? 'Unknown Product',
             requestedQuantity: item.quantity,
             availableQuantity: inventoryItem.quantity,
             sufficientStock,
@@ -4326,13 +4326,18 @@ export function registerRoutes(app: Express): Server {
       let inventoryQuery = db.query.inventory.findMany({
         with: {
           product: {
-            select: {
+            // Relational queries use `columns` for scalar fields and a nested `with` for
+            // relations; `category`/`brand` are relations, not columns.
+            columns: {
               id: true,
               name: true,
               sku: true,
               price: true,
-              category: true,
-              brand: true,
+              minStock: true,
+            },
+            with: {
+              category: { columns: { name: true } },
+              brand: { columns: { name: true } },
             },
           },
         },
@@ -4341,22 +4346,27 @@ export function registerRoutes(app: Express): Server {
 
       const inventoryItems = await inventoryQuery;
 
-      // Format for POS consumption
-      const formattedInventory = inventoryItems.map(item => ({
-        id: item.id,
-        productId: item.productId,
-        productName: item.product.name,
-        sku: item.product.sku,
-        price: item.product.price,
-        category: item.product.category?.name,
-        brand: item.product.brand?.name,
-        quantity: item.quantity,
-        inventoryType: item.inventoryType,
-        storeId: item.storeId,
-        location: item.location,
-        lastUpdated: item.updatedAt,
-        isLowStock: item.quantity <= (item.product.minStock || 10),
-      }));
+      // Format for POS consumption. `inventory.productId` is nullable, so a stray stock row
+      // without a product cannot be rung up - drop it instead of failing on null.
+      const formattedInventory = inventoryItems.flatMap((item) => {
+        const product = item.product;
+        if (!product) return [];
+        return [{
+          id: item.id,
+          productId: item.productId,
+          productName: product.name,
+          sku: product.sku,
+          price: product.price,
+          category: product.category?.name,
+          brand: product.brand?.name,
+          quantity: item.quantity,
+          inventoryType: item.inventoryType,
+          storeId: item.storeId,
+          location: item.location,
+          lastUpdated: item.updatedAt,
+          isLowStock: item.quantity <= (product.minStock || 10),
+        }];
+      });
 
       res.json({
         inventory: formattedInventory,
@@ -4575,6 +4585,8 @@ export function registerRoutes(app: Express): Server {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
+      // Express types query values as string | string[] | ParsedQs | ParsedQs[]; this endpoint
+      // has always treated them as scalars, so narrow them in one place.
       const {
         status,
         from_store_id,
@@ -4582,7 +4594,7 @@ export function registerRoutes(app: Express): Server {
         priority,
         limit = '50',
         offset = '0'
-      } = req.query;
+      } = req.query as Record<string, string | undefined>;
 
       let whereConditions = [];
 
@@ -5161,7 +5173,7 @@ export function registerRoutes(app: Express): Server {
         end_date,
         limit = '100',
         offset = '0'
-      } = req.query;
+      } = req.query as Record<string, string | undefined>;
 
       let whereConditions = [];
 
