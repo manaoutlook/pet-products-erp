@@ -606,20 +606,19 @@ function ReceiptsPage() {
         </CardContent>
       </Card>
 
-      {/* Receipt Modal */}
+      {/* Receipt Modal - the card scrolls internally (see ReceiptPrinter), so the overlay only
+          centres it. Do not add another max-h/overflow wrapper here: two scroll areas fight. */}
       {showReceiptModal && selectedReceipt && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <ReceiptPrinter
-              receiptData={selectedReceipt}
-              company={company}
-              onPrint={handlePrintReceipt}
-              onClose={() => {
-                setShowReceiptModal(false);
-                setSelectedReceipt(null);
-              }}
-            />
-          </div>
+          <ReceiptPrinter
+            receiptData={selectedReceipt}
+            company={company}
+            onPrint={handlePrintReceipt}
+            onClose={() => {
+              setShowReceiptModal(false);
+              setSelectedReceipt(null);
+            }}
+          />
         </div>
       )}
       {/* A4 invoice of the selected sale - printed from the archived issued copy */}

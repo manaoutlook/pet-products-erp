@@ -86,6 +86,31 @@ describe('ReceiptPrinter preview', () => {
         expect(screen.getByText(/Qty: 1/)).toBeTruthy();
     });
 
+    it('keeps the preview inside the viewport with its own scroll area', () => {
+        const { container } = render(
+            <ReceiptPrinter receiptData={receiptData} company={company} onClose={() => {}} />
+        );
+
+        // Regression: the preview sits in a `fixed inset-0` overlay, which cannot scroll. A
+        // receipt with a few lines was taller than the window, so its letterhead and the Close
+        // button were cut off with no scrollbar to reach them.
+        const card = container.firstElementChild as HTMLElement;
+        expect(card.className).toContain('max-h-[calc(100vh-2rem)]');
+        expect(card.className).toContain('flex-col');
+        expect(card.className).toContain('overflow-hidden');
+
+        const content = container.querySelector('.overflow-y-auto') as HTMLElement;
+        expect(content).toBeTruthy();
+        // A flex child only scrolls if it may shrink below its content height.
+        expect(content.className).toContain('min-h-0');
+        // The paper itself is inside that scroll area, not outside it.
+        expect(content.contains(container.querySelector('.font-mono'))).toBe(true);
+
+        // Close sits below the scroll area, so a long receipt can always be dismissed.
+        const close = screen.getByRole('button', { name: /^close$/i });
+        expect(content.contains(close)).toBe(false);
+    });
+
     it('shows the shared branding footer, not a per-output domain', () => {
         const { container } = render(<ReceiptPrinter receiptData={receiptData} company={company} />);
         const paper = container.querySelector('.font-mono') as HTMLElement;

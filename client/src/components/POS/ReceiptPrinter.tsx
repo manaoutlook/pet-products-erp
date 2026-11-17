@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { formatCurrency, formatDateTime } from "@/utils/format";
 import { BRAND_NAME, BRAND_WEBSITE } from "@/config/branding";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -16,6 +16,11 @@ import {
   companyHeaderProblemMessage,
   type CompanyHeader,
 } from "@shared/company";
+import {
+  layoutReceipt,
+  measureReceiptText,
+  renderReceiptImage,
+} from "@/utils/receipt-pdf";
 
 // Dynamic import for jsPDF to avoid SSR issues
 let jsPDF: any = null;
@@ -309,124 +314,29 @@ export function ReceiptPrinter({ receiptData, company, onPrint, onClose }: Recei
         return;
       }
 
-      // Create PDF document
+      /*
+        Layout in millimetres, then let the browser render it (utils/receipt-pdf.ts).
+        jsPDF's built-in fonts are the Adobe core fonts and have no Vietnamese glyphs, and its
+        `maxWidth` wrapping did not advance the cursor - which is why the downloaded PDF
+        printed "Ph°êng" and stacked the letterhead lines on top of each other.
+      */
+      const layout = layoutReceipt(
+        receiptData,
+        vatLineLabel(receiptData),
+        company as CompanyHeader | null,
+        measureReceiptText
+      );
+      const image = renderReceiptImage(layout);
+
       const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
-        format: [80, 297], // Thermal receipt width (80mm) and A4 height
+        // The page is exactly as tall as the receipt: an 80 x 297 mm sheet clipped anything
+        // longer and left the rest of the page blank.
+        format: [layout.widthMm, layout.heightMm],
       });
 
-      let yPosition = 10;
-
-      // Header - the company letterhead: name, registered address, labelled tax ID.
-      // Centred, no application title, no delivery address (see shared/company.ts).
-      const letterhead = company as CompanyHeader;
-
-      companyHeaderPrintLines(letterhead).forEach((line) => {
-        if (line.emphasis) {
-          doc.setFontSize(12);
-          doc.setFont('helvetica', 'bold');
-        } else {
-          doc.setFontSize(7);
-          doc.setFont('helvetica', 'normal');
-        }
-
-        const text = line.label.length > 0 ? `${line.label}: ${line.value}` : line.value;
-        doc.text(text, 40, yPosition, { align: 'center', maxWidth: 70 });
-        yPosition += line.emphasis ? 5 : 3;
-      });
-      yPosition += 2;
-
-      if (receiptData.storeName) {
-        doc.setFontSize(10);
-        doc.text(receiptData.storeName, 40, yPosition, { align: 'center' });
-        yPosition += 4;
-      }
-
-      doc.setFontSize(8);
-      doc.text('Point of Sale Receipt', 40, yPosition, { align: 'center' });
-      yPosition += 6;
-
-      // Line
-      doc.setLineWidth(0.5);
-      doc.line(5, yPosition, 75, yPosition);
-      yPosition += 6;
-
-      // Transaction Info
-      doc.setFontSize(8);
-      doc.text(`Invoice: ${receiptData.invoiceNumber}`, 5, yPosition);
-      yPosition += 4;
-
-      const date = formatDateTime(receiptData.transactionDate);
-      doc.text(`Date: ${date}`, 5, yPosition);
-      yPosition += 4;
-
-      doc.text(`Cashier: ${receiptData.cashierName}`, 5, yPosition);
-      yPosition += 4;
-
-      doc.text(`Payment: ${receiptData.paymentMethod.toUpperCase()}`, 5, yPosition);
-      yPosition += 6;
-
-      // Line
-      doc.line(5, yPosition, 75, yPosition);
-      yPosition += 6;
-
-      // Items
-      receiptData.items.forEach((item) => {
-        // Product name (truncate if too long)
-        const productName = item.product.name.length > 25
-          ? item.product.name.substring(0, 22) + '...'
-          : item.product.name;
-        doc.text(productName, 5, yPosition);
-        doc.text(formatCurrency(item.unitPrice), 70, yPosition, { align: 'right' });
-        yPosition += 3;
-
-        doc.setFontSize(6);
-        doc.text(`Qty: ${item.quantity}`, 5, yPosition);
-        doc.text(`Total: ${formatCurrency(item.totalPrice)}`, 70, yPosition, { align: 'right' });
-        doc.setFontSize(8);
-        yPosition += 4;
-      });
-
-      // Line
-      doc.line(5, yPosition, 75, yPosition);
-      yPosition += 6;
-
-      // Totals
-      doc.text(`Subtotal: ${formatCurrency(receiptData.subtotal)}`, 70, yPosition, { align: 'right' });
-      yPosition += 4;
-
-      doc.text(`${vatLineLabel(receiptData)}: ${formatCurrency(receiptData.tax)}`, 70, yPosition, { align: 'right' });
-      yPosition += 4;
-
-      // Total line
-      doc.setLineWidth(1);
-      doc.line(5, yPosition, 75, yPosition);
-      yPosition += 6;
-
-      doc.setFontSize(10);
-      doc.text(`TOTAL: ${formatCurrency(receiptData.total)}`, 70, yPosition, { align: 'right' });
-      yPosition += 8;
-
-      // Line
-      doc.setLineWidth(0.5);
-      doc.line(5, yPosition, 75, yPosition);
-      yPosition += 6;
-
-      // Footer
-      doc.setFontSize(6);
-      doc.text('Thank you for your business!', 40, yPosition, { align: 'center' });
-      yPosition += 3;
-
-      doc.text('Please keep this receipt for your records', 40, yPosition, { align: 'center' });
-      yPosition += 6;
-
-      doc.setFontSize(8);
-      doc.text(BRAND_NAME, 40, yPosition, { align: 'center' });
-      yPosition += 4;
-
-      doc.setFontSize(6);
-      doc.text(BRAND_WEBSITE, 40, yPosition, { align: 'center' });
+      doc.addImage(image, 'PNG', 0, 0, layout.widthMm, layout.heightMm);
 
       // Save the PDF
       doc.save(`receipt-${receiptData.invoiceNumber}.pdf`);
@@ -446,9 +356,17 @@ export function ReceiptPrinter({ receiptData, company, onPrint, onClose }: Recei
     }
   };
 
+  /*
+    The preview lives in a fixed overlay (`fixed inset-0 ... p-4`), so the card itself has to
+    stay inside the viewport and scroll internally. Before this, a receipt with a few items was
+    taller than the window: the overlay cannot scroll, so the top of the letterhead and the
+    "Close" button were both off-screen with no scrollbar to reach them.
+    `max-h-[calc(100vh-2rem)]` matches the overlay's `p-4`; the header (TXT / PDF / Print) and the
+    Close button stay put while the paper scrolls.
+  */
   return (
-    <Card className="max-w-md mx-auto">
-      <CardHeader>
+    <Card className="flex w-full max-w-md mx-auto flex-col overflow-hidden max-h-[calc(100vh-2rem)]">
+      <CardHeader className="shrink-0">
         <CardTitle className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Receipt className="h-5 w-5" />
@@ -470,7 +388,9 @@ export function ReceiptPrinter({ receiptData, company, onPrint, onClose }: Recei
           </div>
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      {/* `min-h-0` + `overflow-y-auto`: the scroll container. Without `min-h-0` a flex child
+          refuses to shrink below its content height and the card overflows the viewport again. */}
+      <CardContent className="min-h-0 flex-1 overflow-y-auto">
         {!isPrintable && <DocumentHeaderNotice missingFields={missingFields} className="mb-4" />}
         {/*
           AI Agent Note: a receipt is "paper", not a themed surface - its ink is fixed so it
@@ -580,15 +500,16 @@ export function ReceiptPrinter({ receiptData, company, onPrint, onClose }: Recei
             <div>{BRAND_WEBSITE}</div>
           </div>
         </div>
-
-        {onClose && (
-          <div className="mt-4 flex justify-center">
-            <Button onClick={onClose} variant="outline">
-              Close
-            </Button>
-          </div>
-        )}
       </CardContent>
+
+      {/* Outside the scroll area, so a tall receipt can always be closed without scrolling. */}
+      {onClose && (
+        <CardFooter className="shrink-0 justify-center border-t p-4">
+          <Button onClick={onClose} variant="outline">
+            Close
+          </Button>
+        </CardFooter>
+      )}
     </Card>
   );
 }
