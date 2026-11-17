@@ -159,22 +159,9 @@ export async function bulkDeleteSuppliers(ids: number[]): Promise<BulkDeleteResu
         continue;
       }
 
-      const inventoryRows = await db.query.inventory.findMany({
-        where: eq(inventory.supplierId, id),
-        columns: { id: true },
-      });
-
-      if (inventoryRows.length > 0) {
-        failed.push({
-          id,
-          name: supplier.name,
-          message: `Has ${plural(inventoryRows.length, "inventory record")} - remove the inventory first`,
-        });
-        continue;
-      }
-
       // Products keep a (non cascading) reference to their supplier, so the
-      // deletion would fail at the database level without this check.
+      // deletion would fail at the database level without this check. This is the
+      // authoritative check: stock rows only mirror the product's supplier.
       const linkedProducts = await db.query.products.findMany({
         where: eq(products.supplierId, id),
         columns: { name: true },
@@ -188,6 +175,22 @@ export async function bulkDeleteSuppliers(ids: number[]): Promise<BulkDeleteResu
           message: `Assigned to ${plural(linkedProducts.length, "product")} (${quoteNames(
             linkedProducts.map((product) => product.name)
           )}) - assign another supplier first`,
+        });
+        continue;
+      }
+
+      // Defensive: a stock row can only still point here if it predates the
+      // single-source rule. Report it instead of letting the FK fail the delete.
+      const inventoryRows = await db.query.inventory.findMany({
+        where: eq(inventory.supplierId, id),
+        columns: { id: true },
+      });
+
+      if (inventoryRows.length > 0) {
+        failed.push({
+          id,
+          name: supplier.name,
+          message: `Has ${plural(inventoryRows.length, "inventory record")} still pointing at it - run npm run supplier:reconcile`,
         });
         continue;
       }

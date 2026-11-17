@@ -106,6 +106,31 @@ export function isCancelledStatus(status: string): boolean {
   return status !== "completed";
 }
 
+/**
+ * The VAT invoice issued for a Sales Order.
+ *
+ * Same rules as `InvoicePayload`: everything printed was stored on the order when the invoice
+ * was issued, and the seller is the VAT company selected on the order. It is a separate shape
+ * from a till invoice because it has no store / cashier / payment method - the goods travel on
+ * the order's delivery notes, not over the counter.
+ */
+export interface SalesOrderInvoicePayload {
+  salesOrderId: number;
+  orderNumber: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  seller: InvoiceParty;
+  /** Fields the seller snapshot is missing; while non-empty the invoice must not print. */
+  sellerMissingFields: string[];
+  buyer: InvoiceBuyer;
+  lines: InvoiceLine[];
+  subtotal: number;
+  vatRate: number;
+  vatAmount: number;
+  total: number;
+  currency: "VND";
+}
+
 export function invoiceStatusLabel(status: string): string {
   switch (status) {
     case "refunded":

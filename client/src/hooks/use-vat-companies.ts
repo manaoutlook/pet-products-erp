@@ -5,9 +5,10 @@ import { useQuery } from "@tanstack/react-query";
  * The companies a VAT invoice may be issued under (CI / HI).
  *
  * AI Agent Note: `HỘ KINH DOANH TIỆN ÍCH GIA ĐÌNH` is a household business and cannot issue a
- * VAT invoice, so the POS asks "print with VAT?" and then makes the cashier pick one of these.
- * The list is one query shared by the POS dialog and the VAT Companies screen; saving a company
- * invalidates `VAT_COMPANIES_QUERY_KEY` and both update at once.
+ * VAT invoice. The company is chosen when a SALES ORDER is raised (not at the till), and that
+ * order's sales order, delivery notes and VAT invoice all print this company's letterhead.
+ * The list is one query shared by the Sales Order form and the VAT Companies screen; saving a
+ * company invalidates `VAT_COMPANIES_QUERY_KEY` and both update at once.
  */
 
 export interface VatCompany {

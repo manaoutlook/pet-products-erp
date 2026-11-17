@@ -28,12 +28,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Ban, Pencil, Plus, Printer, Trash2, Truck } from "lucide-react";
+import { Ban, FileText, Pencil, Plus, Printer, Trash2, Truck } from "lucide-react";
 import {
   SalesOrderFormDialog,
   type SalesOrderFormOrder,
 } from "@/components/SalesOrders/SalesOrderFormDialog";
 import { SalesOrderPrintDialog } from "@/components/SalesOrders/SalesOrderPrint";
+import { SalesOrderInvoicePrintDialog } from "@/components/SalesOrders/SalesOrderInvoicePrint";
 import { DeliveryNoteFormDialog } from "@/components/SalesOrders/DeliveryNoteFormDialog";
 
 interface SalesOrderLine {
@@ -59,12 +60,21 @@ interface SalesOrderRow {
   customerName: string;
   companyName?: string | null;
   contactPerson?: string | null;
+  customerTaxId?: string | null;
   phone?: string | null;
   deliveryAddress?: string | null;
   orderDate: string;
   totalAmount: string;
   specialInstructions?: string | null;
   status: string;
+  /** Set once the VAT invoice has been issued: the order is then frozen. */
+  vatInvoiceNumber?: string | null;
+  /** The licensed company that issues this order's paperwork; null = no VAT. */
+  vatCompanyId?: number | null;
+  vatCompanyCode?: string | null;
+  vatCompanyName?: string | null;
+  vatCompanyTaxId?: string | null;
+  vatCompanyAddress?: string | null;
   items?: SalesOrderLine[] | null;
   deliveryNotes?: DeliveryNoteSummary[];
   preparedByUser?: { username: string } | null;
@@ -89,6 +99,7 @@ function statusLabel(status: string): string {
 interface LockableOrder {
   status?: string;
   items?: Array<{ deliveredQuantity?: number | null }> | null;
+  vatInvoiceNumber?: string | null;
 }
 
 /** Units ordered vs units already covered by a delivery note. */
@@ -203,10 +214,16 @@ function SalesOrdersPage() {
       customerName: order.customerName,
       companyName: order.companyName,
       contactPerson: order.contactPerson,
+      customerTaxId: order.customerTaxId ?? null,
       phone: order.phone,
       deliveryAddress: order.deliveryAddress,
       orderDate: order.orderDate,
       specialInstructions: order.specialInstructions,
+      vatCompanyId: order.vatCompanyId ?? null,
+      vatCompanyCode: order.vatCompanyCode ?? null,
+      vatCompanyName: order.vatCompanyName ?? null,
+      vatCompanyTaxId: order.vatCompanyTaxId ?? null,
+      vatCompanyAddress: order.vatCompanyAddress ?? null,
       items: (order.items ?? []).map((line) => ({
         id: line.id,
         productId: line.productId,
@@ -231,6 +248,9 @@ function SalesOrdersPage() {
     if (!order) return undefined;
     if (order.status === "cancelled") {
       return "This order is cancelled - a cancelled order cannot be edited.";
+    }
+    if (order.vatInvoiceNumber) {
+      return `VAT invoice ${order.vatInvoiceNumber} has already been issued for this order, so it is locked. A correction is a new order with a new invoice number.`;
     }
     if ((order.items ?? []).some((line) => Number(line.deliveredQuantity || 0) > 0)) {
       return "Units from this order have already been delivered, so its lines are locked. Cancel it and raise a new order for the change.";
@@ -354,7 +374,16 @@ function SalesOrdersPage() {
 
                       return (
                         <TableRow key={order.id}>
-                          <TableCell className="font-medium">{order.orderNumber}</TableCell>
+                          <TableCell className="font-medium">
+                            <div>{order.orderNumber}</div>
+                            {order.vatCompanyCode && (
+                              <div className="mt-1">
+                                <Badge variant="info">
+                                  VAT &middot; {order.vatCompanyCode}
+                                </Badge>
+                              </div>
+                            )}
+                          </TableCell>
                           <TableCell>
                             <div>{order.customerName}</div>
                             {order.companyName && order.companyName !== order.customerName && (
@@ -394,6 +423,19 @@ function SalesOrdersPage() {
                                   <span className="sr-only">Print {order.orderNumber}</span>
                                 </Button>
                               </SalesOrderPrintDialog>
+
+                              {/* Only a VAT order has an invoice; it prints the same company
+                                  letterhead as the order and its delivery notes. */}
+                              {order.vatCompanyId ? (
+                                <SalesOrderInvoicePrintDialog order={order} canIssue={canUpdate}>
+                                  <Button variant="ghost" size="sm" title="VAT invoice">
+                                    <FileText className="h-4 w-4" />
+                                    <span className="sr-only">
+                                      VAT invoice for {order.orderNumber}
+                                    </span>
+                                  </Button>
+                                </SalesOrderInvoicePrintDialog>
+                              ) : null}
 
                               <Button
                                 variant="ghost"

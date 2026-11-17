@@ -56,8 +56,8 @@ async function seedProducts() {
     console.log("  • All products linked to categories (required)");
     console.log("  • 11 products linked to brands (optional)");
     console.log("  • 9 products without brand association");
-    console.log("  • Note: Suppliers are NOT directly related to products");
-    console.log("    (suppliers relate to inventory and purchase orders, not products directly)");
+    console.log("  • Note: A product's supplier is set on the product itself;");
+    console.log("    stock rows copy that supplier and cannot override it.");
 
   } catch (error) {
     console.error("❌ Error seeding products:", error);

@@ -12,6 +12,7 @@ import {
   DocumentHeaderNotice,
 } from "@/components/company/CompanyHeader";
 import { companyHeaderProblemMessage, type CompanyHeader } from "@shared/company";
+import { documentVatCompanyLetterhead } from "@shared/vat-company";
 
 /** One line on the note: ordered vs delivered snapshots taken when the note was issued. */
 export interface DeliveryNotePrintLine {
@@ -30,12 +31,40 @@ export interface DeliveryNotePrintData {
   contactPerson?: string | null;
   phone?: string | null;
   deliveryAddress?: string | null;
+  /** The VAT company snapshot copied from the order when this note was issued. */
+  vatCompanyCode?: string | null;
+  vatCompanyName?: string | null;
+  vatCompanyTaxId?: string | null;
+  vatCompanyAddress?: string | null;
   customerConfirmed?: boolean | null;
   remarks?: string | null;
   /** The order the goods belong to - printed as "Related Order No". */
   salesOrder?: { orderNumber: string } | null;
   deliveredByUser?: { username: string } | null;
   items?: DeliveryNotePrintLine[] | null;
+}
+
+/**
+ * The letterhead this note prints under.
+ *
+ * A note issued against a VAT order carries that order's company snapshot, so the delivery
+ * note names the same issuer as the sales order and the invoice. Notes without one print the
+ * shop's Company Profile, exactly as before.
+ */
+export function deliveryNoteLetterhead(
+  note: DeliveryNotePrintData,
+  company: CompanyHeader | null | undefined
+): CompanyHeader | null | undefined {
+  return documentVatCompanyLetterhead(
+    note.vatCompanyName || note.vatCompanyTaxId || note.vatCompanyAddress
+      ? {
+          name: note.vatCompanyName,
+          taxId: note.vatCompanyTaxId,
+          address: note.vatCompanyAddress,
+        }
+      : null,
+    company
+  );
 }
 
 /**
@@ -68,7 +97,7 @@ export function buildDeliveryNotePrintDocument(
     .join('');
 
   const body = `
-    ${buildDocumentCompanyHeader(company)}
+    ${buildDocumentCompanyHeader(deliveryNoteLetterhead(note, company))}
 
     <div class="header">
       <h1>DELIVERY NOTE</h1>
@@ -153,7 +182,9 @@ interface DeliveryNotePrintDialogProps {
 export function DeliveryNotePrintDialog({ note, company, children }: DeliveryNotePrintDialogProps) {
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
-  const missingFields = companyHeaderMissingFields(company);
+  // A note against a VAT order prints that company's letterhead; otherwise the shop's.
+  const letterhead = deliveryNoteLetterhead(note, company);
+  const missingFields = companyHeaderMissingFields(letterhead);
   const isPrintable = missingFields.length === 0;
   const documentHtml = isPrintable ? buildDeliveryNotePrintDocument(note, company) : null;
 
@@ -183,7 +214,9 @@ export function DeliveryNotePrintDialog({ note, company, children }: DeliveryNot
         <DialogHeader>
           <DialogTitle>Delivery Note - {note.deliveryNoteNumber}</DialogTitle>
           <DialogDescription>
-            A4 preview. The customer signs the printed copy on arrival.
+            {note.vatCompanyCode
+              ? `VAT delivery note issued by ${note.vatCompanyCode} - ${note.vatCompanyName ?? ""}.`
+              : "A4 preview. The customer signs the printed copy on arrival."}
           </DialogDescription>
         </DialogHeader>
         {documentHtml ? (

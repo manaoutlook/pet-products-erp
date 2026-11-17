@@ -17,10 +17,11 @@ import { VAT_COMPANY_SEEDS } from "../../shared/invoice";
  * PUT  /api/vat-companies/:id  - edit one
  *
  * AI Agent Note: `HỘ KINH DOANH TIỆN ÍCH GIA ĐÌNH` is a household business and may not issue
- * a VAT invoice, so a VAT sale prints the name, tax code and address of the company selected
- * here. The sales screen asks "print with VAT?" first; only then does this list matter.
+ * a VAT invoice, so a VAT document prints the name, tax code and address of the company selected
+ * on the SALES ORDER. The POS no longer asks - the order decides which company issues its
+ * sales order, delivery notes and VAT invoice.
  *
- * GET is open to any signed-in user because the till has to render the choice at checkout;
+ * GET is open to any signed-in user because the sales-order form has to render the choice;
  * writes need `masterData` create/update, exactly like every other master-data screen.
  */
 

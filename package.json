@@ -20,6 +20,7 @@
     "db:seed": "tsx scripts/seed-sample-data.ts",
     "db:seed-inventory": "tsx scripts/seed-inventory.ts",
     "stock:reconcile": "tsx scripts/stock-reconcile.ts",
+    "supplier:reconcile": "tsx scripts/supplier-reconcile.ts",
     "stock:repair-cancelled": "tsx scripts/repair-cancelled-sale-stock.ts"
   },
   "dependencies": {

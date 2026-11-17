@@ -11,8 +11,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Plus, Trash2 } from "lucide-react";
-import { formatCurrency } from "@/utils/format";
+import { useVatCompanies } from "@/hooks/use-vat-companies";
+import { Loader2, Check, Plus, Trash2 } from "lucide-react";
+import { formatCurrency, formatPercent } from "@/utils/format";
+import { computeSaleTotals, VAT_RATE } from "@shared/tax";
 
 /** A line as the form edits it - `unitPrice` may be omitted to keep the catalogue price. */
 export interface SalesOrderFormLine {
@@ -31,10 +33,17 @@ export interface SalesOrderFormOrder {
   customerName: string;
   companyName?: string | null;
   contactPerson?: string | null;
+  customerTaxId?: string | null;
   phone?: string | null;
   deliveryAddress?: string | null;
   orderDate?: string | null;
   specialInstructions?: string | null;
+  /** The licensed company that issues this order's paperwork, or null for "No VAT". */
+  vatCompanyId?: number | null;
+  vatCompanyCode?: string | null;
+  vatCompanyName?: string | null;
+  vatCompanyTaxId?: string | null;
+  vatCompanyAddress?: string | null;
   items?: SalesOrderFormLine[] | null;
 }
 
@@ -44,6 +53,8 @@ interface CustomerProfile {
   contactPerson: string;
   mobileNumber: string;
   address: string;
+  /** The business's tax code - printed against the buyer on a VAT invoice. */
+  taxId?: string | null;
 }
 
 interface CatalogueProduct {
@@ -62,10 +73,15 @@ const salesOrderSchema = z.object({
     .max(200, "Customer name is too long"),
   companyName: z.string().optional(),
   contactPerson: z.string().optional(),
+  customerTaxId: z.string().optional(),
   phone: z.string().optional(),
   deliveryAddress: z.string().optional(),
   orderDate: z.string().min(1, "Order date is required"),
   specialInstructions: z.string().optional(),
+  // "No VAT" / "With VAT" - mirroring the two buttons in the form. The company id is a string
+  // because it comes from a select, and it is only required when VAT is switched on.
+  withVat: z.boolean(),
+  vatCompanyId: z.string().optional(),
   items: z
     .array(
       z.object({
@@ -87,6 +103,14 @@ const salesOrderSchema = z.object({
       })
     )
     .min(1, "Add at least one product to the order"),
+}).superRefine((values, ctx) => {
+  if (values.withVat && !values.vatCompanyId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["vatCompanyId"],
+      message: "Select the company that issues the VAT documents",
+    });
+  }
 });
 
 type SalesOrderFormValues = z.infer<typeof salesOrderSchema>;
@@ -110,10 +134,13 @@ function formDefaults(order?: SalesOrderFormOrder | null): SalesOrderFormValues 
     customerName: order?.customerName ?? "",
     companyName: order?.companyName ?? "",
     contactPerson: order?.contactPerson ?? "",
+    customerTaxId: order?.customerTaxId ?? "",
     phone: order?.phone ?? "",
     deliveryAddress: order?.deliveryAddress ?? "",
     orderDate: toDateInputValue(order?.orderDate),
     specialInstructions: order?.specialInstructions ?? "",
+    withVat: Boolean(order?.vatCompanyId),
+    vatCompanyId: order?.vatCompanyId ? String(order.vatCompanyId) : "",
     items:
       order?.items && order.items.length > 0
         ? order.items.map((line) => ({
@@ -174,6 +201,11 @@ export function SalesOrderFormDialog({
     queryKey: ["/api/customer-profiles"],
   });
 
+  // The licensed companies (CI / HI) that may issue this order's VAT paperwork.
+  const { activeCompanies: vatCompanies, isLoading: vatCompaniesLoading } = useVatCompanies();
+  const withVat = form.watch("withVat");
+  const selectedVatCompanyId = form.watch("vatCompanyId");
+
   const productOptions = useMemo(
     () =>
       products.map((product) => ({
@@ -210,12 +242,16 @@ export function SalesOrderFormDialog({
         customerName: values.customerName.trim(),
         companyName: values.companyName?.trim() || null,
         contactPerson: values.contactPerson?.trim() || null,
+        customerTaxId: values.customerTaxId?.trim() || null,
         phone: values.phone?.trim() || null,
         deliveryAddress: values.deliveryAddress?.trim() || null,
         // Noon local time: midnight would land on the previous day in some zones once the
         // timestamp is converted back for display.
         orderDate: new Date(`${values.orderDate}T12:00:00`).toISOString(),
         specialInstructions: values.specialInstructions?.trim() || null,
+        // Null means "No VAT": the order (and every delivery note and invoice after it)
+        // prints the shop's own letterhead. The server snapshots the company block.
+        vatCompanyId: values.withVat ? Number(values.vatCompanyId) : null,
         items: values.items.map((line) => ({
           productId: Number(line.productId),
           quantity: Number(line.quantity),
@@ -274,6 +310,9 @@ export function SalesOrderFormDialog({
     if (!form.getValues("contactPerson")) form.setValue("contactPerson", customer.contactPerson);
     if (!form.getValues("phone")) form.setValue("phone", customer.mobileNumber);
     if (!form.getValues("deliveryAddress")) form.setValue("deliveryAddress", customer.address);
+    if (customer.taxId && !form.getValues("customerTaxId")) {
+      form.setValue("customerTaxId", customer.taxId);
+    }
   };
 
   const applyProduct = (index: number, productId: string | null) => {
@@ -414,6 +453,112 @@ export function SalesOrderFormDialog({
 
             <Separator />
 
+            {/* The VAT company is chosen HERE, when the order is raised - not at the till.
+                Every document that follows (sales order, delivery note, invoice) prints the
+                letterhead of the company selected here. */}
+            <div className="space-y-3">
+              <div>
+                <h3 className="text-sm font-semibold">VAT Documents</h3>
+                <p className="text-caption text-muted-foreground">
+                  Choose the licensed company that issues the Sales Order, Delivery Note and
+                  VAT invoice for this order. Leave it on "No VAT" for a retail order.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={withVat ? "outline" : "default"}
+                  onClick={() => {
+                    form.setValue("withVat", false, { shouldValidate: true });
+                    form.setValue("vatCompanyId", "");
+                  }}
+                >
+                  {!withVat && <Check className="mr-2 h-4 w-4" />}
+                  No VAT
+                </Button>
+                <Button
+                  type="button"
+                  variant={withVat ? "default" : "outline"}
+                  onClick={() => form.setValue("withVat", true, { shouldValidate: true })}
+                >
+                  {withVat && <Check className="mr-2 h-4 w-4" />}
+                  With VAT
+                </Button>
+              </div>
+
+              {withVat && (
+                <div className="space-y-2">
+                  {vatCompaniesLoading ? (
+                    <p className="text-sm text-muted-foreground">Loading VAT companies...</p>
+                  ) : vatCompanies.length === 0 ? (
+                    <p className="text-sm text-destructive">
+                      No VAT company is configured. Add one in Master Data &rarr; VAT Companies.
+                    </p>
+                  ) : (
+                    vatCompanies.map((vatCompany) => {
+                      const unusable = vatCompany.missingFields.length > 0;
+                      const selected = selectedVatCompanyId === String(vatCompany.id);
+
+                      return (
+                        <Button
+                          key={vatCompany.id}
+                          type="button"
+                          variant={selected ? "default" : "outline"}
+                          className="w-full justify-start h-auto py-2"
+                          disabled={unusable}
+                          onClick={() =>
+                            form.setValue("vatCompanyId", String(vatCompany.id), {
+                              shouldValidate: true,
+                            })
+                          }
+                        >
+                          <span className="font-mono mr-2">{vatCompany.code}</span>
+                          <span className="flex-1 text-left">
+                            <span className="block">{vatCompany.name}</span>
+                            <span className="block text-xs font-normal opacity-80">
+                              {unusable
+                                ? `Incomplete: ${vatCompany.missingFields.join(", ")}`
+                                : `Tax code: ${vatCompany.taxId}`}
+                            </span>
+                          </span>
+                          {selected && <Check className="ml-2 h-4 w-4" />}
+                        </Button>
+                      );
+                    })
+                  )}
+
+                  <FormField
+                    control={form.control}
+                    name="customerTaxId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Buyer Tax Code (VAT invoice)</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Buyer's tax code" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {form.formState.errors.vatCompanyId?.message ? (
+                    <p className="text-sm font-medium text-destructive">
+                      {form.formState.errors.vatCompanyId.message}
+                    </p>
+                  ) : null}
+
+                  <p className="text-xs text-muted-foreground">
+                    The company&apos;s name, tax code and address are copied onto this order and
+                    onto every delivery note issued from it, so a reprint always matches the
+                    signed document.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <Separator />
+
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold">Products</h3>
@@ -501,9 +646,36 @@ export function SalesOrderFormDialog({
                 </p>
               ) : null}
 
-              <div className="flex justify-end gap-6 border-t pt-3 text-sm">
-                <span className="text-muted-foreground">Total</span>
-                <span className="font-semibold">{formatCurrency(previewTotal)}</span>
+              <div className="space-y-1 border-t pt-3 text-sm">
+                <div className="flex justify-end gap-6">
+                  <span className="text-muted-foreground">
+                    {withVat ? "Subtotal (excl. VAT)" : "Total"}
+                  </span>
+                  <span className="font-semibold">{formatCurrency(previewTotal)}</span>
+                </div>
+                {withVat
+                  ? (() => {
+                      // The order stores the VAT-exclusive total; VAT is added on top, using
+                      // the same rule the till and the invoice use (shared/tax.ts).
+                      const totals = computeSaleTotals(previewTotal, true, VAT_RATE);
+                      return (
+                        <>
+                          <div className="flex justify-end gap-6">
+                            <span className="text-muted-foreground">
+                              VAT ({formatPercent(VAT_RATE)})
+                            </span>
+                            <span className="font-semibold">
+                              {formatCurrency(totals.vatAmount)}
+                            </span>
+                          </div>
+                          <div className="flex justify-end gap-6">
+                            <span className="text-muted-foreground">Total incl. VAT</span>
+                            <span className="font-semibold">{formatCurrency(totals.total)}</span>
+                          </div>
+                        </>
+                      );
+                    })()
+                  : null}
               </div>
             </div>
 

@@ -40,6 +40,12 @@ interface DeliveryNoteRow {
   phone?: string | null;
   deliveryAddress?: string | null;
   customerConfirmed: boolean;
+  /** The VAT company copied from the order when this note was issued; null = no VAT. */
+  vatCompanyId?: number | null;
+  vatCompanyCode?: string | null;
+  vatCompanyName?: string | null;
+  vatCompanyTaxId?: string | null;
+  vatCompanyAddress?: string | null;
   /** Picture of the sheet the customer signed; null until the office files it. */
   signedDocumentUrl?: string | null;
   signedDocumentUploadedAt?: string | null;
@@ -179,7 +185,14 @@ function DeliveryNotesPage() {
                   ) : (
                     visibleNotes.map((note) => (
                       <TableRow key={note.id}>
-                        <TableCell className="font-medium">{note.deliveryNoteNumber}</TableCell>
+                        <TableCell className="font-medium">
+                          <div>{note.deliveryNoteNumber}</div>
+                          {note.vatCompanyCode && (
+                            <div className="mt-1">
+                              <Badge variant="info">VAT &middot; {note.vatCompanyCode}</Badge>
+                            </div>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <div>{note.salesOrder?.orderNumber ?? "-"}</div>
                           {note.salesOrder?.status === "partially_delivered" && (

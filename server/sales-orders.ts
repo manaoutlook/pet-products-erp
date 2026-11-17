@@ -282,6 +282,13 @@ export async function issueDeliveryNote(
       contactPerson: order.contactPerson,
       phone: order.phone,
       deliveryAddress: order.deliveryAddress,
+      // The order decided which company issues the paperwork; the note carries the same
+      // snapshot so a reprint keeps the letterhead that was on the signed sheet.
+      vatCompanyId: order.vatCompanyId,
+      vatCompanyCode: order.vatCompanyCode,
+      vatCompanyName: order.vatCompanyName,
+      vatCompanyTaxId: order.vatCompanyTaxId,
+      vatCompanyAddress: order.vatCompanyAddress,
       deliveredByUserId: input.userId,
       customerConfirmed: input.customerConfirmed ?? false,
       remarks: input.remarks?.trim() ? input.remarks.trim() : null,

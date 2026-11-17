@@ -58,7 +58,7 @@ describe('Inventory API Tests', () => {
 
             expect(inventoryItem?.product.name).toBe('Test Product');
             expect(inventoryItem?.store?.name).toBe('Test Store 1');
-            expect(inventoryItem?.supplier?.name).toBe('Test Supplier');
+            expect(inventoryItem?.supplier?.name).toBe('Test Supplier Co.');
         });
 
         it('should update inventory quantity', async () => {

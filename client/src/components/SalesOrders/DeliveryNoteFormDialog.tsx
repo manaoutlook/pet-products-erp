@@ -10,7 +10,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Printer } from "lucide-react";
 import { formatDate, formatQuantity } from "@/utils/format";
-import { printDeliveryNote, type DeliveryNotePrintData } from "./DeliveryNotePrint";
+import { deliveryNoteLetterhead, printDeliveryNote, type DeliveryNotePrintData } from "./DeliveryNotePrint";
 import { toDateInputValue } from "./SalesOrderFormDialog";
 import { DocumentHeaderNotice, companyHeaderMissingFields } from "@/components/company/CompanyHeader";
 import { companyHeaderProblemMessage, type CompanyHeader } from "@shared/company";
@@ -82,7 +82,10 @@ export function DeliveryNoteFormDialog({
   /** The note to offer for printing once it has been issued. */
   const [issuedNote, setIssuedNote] = useState<DeliveryNotePrintData | null>(null);
   /** The letterhead is checked before the issued note is offered for printing. */
-  const missingLetterheadFields = companyHeaderMissingFields(company);
+  // The issued note carries the VAT company snapshot copied from its order, so the check is
+  // run against the letterhead that will actually be printed (VAT company or Company Profile).
+  const letterhead = issuedNote ? deliveryNoteLetterhead(issuedNote, company) : company;
+  const missingLetterheadFields = companyHeaderMissingFields(letterhead);
 
   const { data: orders = [] } = useQuery<SalesOrderListRow[]>({
     queryKey: ["/api/sales-orders"],

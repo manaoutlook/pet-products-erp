@@ -12,6 +12,7 @@ import {
   DocumentHeaderNotice,
 } from "@/components/company/CompanyHeader";
 import { companyHeaderProblemMessage, type CompanyHeader } from "@shared/company";
+import { documentVatCompanyLetterhead } from "@shared/vat-company";
 
 /** One line on the printed order: the catalogue snapshot stored on the order row. */
 export interface SalesOrderPrintLine {
@@ -33,6 +34,11 @@ export interface SalesOrderPrintData {
   deliveryAddress?: string | null;
   specialInstructions?: string | null;
   totalAmount?: number | string | null;
+  /** The VAT company snapshot stored on the order; null/blank = no VAT company. */
+  vatCompanyCode?: string | null;
+  vatCompanyName?: string | null;
+  vatCompanyTaxId?: string | null;
+  vatCompanyAddress?: string | null;
   items?: SalesOrderPrintLine[] | null;
   preparedByUser?: { username: string } | null;
 }
@@ -42,6 +48,30 @@ function lineAmount(line: SalesOrderPrintLine): number {
     return Number(line.totalPrice);
   }
   return Number(line.quantity) * Number(line.unitPrice);
+}
+
+/**
+ * The letterhead this order prints under.
+ *
+ * When the order was raised "With VAT", the VAT company selected on the order is the issuer of
+ * the paper, so ITS name / tax code / address are the heading - not the shop's Company Profile.
+ * The snapshot lives on the order row, so a later correction to the company record cannot change
+ * a document that was already signed. No VAT company falls back to the Company Profile.
+ */
+export function salesOrderLetterhead(
+  order: SalesOrderPrintData,
+  company: CompanyHeader | null | undefined
+): CompanyHeader | null | undefined {
+  return documentVatCompanyLetterhead(
+    order.vatCompanyName || order.vatCompanyTaxId || order.vatCompanyAddress
+      ? {
+          name: order.vatCompanyName,
+          taxId: order.vatCompanyTaxId,
+          address: order.vatCompanyAddress,
+        }
+      : null,
+    company
+  );
 }
 
 /**
@@ -76,7 +106,7 @@ export function buildSalesOrderPrintDocument(
     .join('');
 
   const body = `
-    ${buildDocumentCompanyHeader(company)}
+    ${buildDocumentCompanyHeader(salesOrderLetterhead(order, company))}
 
     <div class="header">
       <h1>SALES ORDER FORM</h1>
@@ -166,7 +196,9 @@ interface SalesOrderPrintDialogProps {
 export function SalesOrderPrintDialog({ order, company, children }: SalesOrderPrintDialogProps) {
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
-  const missingFields = companyHeaderMissingFields(company);
+  // A VAT order prints the selected company's letterhead; a retail order prints the shop's.
+  const letterhead = salesOrderLetterhead(order, company);
+  const missingFields = companyHeaderMissingFields(letterhead);
   const isPrintable = missingFields.length === 0;
   const documentHtml = isPrintable ? buildSalesOrderPrintDocument(order, company) : null;
 
@@ -196,7 +228,9 @@ export function SalesOrderPrintDialog({ order, company, children }: SalesOrderPr
         <DialogHeader>
           <DialogTitle>Sales Order - {order.orderNumber}</DialogTitle>
           <DialogDescription>
-            A4 preview. Print, then collect the customer's signature and stamp.
+            {order.vatCompanyCode
+              ? `VAT sales order issued by ${order.vatCompanyCode} - ${order.vatCompanyName ?? ""}.`
+              : "A4 preview. Print, then collect the customer's signature and stamp."}
           </DialogDescription>
         </DialogHeader>
         {documentHtml ? (

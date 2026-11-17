@@ -145,6 +145,8 @@ export const inventory = pgTable("inventory", {
   id: serial("id").primaryKey(),
   productId: integer("product_id").references(() => products.id),
   storeId: integer("store_id").references(() => stores.id),
+  // Denormalised copy of products.supplier_id. Always derived from the product; the
+  // API never accepts it from a client (see server/routes.ts and inventory-import.ts).
   supplierId: integer("supplier_id").references(() => suppliers.id),
   quantity: integer("quantity").notNull().default(0),
   location: text("location"),
@@ -323,8 +325,29 @@ export const salesOrders = pgTable("sales_orders", {
   customerName: text("customer_name").notNull(),
   companyName: text("company_name"),
   contactPerson: text("contact_person"),
+  // The buyer's tax code, copied from the customer profile (or typed) when the order is
+  // raised. A VAT invoice must show it against the buyer, and it is a snapshot for the same
+  // reason as every other customer field: editing the profile cannot rewrite an issued invoice.
+  customerTaxId: varchar("customer_tax_id", { length: 50 }),
   phone: varchar("phone", { length: 20 }),
   deliveryAddress: text("delivery_address"),
+  // Which licensed company (CI / HI) issues this order's paperwork. NULL = no VAT.
+  //
+  // AI Agent Note: the company name / tax code / address are copied onto the order at save
+  // time (`shared/vat-company.ts`) instead of being read from `vat_companies` at print time.
+  // A sales order, its delivery notes and its invoice are documents that were handed to the
+  // customer: correcting the company's address later must not silently rewrite them. The
+  // `vatCompanyId` stays as the link for reporting and for the delivery note snapshot.
+  vatCompanyId: integer("vat_company_id").references(() => vatCompanies.id),
+  vatCompanyCode: varchar("vat_company_code", { length: 10 }),
+  vatCompanyName: varchar("vat_company_name", { length: 200 }),
+  vatCompanyTaxId: varchar("vat_company_tax_id", { length: 50 }),
+  vatCompanyAddress: text("vat_company_address"),
+  // The VAT invoice issued for this order, if any. The number comes from the selected
+  // company's own sequence (CI-.../HI-...) and is written once: a reprint is the same document,
+  // and a correction is a new order with a new number. NULL = no VAT invoice issued yet.
+  vatInvoiceNumber: varchar("vat_invoice_number", { length: 50 }).unique(),
+  vatInvoiceIssuedAt: timestamp("vat_invoice_issued_at"),
   orderDate: timestamp("order_date").notNull().defaultNow(),
   totalAmount: decimal("total_amount", { precision: 15, scale: 2 }).notNull().default("0"), // VND amount
   specialInstructions: text("special_instructions"),
@@ -371,6 +394,14 @@ export const deliveryNotes = pgTable("delivery_notes", {
   contactPerson: text("contact_person"),
   phone: varchar("phone", { length: 20 }),
   deliveryAddress: text("delivery_address"),
+  // The VAT company block, copied from the order when the note is issued. A reprint must
+  // keep the letterhead the customer signed, even if the order is later edited or the
+  // company's details are corrected. NULL = the order had no VAT company.
+  vatCompanyId: integer("vat_company_id").references(() => vatCompanies.id),
+  vatCompanyCode: varchar("vat_company_code", { length: 10 }),
+  vatCompanyName: varchar("vat_company_name", { length: 200 }),
+  vatCompanyTaxId: varchar("vat_company_tax_id", { length: 50 }),
+  vatCompanyAddress: text("vat_company_address"),
   deliveredByUserId: integer("delivered_by_user_id").references(() => users.id).notNull(),
   // "Goods received in good condition." ticked by the customer on the printed note.
   // Uploading the signed document (POST /api/delivery-notes/:id/signed-document) ticks it,

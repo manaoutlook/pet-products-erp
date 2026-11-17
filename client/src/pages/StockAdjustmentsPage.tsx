@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   History,
   Loader2,
+  MapPin,
   PackageMinus,
   RefreshCw,
   SlidersHorizontal,
@@ -55,6 +56,8 @@ interface StockRow {
   storeId: number | null;
   storeName: string | null;
   inventoryType: string;
+  /** Physical rack/shelf recorded on the inventory row - empty when none was captured. */
+  location: string | null;
   systemQuantity: number;
 }
 
@@ -79,6 +82,8 @@ interface AdjustmentMovement {
   productName: string | null;
   sku: string | null;
   storeName: string | null;
+  /** Rack/shelf snapshot at the time of the movement. */
+  location: string | null;
   userName: string | null;
   notes: string | null;
   reasonLabel: string;
@@ -150,6 +155,16 @@ const MODES: Record<AdjustmentMode, ModeConfig> = {
 
 const signedQuantity = (value: number): string => `${value > 0 ? "+" : ""}${value}`;
 
+/** Store name used across the stock screens - DC rows have no store_id. */
+const storeLabel = (row: StockRow): string =>
+  row.storeName?.trim() || (row.inventoryType === "DC" ? "Distribution center" : "Warehouse (DC)");
+
+/**
+ * Physical bin of the row. Shown next to the quantity so it is obvious which shelf a
+ * write-off or recount lands on - several inventory rows can share a product and store.
+ */
+const locationLabel = (row: StockRow): string => row.location?.trim() || "Not recorded";
+
 /** Types this screen produces - the "Recent adjustments" table shows only these. */
 const RECENT_TYPES = "MANUAL_ADJUSTMENT,DAMAGE_OR_WRITE_OFF,PHYSICAL_COUNT";
 const RECENT_URL = `/api/inventory/transactions?types=${RECENT_TYPES}&limit=50`;
@@ -179,7 +194,7 @@ function AdjustmentForm({ mode, rows, canAdjust }: AdjustmentFormProps) {
       rows.map((row) => ({
         value: String(row.inventoryId),
         label: `${row.productName} (${row.sku})`,
-        description: `${row.storeName ?? "Distribution center"} · ${row.systemQuantity} on hand`,
+        description: `${storeLabel(row)} · ${locationLabel(row)} · ${row.systemQuantity} on hand`,
       })),
     [rows],
   );
@@ -391,6 +406,15 @@ function AdjustmentForm({ mode, rows, canAdjust }: AdjustmentFormProps) {
         <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
             <span>
+              <span className="text-muted-foreground">Store:</span>{" "}
+              <span className="font-medium">{storeLabel(selected)}</span>
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <MapPin className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+              <span className="text-muted-foreground">Location:</span>{" "}
+              <span className="font-medium">{locationLabel(selected)}</span>
+            </span>
+            <span>
               <span className="text-muted-foreground">On record:</span>{" "}
               <span className="font-medium">{selected.systemQuantity}</span>
             </span>
@@ -414,10 +438,17 @@ function AdjustmentForm({ mode, rows, canAdjust }: AdjustmentFormProps) {
               </span>
             ) : null}
           </div>
+          {!selected.location?.trim() ? (
+            <p className="pt-1 text-xs text-muted-foreground">
+              This stock row has no rack/shelf recorded. Add one on the Inventory List (Edit)
+              if you track physical bins.
+            </p>
+          ) : null}
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">
-          Choose a product above to see its current quantity and what this entry will change.
+          Choose a product above to see its store, location, current quantity and what this
+          entry will change.
         </p>
       )}
 
@@ -551,6 +582,7 @@ export default function StockAdjustmentsPage() {
                   <TableHead>Product</TableHead>
                   <TableHead>Reason</TableHead>
                   <TableHead>Store</TableHead>
+                  <TableHead>Location</TableHead>
                   <TableHead className="text-right">Change</TableHead>
                   <TableHead className="text-right">Before → After</TableHead>
                   <TableHead>By</TableHead>
@@ -561,7 +593,7 @@ export default function StockAdjustmentsPage() {
                 {recentFetching && movements.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={8}
+                      colSpan={9}
                       className="py-8 text-center text-sm text-muted-foreground"
                     >
                       <Loader2 className="mx-auto mb-2 h-4 w-4 animate-spin" />
@@ -571,7 +603,7 @@ export default function StockAdjustmentsPage() {
                 ) : movements.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={8}
+                      colSpan={9}
                       className="py-8 text-center text-sm text-muted-foreground"
                     >
                       No adjustments recorded yet. The first entry you save will appear here.
@@ -595,6 +627,9 @@ export default function StockAdjustmentsPage() {
                       </TableCell>
                       <TableCell className="text-sm">
                         {movement.storeName ?? "Distribution center"}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {movement.location?.trim() || "—"}
                       </TableCell>
                       <TableCell
                         className={

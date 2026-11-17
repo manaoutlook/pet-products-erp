@@ -20,7 +20,6 @@ export type InventoryImportFieldKey =
   | "productName"
   | "inventoryType"
   | "store"
-  | "supplier"
   | "quantity"
   | "location"
   | "purchaseDate"
@@ -42,7 +41,8 @@ export const INVENTORY_IMPORT_FIELDS: ImportFieldDefinition[] = [
   { key: "productName", label: "Product Name", aliases: ["productname", "product", "name", "itemname", "title"] },
   { key: "inventoryType", label: "Inventory Type", aliases: ["inventorytype", "type", "stocktype", "locationtype"], required: true },
   { key: "store", label: "Store", aliases: ["store", "storename", "warehouse", "warehousename", "dc", "centername", "centrename"] },
-  { key: "supplier", label: "Supplier", aliases: ["supplier", "suppliername", "vendor", "vendorname"] },
+  // Supplier is deliberately absent: it is derived from the product. A Supplier column
+  // in an older template is reported as an ignored column, not applied.
   { key: "quantity", label: "Quantity", aliases: ["quantity", "qty", "stock", "stockquantity", "onhand", "onhandquantity", "onhandqty"], required: true },
   { key: "location", label: "Location", aliases: ["location", "locationdetail", "rack", "shelf", "bin", "physicallocation", "physicalrack", "storage"] },
   { key: "purchaseDate", label: "Purchase Date", aliases: ["purchasedate", "purchase", "receiveddate", "datepurchased"] },
@@ -185,9 +185,14 @@ export interface ExportableInventory {
   barcode?: string | null;
   purchaseDate?: string | Date | null;
   expiryDate?: string | Date | null;
-  product?: { name: string; sku: string; minStock?: number | null } | null;
+  product?: {
+    name: string;
+    sku: string;
+    minStock?: number | null;
+    /** The product owns the supplier; stock rows only mirror it. */
+    supplier?: { name: string } | null;
+  } | null;
   store?: { name: string } | null;
-  supplier?: { name: string } | null;
 }
 
 export type ExportFormat = "xlsx" | "csv";
@@ -220,7 +225,7 @@ export const EXPORT_COLUMNS: {
   { header: "Product SKU", value: (item) => item.product?.sku ?? "" },
   { header: "Inventory Type", value: (item) => inventoryTypeLabel(item.inventoryType) },
   { header: "Store", value: (item) => item.store?.name ?? "" },
-  { header: "Supplier", value: (item) => item.supplier?.name ?? "" },
+  { header: "Supplier", value: (item) => item.product?.supplier?.name ?? "" },
   { header: "Quantity", value: (item) => item.quantity },
   { header: "Location", value: (item) => item.location ?? "" },
   { header: "Purchase Date", value: (item) => dateCell(item.purchaseDate) },
@@ -296,7 +301,6 @@ export async function downloadImportTemplate(format: ExportFormat = "xlsx"): Pro
     "Product Name": "Sample Product",
     "Inventory Type": "Distribution Center",
     Store: "Main Warehouse",
-    Supplier: "Acme Trading",
     Quantity: 100,
     Location: "Rack A, Shelf 2",
     "Purchase Date": "2024-10-15",

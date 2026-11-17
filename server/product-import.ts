@@ -1,5 +1,5 @@
 import { db } from "@db";
-import { products, categories, brands, suppliers } from "@db/schema";
+import { products, categories, brands, suppliers, inventory } from "@db/schema";
 import { eq } from "drizzle-orm";
 
 /**
@@ -375,6 +375,13 @@ export async function importProducts(
             updatedAt: new Date(),
           })
           .where(eq(products.id, existingId));
+
+        // The product owns the supplier; stock rows only mirror it. Keep every existing
+        // inventory row for this product in step with the file that was just imported.
+        await db
+          .update(inventory)
+          .set({ supplierId, updatedAt: new Date() })
+          .where(eq(inventory.productId, existingId));
 
         result.updated += 1;
         continue;

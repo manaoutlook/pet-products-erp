@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
 import { db } from '../../../db';
-import { products, categories, suppliers } from '../../../db/schema';
+import { products, categories, suppliers, inventory } from '../../../db/schema';
 import { eq } from 'drizzle-orm';
 import {
     importProducts,
@@ -146,6 +146,39 @@ describe('Product Import', () => {
             expect(product.name).toBe('Renamed Dog Food');
             expect(Number(product.b2cPrice)).toBe(15);
             expect(await db.select().from(products)).toHaveLength(1);
+        });
+
+        it('keeps inventory supplier in step when the imported product changes supplier', async () => {
+            await importProducts([validRow]);
+
+            const [product] = await db
+                .select()
+                .from(products)
+                .where(eq(products.sku, 'IMP-001'));
+
+            const [stock] = await db
+                .insert(inventory)
+                .values({
+                    productId: product.id,
+                    quantity: 4,
+                    inventoryType: 'DC',
+                    supplierId: product.supplierId,
+                })
+                .returning();
+
+            await importProducts([{ ...validRow, supplier: 'A Different Supplier' }]);
+
+            const [updatedProduct] = await db
+                .select()
+                .from(products)
+                .where(eq(products.sku, 'IMP-001'));
+            const [updatedStock] = await db
+                .select()
+                .from(inventory)
+                .where(eq(inventory.id, stock.id));
+
+            expect(updatedProduct.supplierId).not.toBe(product.supplierId);
+            expect(updatedStock.supplierId).toBe(updatedProduct.supplierId);
         });
 
         it('skips existing SKUs when updateExisting is false', async () => {

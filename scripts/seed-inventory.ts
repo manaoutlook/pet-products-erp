@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { db } from "../db/index.js";
-import { inventory } from "../db/schema.js";
+import { inventory, products } from "../db/schema.js";
 
 async function seedInventory() {
   console.log("📦 Creating Inventory Records...");
@@ -23,7 +23,6 @@ async function seedInventory() {
       {
         productId: 2, // Royal Canin Medium Adult
         storeId: null, // DC inventory
-        supplierId: 1, // Pet Supplies Plus
         quantity: 150,
         location: "Warehouse Aisle A, Shelf 1-3", // DC warehouse location
         inventoryType: 'DC',
@@ -34,7 +33,6 @@ async function seedInventory() {
       {
         productId: 3, // Royal Canin Labrador Retriever
         storeId: null,
-        supplierId: 1,
         quantity: 120,
         location: "Warehouse Aisle B, Shelf 2-4",
         inventoryType: 'DC',
@@ -45,7 +43,6 @@ async function seedInventory() {
       {
         productId: 4, // Royal Canin German Shepherd
         storeId: null,
-        supplierId: 2, // Global Pet Distributors
         quantity: 100,
         location: "Warehouse Aisle C, Rack 1",
         inventoryType: 'DC',
@@ -56,7 +53,6 @@ async function seedInventory() {
       {
         productId: 5, // Royal Canin Bulldog
         storeId: null,
-        supplierId: 2,
         quantity: 130,
         location: "Warehouse Aisle C, Rack 2",
         inventoryType: 'DC',
@@ -67,7 +63,6 @@ async function seedInventory() {
       {
         productId: 6, // Purina Pro Plan Adult Chicken
         storeId: null,
-        supplierId: 3, // Premium Pet Imports
         quantity: 200,
         location: "Warehouse Section D, Pallet 5",
         inventoryType: 'DC',
@@ -78,7 +73,6 @@ async function seedInventory() {
       {
         productId: 7, // Purina Pro Plan Puppy
         storeId: null,
-        supplierId: 3,
         quantity: 180,
         location: "Warehouse Section D, Pallet 6",
         inventoryType: 'DC',
@@ -89,7 +83,6 @@ async function seedInventory() {
       {
         productId: 8, // Purina One SmartBlend
         storeId: null,
-        supplierId: 4, // Local Pet Warehouse
         quantity: 250,
         location: "Warehouse Zone E, Bin 12",
         inventoryType: 'DC',
@@ -100,7 +93,6 @@ async function seedInventory() {
       {
         productId: 9, // Whiskas Adult Tuna
         storeId: null,
-        supplierId: 5, // Pet Nutrition Corp
         quantity: 300,
         location: "Warehouse Zone F, Shelf A1-A3",
         inventoryType: 'DC',
@@ -111,7 +103,6 @@ async function seedInventory() {
       {
         productId: 10, // Whiskas Kitten
         storeId: null,
-        supplierId: 5,
         quantity: 220,
         location: "Warehouse Zone F, Shelf B1-B2",
         inventoryType: 'DC',
@@ -122,7 +113,6 @@ async function seedInventory() {
       {
         productId: 11, // Whiskas Hairball Control
         storeId: null,
-        supplierId: 1,
         quantity: 190,
         location: "Warehouse Zone F, Shelf C1",
         inventoryType: 'DC',
@@ -135,7 +125,6 @@ async function seedInventory() {
       {
         productId: 2, // Royal Canin Medium Adult
         storeId: 1, // Downtown Pet Store
-        supplierId: 1,
         quantity: 25,
         location: "Back Room Shelf A, Row 2", // Store storage location
         inventoryType: 'STORE',
@@ -146,7 +135,6 @@ async function seedInventory() {
       {
         productId: 6, // Purina Pro Plan Adult Chicken
         storeId: 1,
-        supplierId: 3,
         quantity: 30,
         location: "Back Room Shelf B, Row 1",
         inventoryType: 'STORE',
@@ -157,7 +145,6 @@ async function seedInventory() {
       {
         productId: 9, // Whiskas Adult Tuna
         storeId: 1,
-        supplierId: 5,
         quantity: 40,
         location: "Display Area Storage, Bin 3",
         inventoryType: 'STORE',
@@ -168,7 +155,6 @@ async function seedInventory() {
       {
         productId: 14, // Rubber Chew Toy
         storeId: 1,
-        supplierId: 2,
         quantity: 50,
         location: "Toy Section Storage, Shelf 1",
         inventoryType: 'STORE',
@@ -178,7 +164,6 @@ async function seedInventory() {
       {
         productId: 16, // Cat Wand Toy
         storeId: 1,
-        supplierId: 4,
         quantity: 35,
         location: "Toy Section Storage, Shelf 2",
         inventoryType: 'STORE',
@@ -188,7 +173,6 @@ async function seedInventory() {
       {
         productId: 18, // Adjustable Dog Collar
         storeId: 1,
-        supplierId: 1,
         quantity: 20,
         location: "Accessory Rack, Position 5",
         inventoryType: 'STORE',
@@ -200,7 +184,6 @@ async function seedInventory() {
       {
         productId: 3, // Royal Canin Labrador Retriever
         storeId: 2, // Suburban Pet Center
-        supplierId: 2,
         quantity: 20,
         location: "Storage Room Aisle 1, Bay 2",
         inventoryType: 'STORE',
@@ -211,7 +194,6 @@ async function seedInventory() {
       {
         productId: 7, // Purina Pro Plan Puppy
         storeId: 2,
-        supplierId: 3,
         quantity: 28,
         location: "Storage Room Aisle 1, Bay 3",
         inventoryType: 'STORE',
@@ -222,7 +204,6 @@ async function seedInventory() {
       {
         productId: 10, // Whiskas Kitten
         storeId: 2,
-        supplierId: 5,
         quantity: 32,
         location: "Cat Food Section Storage, Rack A",
         inventoryType: 'STORE',
@@ -233,7 +214,6 @@ async function seedInventory() {
       {
         productId: 15, // Interactive Puzzle Toy
         storeId: 2,
-        supplierId: 3,
         quantity: 15,
         location: "Toy Storage Area, Box 7",
         inventoryType: 'STORE',
@@ -243,7 +223,6 @@ async function seedInventory() {
       {
         productId: 17, // Squeaky Ball Set
         storeId: 2,
-        supplierId: 4,
         quantity: 45,
         location: "Toy Storage Area, Box 8",
         inventoryType: 'STORE',
@@ -253,7 +232,6 @@ async function seedInventory() {
       {
         productId: 19, // Leather Dog Leash
         storeId: 2,
-        supplierId: 2,
         quantity: 18,
         location: "Accessory Storage, Drawer 4",
         inventoryType: 'STORE',
@@ -265,7 +243,6 @@ async function seedInventory() {
       {
         productId: 4, // Royal Canin German Shepherd
         storeId: 3, // Mall Pet Boutique
-        supplierId: 2,
         quantity: 15,
         location: "Premium Storage Room, Shelf 3",
         inventoryType: 'STORE',
@@ -276,7 +253,6 @@ async function seedInventory() {
       {
         productId: 8, // Purina One SmartBlend
         storeId: 3,
-        supplierId: 4,
         quantity: 35,
         location: "Premium Storage Room, Shelf 4",
         inventoryType: 'STORE',
@@ -287,7 +263,6 @@ async function seedInventory() {
       {
         productId: 11, // Whiskas Hairball Control
         storeId: 3,
-        supplierId: 1,
         quantity: 28,
         location: "Cat Care Section Storage, Unit 2",
         inventoryType: 'STORE',
@@ -298,7 +273,6 @@ async function seedInventory() {
       {
         productId: 12, // Hill's Science Diet Adult
         storeId: 3,
-        supplierId: 3,
         quantity: 12,
         location: "Premium Food Storage, Cabinet A",
         inventoryType: 'STORE',
@@ -309,7 +283,6 @@ async function seedInventory() {
       {
         productId: 13, // Hill's Science Diet Kitten
         storeId: 3,
-        supplierId: 3,
         quantity: 10,
         location: "Premium Food Storage, Cabinet B",
         inventoryType: 'STORE',
@@ -320,7 +293,6 @@ async function seedInventory() {
       {
         productId: 20, // Cat Scratching Post
         storeId: 3,
-        supplierId: 5,
         quantity: 8,
         location: "Large Item Storage, Area 1",
         inventoryType: 'STORE',
@@ -330,7 +302,6 @@ async function seedInventory() {
       {
         productId: 20, // Pedigree Dental Chews
         storeId: 3,
-        supplierId: 4,
         quantity: 22,
         location: "Health Product Storage, Shelf C",
         inventoryType: 'STORE',
@@ -341,8 +312,18 @@ async function seedInventory() {
     ];
 
     const createdInventory = [];
+    // A stock row's supplier is the product's; nothing in this file may set its own.
+    const productSuppliers = new Map(
+      (await db.select({ id: products.id, supplierId: products.supplierId }).from(products)).map(
+        (product) => [product.id, product.supplierId] as const,
+      ),
+    );
+
     for (const item of inventoryData) {
-      const result = await db.insert(inventory).values(item).returning();
+      const result = await db
+        .insert(inventory)
+        .values({ ...item, supplierId: productSuppliers.get(item.productId) ?? null })
+        .returning();
       createdInventory.push(result[0]);
       const storeInfo = item.storeId ? `Store ${item.storeId}` : 'DC';
       console.log(`✓ Created inventory: Product ${item.productId} at ${storeInfo} (${item.quantity} units)`);

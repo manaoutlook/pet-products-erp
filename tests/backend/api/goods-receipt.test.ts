@@ -4,10 +4,12 @@ import {
     goodsReceiptItems,
     goodsReceipts,
     inventory,
+    products,
     purchaseOrderActions,
     purchaseOrderItems,
     purchaseOrders,
     stockMovements,
+    suppliers,
 } from '../../../db/schema';
 import { eq } from 'drizzle-orm';
 import {
@@ -96,14 +98,18 @@ describe('Goods Receipt (GRN)', () => {
 
 
     /** A shipped order for the given quantity, plus its single line. */
-    async function seedOrder(quantity = 10, unitPrice = '100.00') {
+    async function seedOrder(
+        quantity = 10,
+        unitPrice = '100.00',
+        supplierId = testData.suppliers.supplier.id,
+    ) {
         const expectedDelivery = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
 
         const [order] = await db
             .insert(purchaseOrders)
             .values({
                 orderNumber: 'PO-GRN-001',
-                supplierId: testData.suppliers.supplier.id,
+                supplierId,
                 destinationStoreId: testData.stores.warehouse.id,
                 orderDate: new Date(),
                 deliveryDate: expectedDelivery,
@@ -201,6 +207,69 @@ describe('Goods Receipt (GRN)', () => {
             expect(receiptAction?.actionData?.reference).toBe(result.receipt.receiptNumber);
         });
 
+
+        it('stamps the stock with the product supplier, not the order supplier', async () => {
+            await db
+                .update(products)
+                .set({ supplierId: testData.suppliers.supplier.id })
+                .where(eq(products.id, testData.products.product.id));
+
+            const [orderSupplier] = await db
+                .insert(suppliers)
+                .values({
+                    name: 'Order-only Supplier',
+                    contactInfo: '555-4444',
+                    address: 'Elsewhere',
+                })
+                .returning();
+
+            const { order } = await seedOrder(3, '10.00', orderSupplier.id);
+            await recordPayment(order.id);
+
+            await receiveGoods(db, {
+                purchaseOrderId: order.id,
+                userId: testData.users.admin.id,
+                actualDeliveryDate: new Date(),
+            });
+
+            const stock = await db.query.inventory.findMany();
+            expect(stock).toHaveLength(1);
+            expect(stock[0].supplierId).toBe(testData.suppliers.supplier.id);
+            expect(stock[0].supplierId).not.toBe(orderSupplier.id);
+        });
+
+        it('repairs an existing stock row whose supplier disagrees with its product', async () => {
+            await db
+                .update(products)
+                .set({ supplierId: testData.suppliers.supplier.id })
+                .where(eq(products.id, testData.products.product.id));
+
+            const [placeholder] = await db
+                .insert(suppliers)
+                .values({ name: 'Placeholder', contactInfo: '555-2222', address: 'Nowhere' })
+                .returning();
+
+            await db.insert(inventory).values({
+                productId: testData.products.product.id,
+                storeId: testData.stores.warehouse.id,
+                quantity: 1,
+                supplierId: placeholder.id,
+            });
+
+            const { order } = await seedOrder(3, '10.00');
+            await recordPayment(order.id);
+
+            await receiveGoods(db, {
+                purchaseOrderId: order.id,
+                userId: testData.users.admin.id,
+                actualDeliveryDate: new Date(),
+            });
+
+            const stock = await db.query.inventory.findMany();
+            expect(stock).toHaveLength(1);
+            expect(stock[0].quantity).toBe(4);
+            expect(stock[0].supplierId).toBe(testData.suppliers.supplier.id);
+        });
 
         it('refuses a second receipt so stock cannot be booked in twice', async () => {
             const { order } = await seedOrder(5, '200.00');

@@ -72,6 +72,35 @@ describe('inventory-spreadsheet', () => {
         expect(quantityColumn!.value({ quantity: 42 })).toBe(42);
     });
 
+    it('exports the supplier from the product, not from the stock row', () => {
+        const supplierColumn = EXPORT_COLUMNS.find((column) => column.header === 'Supplier');
+
+        expect(supplierColumn).toBeDefined();
+        expect(
+            supplierColumn!.value({
+                quantity: 5,
+                product: { name: 'Food', sku: 'F-1', supplier: { name: 'Product Supplier' } },
+            })
+        ).toBe('Product Supplier');
+        expect(
+            supplierColumn!.value({
+                quantity: 5,
+                product: { name: 'Food', sku: 'F-1', supplier: null },
+            })
+        ).toBe('');
+    });
+
+    it('treats a Supplier column from an older template as ignored', () => {
+        const { fields, unmatched } = mapHeaders(['Product SKU', 'Inventory Type', 'Quantity', 'Supplier']);
+
+        expect(fields.productSku).toBe(0);
+        expect(fields.inventoryType).toBe(1);
+        expect(fields.quantity).toBe(2);
+        expect(unmatched).toEqual(['Supplier']);
+        // There is no canonical supplier field any more: the product owns it.
+        expect('supplier' in fields).toBe(false);
+    });
+
     it('leaves the dates blank when they are not set', () => {
         const purchaseColumn = EXPORT_COLUMNS.find((column) => column.header === 'Purchase Date');
 

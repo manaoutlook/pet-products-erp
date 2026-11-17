@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ProductSelector } from "@/components/POS/ProductSelector";
 import { CartManager } from "@/components/POS/CartManager";
 import { ReceiptPrinter, type ReceiptData } from "@/components/POS/ReceiptPrinter";
@@ -16,17 +16,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { SearchableSelect } from "@/components/ui/searchable-select";
-import { Store, User, RefreshCw, AlertTriangle, Check, FileText } from "lucide-react";
+import { Store, User, RefreshCw, AlertTriangle, FileText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useCompanyInfo } from "@/hooks/use-company";
-import { useVatCompanies } from "@/hooks/use-vat-companies";
 import { useUser } from "@/hooks/use-user";
 import { usePermissions } from "@/hooks/use-permissions";
 import { formatCurrency } from "@/utils/format";
-import { computeSaleTotals, VAT_RATE } from "@shared/tax";
 import type { InvoicePayload } from "@shared/invoice";
 
 interface Product {
@@ -65,29 +60,15 @@ interface Store {
 }
 
 /**
- * A customer profile, the source of the VAT invoice buyer block.
+ * The Point of Sale is the walk-in retail till: prices are VAT-exclusive and every sale prints
+ * a SALES INVOICE under the shop's Company Profile.
  *
- * `taxId` is absent on rows created before the column existed, so every read here treats it as
- * optional and an empty value just leaves the invoice field blank for the cashier to fill.
+ * AI Agent Note - VAT is NOT decided here any more. A VAT invoice belongs to a Sales Order:
+ * the company is chosen when the order is raised, and the order's own invoice carries that
+ * company's letterhead and number sequence. Asking the cashier to pick a company at the
+ * counter produced papers that disagreed with the order they belonged to, so the question was
+ * removed from this screen entirely.
  */
-interface CustomerProfile {
-  id: number;
-  mobileNumber: string;
-  companyName?: string | null;
-  contactPerson: string;
-  address: string;
-  taxId?: string | null;
-  customerType: 'B2B' | 'B2C';
-}
-
-/** The buyer block as printed on the invoice; `name` is the only required part. */
-const EMPTY_BUYER = {
-  name: "",
-  companyName: "",
-  taxId: "",
-  address: "",
-  phone: "",
-};
 
 function POSPage() {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
@@ -99,19 +80,10 @@ function POSPage() {
   // ---------------------------------------------------------------------------------------
   // Invoice flow state
   // ---------------------------------------------------------------------------------------
-  // The customer's answer to "print with VAT?" is collected BEFORE the sale is written, because
-  // the VAT amount and the invoice number sequence (CI-/HI- vs the store's retail sequence)
-  // are decided by it. It cannot be added to a completed sale afterwards.
+  // Checkout is a confirmation only: the sale is retail (no VAT), so nothing about the
+  // document has to be decided before it is written.
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [pendingPaymentMethod, setPendingPaymentMethod] = useState("cash");
-  const [printWithVat, setPrintWithVat] = useState(false);
-  const [selectedVatCompanyId, setSelectedVatCompanyId] = useState<number | null>(null);
-  // The buyer block of a VAT invoice. Snapshotted onto the sale by the server, so a later edit
-  // to the customer's record cannot change an invoice that was already issued.
-  const [buyer, setBuyer] = useState({ ...EMPTY_BUYER });
-  // The customer profile the block was filled from (`null` = typed by hand). Kept only to label
-  // the form and to warn about a missing tax code - the sale stores the values, not the link.
-  const [buyerCustomerId, setBuyerCustomerId] = useState<number | null>(null);
 
   // The A4 invoice document of the sale that was just completed / is being reprinted.
   const [invoiceOpen, setInvoiceOpen] = useState(false);
@@ -123,69 +95,8 @@ function POSPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { hasPermission } = usePermissions();
-  // The letterhead the receipt will print - the same query the screen header reads.
+  // The letterhead the retail receipt and invoice print - the same query the header reads.
   const { company } = useCompanyInfo();
-  // The two companies a VAT invoice may be issued under (CI / HI).
-  const { activeCompanies: vatCompanies } = useVatCompanies();
-
-  // ---------------------------------------------------------------------------------------
-  // Buyer: picked from the customer profiles we already keep
-  // ---------------------------------------------------------------------------------------
-  // A VAT invoice has to show the buyer's registered name, address and tax code, and the cashier
-  // should not be re-typing a customer we have on file - that is how a digit gets mistyped on a
-  // legal document. The list is only fetched while the checkout dialog is open with VAT selected
-  // and only for a user who may read customer profiles; without the permission the block falls
-  // back to manual entry instead of failing.
-  const canReadCustomers = hasPermission('customerProfiles', 'read');
-  const { data: customers = [] } = useQuery<CustomerProfile[]>({
-    queryKey: ['/api/customer-profiles'],
-    enabled: checkoutOpen && printWithVat && canReadCustomers,
-  });
-
-  const customerOptions = useMemo(
-    () =>
-      customers.map((customer) => ({
-        value: String(customer.id),
-        // Lead with the company: that is the name a VAT invoice is addressed to.
-        label: customer.companyName
-          ? `${customer.companyName} — ${customer.contactPerson}`
-          : customer.contactPerson,
-        description: customer.taxId
-          ? `${customer.mobileNumber} · ${customer.taxId}`
-          : customer.mobileNumber,
-      })),
-    [customers]
-  );
-
-  /**
-   * Fill the buyer block from a customer profile.
-   *
-   * `null` clears the selection (and the fields) so a walk-in can be typed manually. The values
-   * are copied, not linked: the cashier may correct the address on this invoice without editing
-   * the customer record, and the sale keeps its own snapshot.
-   */
-  const selectBuyerCustomer = (customerId: string | null) => {
-    if (!customerId) {
-      setBuyerCustomerId(null);
-      setBuyer({ ...EMPTY_BUYER });
-      return;
-    }
-
-    const customer = customers.find((entry) => String(entry.id) === customerId);
-    if (!customer) return;
-
-    setBuyerCustomerId(customer.id);
-    setBuyer({
-      name: customer.contactPerson,
-      companyName: customer.companyName ?? "",
-      taxId: customer.taxId ?? "",
-      address: customer.address,
-      phone: customer.mobileNumber,
-    });
-  };
-
-  const selectedBuyerCustomer =
-    customers.find((customer) => customer.id === buyerCustomerId) ?? null;
 
   // Get user's assigned store
   useEffect(() => {
@@ -310,9 +221,6 @@ function POSPage() {
       setShowReceipt(true);
       setCartItems([]);
       setIsProcessing(false);
-      setPrintWithVat(false);
-      setSelectedVatCompanyId(null);
-      setBuyer({ name: "", companyName: "", taxId: "", address: "", phone: "" });
 
       // The A4 invoice follows the receipt: closing the receipt opens the invoice for the sale
       // that was just made, so the cashier sees both documents of one transaction in order.
@@ -413,45 +321,22 @@ function POSPage() {
   };
 
   /**
-   * Checkout starts by asking the customer's question: "print with VAT?".
+   * Checkout: confirm the retail sale.
    *
-   * Nothing is written until the answer is known (see confirmCheckout) - the VAT amount and the
-   * invoice number sequence must exist on the sale from the first insert.
+   * AI Agent Note: nothing about VAT is decided here any more. The till always writes a
+   * non-VAT sale under the shop's own letterhead; a VAT invoice is issued from the Sales Order
+   * that carries the selected company. That is why this dialog has no selection on it.
    */
   const handleCheckout = async (paymentMethod: string) => {
     if (cartItems.length === 0) return;
 
     setPendingPaymentMethod(paymentMethod);
-    setPrintWithVat(false);
-    setSelectedVatCompanyId(null);
-    // A buyer from the previous sale must never be inherited: the next customer would otherwise
-    // be invoiced under someone else's company and tax code. The cashier picks a profile again.
-    setBuyerCustomerId(null);
-    setBuyer({ ...EMPTY_BUYER });
     setCheckoutOpen(true);
   };
 
-  /** Write the sale with the cashier's VAT answer attached. */
+  /** Write the retail sale - always non-VAT. */
   const confirmCheckout = () => {
     if (cartItems.length === 0) return;
-
-    if (printWithVat && !selectedVatCompanyId) {
-      toast({
-        title: "Select a company",
-        description: "Choose which company issues the VAT invoice",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (printWithVat && !buyer.name.trim()) {
-      toast({
-        title: "Buyer details required",
-        description: "A VAT invoice must show the buyer name and address",
-        variant: "destructive",
-      });
-      return;
-    }
 
     setIsProcessing(true);
     setCheckoutOpen(false);
@@ -463,18 +348,10 @@ function POSPage() {
         inventoryId: item.inventoryId,
       })),
       paymentMethod: pendingPaymentMethod,
-      // A DC sale is an internal transfer, never a customer invoice (the server rejects VAT).
-      withVat: printWithVat && Boolean(userStore),
-      vatCompanyId: printWithVat && userStore ? selectedVatCompanyId : null,
-      buyer: printWithVat
-        ? {
-            name: buyer.name.trim(),
-            companyName: buyer.companyName.trim() || null,
-            taxId: buyer.taxId.trim() || null,
-            address: buyer.address.trim() || null,
-            phone: buyer.phone.trim() || null,
-          }
-        : null,
+      // The POS issues retail invoices only. VAT paperwork lives with the Sales Order.
+      withVat: false,
+      vatCompanyId: null,
+      buyer: null,
     });
   };
 
@@ -576,186 +453,45 @@ function POSPage() {
       )}
 
       {/*
-        Checkout: "Print with VAT?"
-        ---------------------------
-        AI Agent Note: HỘ KINH DOANH TIỆN ÍCH GIA ĐÌNH is a household business and may NOT issue
-        a VAT invoice. If the customer asks for one, the sale is invoiced by one of the licensed
-        companies (CI / HI), which prints ITS name, tax code and address and runs its OWN invoice
-        number sequence. The answer is part of creating the sale, so it is asked here - before
-        anything is written - and can never be changed on a completed sale.
+        Checkout: confirm the retail sale.
+        --------------------------------
+        There is deliberately NO VAT / VAT-company selection on this screen. The shop is a
+        household business and the till only issues retail invoices under the Company Profile.
+        A VAT invoice is issued from its Sales Order, where the licensed company (CI / HI) was
+        selected, so this confirmation is the only thing the cashier sees.
       */}
       <Dialog open={checkoutOpen} onOpenChange={setCheckoutOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Print with VAT?</DialogTitle>
+            <DialogTitle>Complete this sale?</DialogTitle>
             <DialogDescription>
-              Prices are VAT-exclusive. A VAT invoice adds VAT and is issued under one of the
-              licensed companies, with its own invoice number sequence.
+              This till issues a retail sales invoice under the shop's own letterhead. VAT
+              invoices are issued from a Sales Order.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                type="button"
-                variant={printWithVat ? "outline" : "default"}
-                onClick={() => {
-                  setPrintWithVat(false);
-                  setSelectedVatCompanyId(null);
-                }}
-              >
-                {!printWithVat && <Check className="mr-2 h-4 w-4" />}
-                No VAT
-              </Button>
-              <Button
-                type="button"
-                variant={printWithVat ? "default" : "outline"}
-                onClick={() => setPrintWithVat(true)}
-              >
-                {printWithVat && <Check className="mr-2 h-4 w-4" />}
-                With VAT
-              </Button>
+          <div className="space-y-1 rounded-md border p-3 text-sm">
+            <div className="flex justify-between">
+              <span>Items</span>
+              <span>{cartItems.length}</span>
             </div>
-
-            {printWithVat && (
-              <div className="space-y-2">
-                <Label>Company issuing the VAT invoice</Label>
-                {vatCompanies.length === 0 ? (
-                  <p className="text-sm text-destructive">
-                    No VAT company is configured. Add one in Master Data &rarr; VAT Companies.
-                  </p>
-                ) : (
-                  vatCompanies.map((vatCompany) => {
-                    const unusable = vatCompany.missingFields.length > 0;
-                    return (
-                      <Button
-                        key={vatCompany.id}
-                        type="button"
-                        variant={selectedVatCompanyId === vatCompany.id ? "default" : "outline"}
-                        className="w-full justify-start h-auto py-2"
-                        disabled={unusable}
-                        onClick={() => setSelectedVatCompanyId(vatCompany.id)}
-                      >
-                        <span className="font-mono mr-2">{vatCompany.code}</span>
-                        <span className="flex-1 text-left">
-                          <span className="block">{vatCompany.name}</span>
-                          <span className="block text-xs font-normal opacity-80">
-                            {unusable
-                              ? `Incomplete: ${vatCompany.missingFields.join(', ')}`
-                              : `Tax code: ${vatCompany.taxId}`}
-                          </span>
-                        </span>
-                        {selectedVatCompanyId === vatCompany.id && (
-                          <Check className="ml-2 h-4 w-4" />
-                        )}
-                      </Button>
-                    );
-                  })
-                )}
-              </div>
-            )}
-
-            {printWithVat && (
-              <div className="space-y-2 rounded-md border p-3">
-                <Label>Buyer (printed on the VAT invoice)</Label>
-
-                {/* The buyer is a customer we already keep, so the block is picked, not typed.
-                    The search box matches the company, the contact person, the phone and the
-                    tax code (all of them are in the option's value), so a cashier can find a
-                    business by whichever of those the customer quotes at the counter. */}
-                <SearchableSelect
-                  value={buyerCustomerId === null ? null : String(buyerCustomerId)}
-                  onChange={selectBuyerCustomer}
-                  options={customerOptions}
-                  disabled={!canReadCustomers}
-                  placeholder={
-                    canReadCustomers
-                      ? "Search a customer profile..."
-                      : "No permission to read customer profiles - type the buyer below"
-                  }
-                  searchPlaceholder="Company, contact, phone or tax code..."
-                  emptyMessage="No customer matches. Add one under Stores - Customer Profiles."
-                  clearLabel="Clear - type a buyer manually"
-                />
-
-                <Input
-                  placeholder="Buyer / contact name *"
-                  value={buyer.name}
-                  onChange={(event) =>
-                    setBuyer((prev) => ({ ...prev, name: event.target.value }))
-                  }
-                />
-                <Input
-                  placeholder="Buyer company"
-                  value={buyer.companyName}
-                  onChange={(event) =>
-                    setBuyer((prev) => ({ ...prev, companyName: event.target.value }))
-                  }
-                />
-                <Input
-                  placeholder="Buyer tax code"
-                  value={buyer.taxId}
-                  onChange={(event) =>
-                    setBuyer((prev) => ({ ...prev, taxId: event.target.value }))
-                  }
-                />
-                <Input
-                  placeholder="Buyer address"
-                  value={buyer.address}
-                  onChange={(event) =>
-                    setBuyer((prev) => ({ ...prev, address: event.target.value }))
-                  }
-                />
-                <Input
-                  placeholder="Buyer phone"
-                  value={buyer.phone}
-                  onChange={(event) =>
-                    setBuyer((prev) => ({ ...prev, phone: event.target.value }))
-                  }
-                />
-
-                {/* A filled-in block with no tax code is the one case the customer will bounce
-                    at the counter, so it is called out here rather than left to the print. */}
-                {selectedBuyerCustomer && !selectedBuyerCustomer.taxId?.trim() && (
-                  <p className="text-xs text-destructive">
-                    {selectedBuyerCustomer.contactPerson} has no tax code on file. Type it above,
-                    or add it under Stores &rarr; Customer Profiles so the next invoice fills it in.
-                  </p>
-                )}
-
-                <p className="text-xs text-muted-foreground">
-                  {selectedBuyerCustomer
-                    ? "Filled from the customer profile - correct any field for this invoice only. The sale stores its own copy, so editing the profile later cannot change it."
-                    : "Typed once and stored on the sale, so a later change to the customer record cannot alter this invoice."}
-                </p>
-              </div>
-            )}
-
-            {(() => {
-              // Preview only: the amounts the server will store, from the same shared rule
-              // (shared/tax.ts). The cart total is VAT-exclusive, so this is subtotal + VAT.
-              const totals = computeSaleTotals(
-                cartItems.reduce((sum, item) => sum + item.totalPrice, 0),
-                printWithVat,
-                VAT_RATE
-              );
-              return (
-                <div className="rounded-md border p-3 text-sm space-y-1">
-                  <div className="flex justify-between">
-                    <span>Subtotal (excl. VAT)</span>
-                    <span>{formatCurrency(totals.subtotal)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>VAT</span>
-                    <span>{formatCurrency(totals.vatAmount)}</span>
-                  </div>
-                  <div className="flex justify-between font-semibold">
-                    <span>Total</span>
-                    <span>{formatCurrency(totals.total)}</span>
-                  </div>
-                </div>
-              );
-            })()}
+            <div className="flex justify-between">
+              <span>Subtotal</span>
+              <span>
+                {formatCurrency(cartItems.reduce((sum, item) => sum + item.totalPrice, 0))}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span>Payment method</span>
+              <span className="capitalize">{pendingPaymentMethod}</span>
+            </div>
+            <Separator className="my-2" />
+            <div className="flex justify-between font-semibold">
+              <span>Total</span>
+              <span>
+                {formatCurrency(cartItems.reduce((sum, item) => sum + item.totalPrice, 0))}
+              </span>
+            </div>
           </div>
 
           <DialogFooter>

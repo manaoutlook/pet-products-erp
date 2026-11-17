@@ -7,6 +7,12 @@ import { registerSalesOrderRoutes, registerSalesOrderWriteRoutes } from "./route
 import { registerDeliveryNoteRoutes } from "./routes/delivery-notes";
 import { db } from "@db";
 import {
+  buildProductDeletionError,
+  describeProductDeletionBlockers,
+  getProductDeletionBlockers,
+  hasProductDeletionBlockers,
+} from "./product-delete";
+import {
   products, inventory, orders, orderItems, users,
   roles, stores, userStoreAssignments, regions,
   categories, brands, suppliers, purchaseOrders,
@@ -762,7 +768,11 @@ export function registerRoutes(app: Express): Server {
               userId: req.user?.id ?? null,
             });
           } else {
-            // Create new inventory entry
+            // Create new inventory entry. The supplier is the product's: the purchase
+            // order records who it was bought from, but it does not own the product link.
+            const product = await db.query.products.findFirst({
+              where: eq(products.id, item.productId),
+            });
             const barcode = generateInventoryBarcode('DC', item.productId.toString(), currentPO.destinationStoreId);
             const [createdInventory] = await db
               .insert(inventory)
@@ -772,7 +782,7 @@ export function registerRoutes(app: Express): Server {
                 inventoryType: 'DC',
                 storeId: currentPO.destinationStoreId, // Explicitly link to the DC/Warehouse
                 barcode,
-                supplierId: currentPO.supplierId,
+                supplierId: product?.supplierId ?? null,
                 // `purchase_date` is a date column, which drizzle types as a 'YYYY-MM-DD' string.
                 purchaseDate: new Date().toISOString().split('T')[0]
               })
@@ -2644,6 +2654,16 @@ export function registerRoutes(app: Express): Server {
         return res.status(404).send("Product not found");
       }
 
+      // The product owns the supplier; inventory only mirrors it. When the supplier
+      // changes, every stock row for this product is updated in the same request so the
+      // two copies cannot drift. `supplierId` is only cascaded when the client sent it.
+      if (supplierId !== undefined) {
+        await db
+          .update(inventory)
+          .set({ supplierId: updatedProduct.supplierId ?? null, updatedAt: new Date() })
+          .where(eq(inventory.productId, updatedProduct.id));
+      }
+
       res.json({
         message: "Product updated successfully",
         product: updatedProduct,
@@ -2723,22 +2743,13 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      // Check if product is used in any orders
-      const orderItem = await db.query.orderItems.findFirst({
-        where: eq(orderItems.productId, parseInt(id)),
-      });
-
-      if (orderItem) {
-        return res.status(400).json({
-          message: "Cannot delete product that is used in orders",
-          suggestion: "Archive the product instead"
-        });
+      // A product with stock or order/sales/transfer history cannot be removed: deleting
+      // it would either destroy inventory rows or orphan accounting records. The counts
+      // are collected so the response can name the product and say exactly what blocks it.
+      const blockers = await getProductDeletionBlockers(parseInt(id));
+      if (hasProductDeletionBlockers(blockers)) {
+        return res.status(400).json(buildProductDeletionError(product.name, blockers));
       }
-
-      // Delete any inventory items for this product
-      await db
-        .delete(inventory)
-        .where(eq(inventory.productId, parseInt(id)));
 
       // Delete the product
       await db
@@ -2747,6 +2758,14 @@ export function registerRoutes(app: Express): Server {
 
       res.json({ message: "Product deleted successfully" });
     } catch (error) {
+      // A row created between the association check and the delete still cannot be
+      // orphaned: the foreign key rejects it, so report a conflict instead of a 500.
+      if ((error as { code?: string }).code === "23503") {
+        return res.status(400).json({
+          message: "Cannot delete product because related records still exist",
+          suggestion: "Refresh the products list to see the linked records",
+        });
+      }
       console.error('Error deleting product:', error);
       res.status(500).json({
         message: "Failed to delete product",
@@ -2777,9 +2796,9 @@ export function registerRoutes(app: Express): Server {
     const deleted: number[] = [];
     const failed: { id: number; name: string | null; message: string }[] = [];
 
-    // Each product keep the same rules as the single delete endpoint: a product
-    // used in any order cannot be removed. Failures are collected so one bad row
-    // does not abort the whole batch.
+    // Each product keeps the same rules as the single delete endpoint: stock or any
+    // order/sales/transfer history blocks removal. Failures are collected so one bad
+    // row does not abort the whole batch.
     for (const id of ids) {
       try {
         const product = await db.query.products.findFirst({
@@ -2791,21 +2810,16 @@ export function registerRoutes(app: Express): Server {
           continue;
         }
 
-        const orderItem = await db.query.orderItems.findFirst({
-          where: eq(orderItems.productId, id),
-        });
-
-        if (orderItem) {
+        const blockers = await getProductDeletionBlockers(id);
+        if (hasProductDeletionBlockers(blockers)) {
           failed.push({
             id,
             name: product.name,
-            message: "Used in orders - archive the product instead",
+            message: `Linked to ${describeProductDeletionBlockers(blockers)}`,
           });
           continue;
         }
 
-        // Delete any inventory items for this product first, then the product.
-        await db.delete(inventory).where(eq(inventory.productId, id));
         await db.delete(products).where(eq(products.id, id));
         deleted.push(id);
       } catch (error) {
@@ -2867,9 +2881,10 @@ export function registerRoutes(app: Express): Server {
       const inventoryItems = await db.query.inventory.findMany({
         where: storeFilter ? or(storeFilter, isNull(inventory.storeId)) : undefined,
         with: {
-          product: true,
+          // The supplier is shown from the product: `inventory.supplier_id` is only a
+          // denormalised copy and must never be edited on its own.
+          product: { with: { supplier: true } },
           store: true,
-          supplier: true, // Add supplier relation
         },
       });
 
@@ -2882,7 +2897,8 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/inventory", requireAuth, async (req, res) => {
     try {
-      const { productId, storeId, supplierId, quantity, location, inventoryType } = req.body;
+      // The supplier is not part of the request: it is derived from the product.
+      const { productId, storeId, quantity, location, inventoryType } = req.body;
 
       if (!productId || !quantity || !inventoryType) {
         return res.status(400).send("Product, quantity, and inventory type are required");
@@ -2904,7 +2920,7 @@ export function registerRoutes(app: Express): Server {
         storeId ? parseInt(storeId) : null
       );
 
-      // Create inventory item with supplier
+      // Create inventory item with the supplier derived from the product.
       // AI Agent Note: the opening quantity is a stock movement like any other. Without it
       // every manually created row would look like unexplained drift to `npm run stock:reconcile`.
       const newInventory = await db.transaction(async (tx) => {
@@ -2913,7 +2929,7 @@ export function registerRoutes(app: Express): Server {
           .values({
             productId: parseInt(productId),
             storeId: storeId ? parseInt(storeId) : null,
-            supplierId: supplierId ? parseInt(supplierId) : null,
+            supplierId: product.supplierId ?? null,
             quantity: parseInt(quantity),
             location,
             inventoryType,
@@ -2939,9 +2955,8 @@ export function registerRoutes(app: Express): Server {
       const inventoryWithRelations = await db.query.inventory.findFirst({
         where: eq(inventory.id, newInventory.id),
         with: {
-          product: true,
+          product: { with: { supplier: true } },
           store: true,
-          supplier: true,
         },
       });
 
@@ -3090,7 +3105,8 @@ export function registerRoutes(app: Express): Server {
   app.put("/api/inventory/:id", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
-      const { productId, storeId, supplierId, quantity, location, inventoryType } = req.body;
+      // The supplier is not part of the request: it is derived from the product.
+      const { productId, storeId, quantity, location, inventoryType } = req.body;
 
       if (!productId || !quantity || !inventoryType) {
         return res.status(400).send("Product, quantity, and inventory type are required");
@@ -3132,7 +3148,7 @@ export function registerRoutes(app: Express): Server {
           .set({
             productId: parseInt(productId),
             storeId: storeId ? parseInt(storeId) : null,
-            supplierId: supplierId ? parseInt(supplierId) : null,
+            supplierId: product.supplierId ?? null,
             quantity: nextQuantity,
             location,
             inventoryType,
@@ -3163,9 +3179,8 @@ export function registerRoutes(app: Express): Server {
       const inventoryWithRelations = await db.query.inventory.findFirst({
         where: eq(inventory.id, updatedInventory.id),
         with: {
-          product: true,
+          product: { with: { supplier: true } },
           store: true,
-          supplier: true,
         },
       });
 
@@ -3647,6 +3662,18 @@ export function registerRoutes(app: Express): Server {
 
       if (!supplier) {
         return res.status(404).send("Supplier not found");
+      }
+
+      // A supplier is in use when a product is assigned to it. Stock rows only mirror the
+      // product, so checking inventory alone would let a delete through that the product
+      // foreign key then rejects with an opaque 500.
+      const [productCount] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(products)
+        .where(eq(products.supplierId, parseInt(id)));
+
+      if (productCount.count > 0) {
+        return res.status(400).send("Cannot delete a supplier that products are assigned to");
       }
 
       // Check if supplier has any inventory

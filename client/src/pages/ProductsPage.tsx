@@ -647,8 +647,13 @@ function ProductsPage() {
   };
 
   const handleDelete = async () => {
-    if(productToDelete){
+    if (!productToDelete) return;
+    try {
       await deleteMutation.mutateAsync(productToDelete.id);
+    } catch {
+      // The 400/500 is reported by the mutation's onError handler (toast). The
+      // rejection must be swallowed here: mutateAsync re-throws, and an unhandled
+      // rejection makes the Vite runtime-error overlay cover the page in dev.
     }
   };
 
@@ -961,7 +966,9 @@ function ProductsPage() {
             <AlertDialogTitle>Are you sure you want to delete this product?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the product
-              {productToDelete ? ` "${productToDelete.name}"` : ''}.
+              {productToDelete ? ` "${productToDelete.name}"` : ''}. Products that still
+              have inventory entries or are referenced by orders, purchase orders, sales
+              or stock transfers cannot be deleted.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -983,7 +990,8 @@ function ProductsPage() {
               Delete {selectedIds.length} selected product{selectedIds.length === 1 ? "" : "s"}?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. Products that are already used in orders will be
+              This action cannot be undone. Products that still have inventory entries or
+              are referenced by orders, purchase orders, sales or stock transfers will be
               skipped and reported after the deletion.
             </AlertDialogDescription>
           </AlertDialogHeader>

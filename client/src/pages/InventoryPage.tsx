@@ -50,7 +50,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Barcode } from "@/components/ui/barcode";
 import { usePermissions } from "@/hooks/use-permissions";
 import { QuickAddProduct } from "@/components/QuickAdd/QuickAddProduct";
-import { QuickAddSupplier } from "@/components/QuickAdd/QuickAddSupplier";
 import {
   Accordion,
   AccordionContent,
@@ -74,7 +73,6 @@ import { InventoryTransactionsPanel } from "@/components/inventory/InventoryTran
 const inventorySchema = z.object({
   productId: z.string().min(1, "Product is required"),
   storeId: z.string().optional(),
-  supplierId: z.string().optional(),
   quantity: z.string().min(1, "Quantity is required"),
   location: z.string().optional(),
   inventoryType: z.enum(["DC", "STORE"], { required_error: "Inventory type is required" }),
@@ -87,6 +85,9 @@ interface Product {
   name: string;
   sku: string;
   minStock: number;
+  /** The product owns the supplier; stock rows only mirror it. */
+  supplierId: number | null;
+  supplier: Supplier | null;
 }
 
 interface Store {
@@ -115,7 +116,6 @@ interface InventoryItem {
   expiryDate?: string | null;
   product: Product;
   store: Store | null;
-  supplier: Supplier | null;
 }
 
 interface FilterState {
@@ -150,7 +150,6 @@ function InventoryPage() {
     defaultValues: {
       productId: '',
       storeId: '',
-      supplierId: '',
       quantity: '',
       location: '',
       inventoryType: 'DC',
@@ -182,6 +181,12 @@ function InventoryPage() {
     queryKey: ['/api/suppliers'],
   });
 
+  // The supplier shown in the create/edit dialog is the product's, not a field the
+  // user can set here. Changing it belongs on the Products page.
+  const selectedProduct = products?.find(
+    (product) => product.id.toString() === form.watch('productId')
+  );
+
   const createInventoryMutation = useMutation({
     mutationFn: async (data: InventoryFormValues) => {
       if (!canCreate) {
@@ -194,7 +199,6 @@ function InventoryPage() {
           ...data,
           productId: parseInt(data.productId),
           storeId: data.storeId ? parseInt(data.storeId) : null,
-          supplierId: data.supplierId ? parseInt(data.supplierId) : null,
           quantity: parseInt(data.quantity),
         }),
         credentials: 'include',
@@ -229,7 +233,6 @@ function InventoryPage() {
           ...data,
           productId: parseInt(data.productId),
           storeId: data.storeId ? parseInt(data.storeId) : null,
-          supplierId: data.supplierId ? parseInt(data.supplierId) : null,
           quantity: parseInt(data.quantity),
         }),
         credentials: 'include',
@@ -313,7 +316,6 @@ function InventoryPage() {
     form.reset({
       productId: item.productId.toString(),
       storeId: item.storeId?.toString() || '',
-      supplierId: item.supplierId?.toString() || '',
       quantity: item.quantity.toString(),
       location: item.location || '',
       inventoryType: item.inventoryType,
@@ -344,7 +346,7 @@ function InventoryPage() {
       product: (item) => `${item.product.name} ${item.product.sku}`,
       location: (item) => item.location,
       store: (item) => item.store?.name,
-      supplier: (item) => item.supplier?.name,
+      supplier: (item) => item.product.supplier?.name,
       quantity: (item) => item.quantity,
       status: (item) => (item.quantity <= item.product.minStock ? 'Low Stock' : 'In Stock'),
       barcode: (item) => item.barcode,
@@ -357,11 +359,11 @@ function InventoryPage() {
           item.product.sku.toLowerCase().includes(search.toLowerCase()) ||
           Boolean(item.location?.toLowerCase().includes(search.toLowerCase())) ||
           Boolean(item.store?.name.toLowerCase().includes(search.toLowerCase())) ||
-          Boolean(item.supplier?.name.toLowerCase().includes(search.toLowerCase()));
+          Boolean(item.product.supplier?.name.toLowerCase().includes(search.toLowerCase()));
 
         const matchesType = !filters.inventoryType || item.inventoryType === filters.inventoryType;
         const matchesStore = !filters.storeId || item.storeId?.toString() === filters.storeId;
-        const matchesSupplier = !filters.supplierId || item.supplierId?.toString() === filters.supplierId;
+        const matchesSupplier = !filters.supplierId || item.product.supplierId?.toString() === filters.supplierId;
         const matchesStockStatus = !filters.stockStatus ||
           (filters.stockStatus === 'low' && item.quantity <= item.product.minStock) ||
           (filters.stockStatus === 'inStock' && item.quantity > item.product.minStock);
@@ -436,7 +438,6 @@ function InventoryPage() {
         <h1 className="text-3xl font-bold tracking-tight">Inventory Management</h1>
         <div className="flex items-center gap-2">
           <QuickAddProduct />
-          <QuickAddSupplier />
           <Button variant="outline" onClick={() => setIsHistoryDialogOpen(true)}>
             <History className="mr-2 h-4 w-4" />
             Transactions
@@ -574,34 +575,17 @@ function InventoryPage() {
                       )}
                     />
 
-                    <FormField
-                      control={form.control}
-                      name="supplierId"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Supplier</FormLabel>
-                          <Select
-                            value={field.value}
-                            onValueChange={field.onChange}
-                            defaultValue={field.value}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select a supplier" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {suppliers?.map((supplier) => (
-                                <SelectItem key={supplier.id} value={supplier.id.toString()}>
-                                  {supplier.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                    <div className="space-y-2">
+                      <FormLabel>Supplier</FormLabel>
+                      <div className="flex h-9 items-center rounded-md border bg-muted px-3 text-sm">
+                        {selectedProduct
+                          ? selectedProduct.supplier?.name ?? "No supplier on this product"
+                          : "Chosen from the product"}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        The supplier belongs to the product. Change it on the Products page.
+                      </p>
+                    </div>
 
                     <FormField
                       control={form.control}
@@ -868,7 +852,7 @@ function InventoryPage() {
                     <TableCell>{item.product.name}</TableCell>
                     <TableCell>{item.location || '-'}</TableCell>
                     <TableCell>{item.store?.name || '-'}</TableCell>
-                    <TableCell>{item.supplier?.name || '-'}</TableCell>
+                    <TableCell>{item.product.supplier?.name || '-'}</TableCell>
                     <TableCell>{item.quantity}</TableCell>
                     <TableCell>
                       <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${item.quantity <= item.product.minStock

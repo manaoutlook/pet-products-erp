@@ -58,7 +58,16 @@ const createTransferSchema = z.object({
   notes: z.string().optional(),
   items: z.array(z.object({
     productId: z.string().min(1, "Product is required"),
-    quantity: z.number().min(1, "Quantity must be at least 1"),
+    // Kept as a string so the input can be emptied while typing. Number inputs bound to a
+    // number cannot be cleared: a placeholder default gets written back on every keystroke.
+    // The value is converted to a number when the request payload is built.
+    quantity: z
+      .string()
+      .min(1, "Quantity is required")
+      .refine(
+        (value) => Number.isInteger(Number(value)) && Number(value) > 0,
+        "Quantity must be a whole number above zero"
+      ),
     notes: z.string().optional(),
   })).min(1, "At least one item is required"),
 });
@@ -130,7 +139,7 @@ function TransferPage() {
       toStoreId: '',
       priority: 'normal',
       notes: '',
-      items: [{ productId: '', quantity: 1, notes: '' }],
+      items: [{ productId: '', quantity: '1', notes: '' }],
     },
   });
 
@@ -174,6 +183,7 @@ function TransferPage() {
           items: data.items.map(item => ({
             ...item,
             productId: parseInt(item.productId),
+            quantity: Number(item.quantity),
           })),
         }),
         credentials: 'include',
@@ -327,7 +337,7 @@ function TransferPage() {
 
   const addItem = () => {
     const currentItems = form.getValues('items');
-    form.setValue('items', [...currentItems, { productId: '', quantity: 1, notes: '' }]);
+    form.setValue('items', [...currentItems, { productId: '', quantity: '1', notes: '' }]);
   };
 
   const removeItem = (index: number) => {
@@ -626,8 +636,8 @@ function TransferPage() {
                                       <Input
                                         type="number"
                                         min="1"
+                                        step="1"
                                         {...field}
-                                        onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
                                       />
                                     </FormControl>
                                     <FormMessage />

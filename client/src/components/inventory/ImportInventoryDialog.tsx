@@ -277,7 +277,8 @@ export function ImportInventoryDialog({
                 />
                 <p className="text-xs text-muted-foreground">
                   Required columns: Product SKU, Inventory Type, Quantity. Optional:
-                  Product Name, Store, Supplier, Location, Purchase Date, Expiry Date.
+                  Product Name, Store, Location, Purchase Date, Expiry Date. The supplier
+                  comes from the product, so a Supplier column is ignored.
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs text-muted-foreground">Download a blank template:</span>

@@ -6,6 +6,7 @@ import {
     products,
     salesOrderItems,
     salesOrders,
+    vatCompanies,
 } from '../../../db/schema';
 import { eq } from 'drizzle-orm';
 import {
@@ -269,6 +270,42 @@ describe('Sales Orders & Delivery Notes', () => {
     });
 
     describe('issuing delivery notes', () => {
+        it('copies the VAT company snapshot from the order onto the note', async () => {
+            const [company] = await db
+                .insert(vatCompanies)
+                .values({
+                    code: 'CI',
+                    name: 'Conqueror International',
+                    taxId: '0312362838',
+                    address: '12 Nguyen Hue, District 1',
+                    isActive: true,
+                })
+                .returning();
+
+            const { order, items } = await seedSalesOrder([{ quantity: 1 }], {
+                vatCompanyId: company.id,
+                vatCompanyCode: company.code,
+                vatCompanyName: company.name,
+                vatCompanyTaxId: company.taxId,
+                vatCompanyAddress: company.address,
+            });
+
+            const result = await issueDeliveryNote(db, {
+                salesOrderId: order.id,
+                deliveryDate: new Date(),
+                userId: testData.users.admin.id,
+                items: [{ salesOrderItemId: items[0].id, deliveredQuantity: 1 }],
+            });
+
+            // A reprint of the note must name the company that issued the order, even if the
+            // company record is corrected afterwards - hence the snapshot, not a join.
+            expect(result.deliveryNote.vatCompanyId).toBe(company.id);
+            expect(result.deliveryNote.vatCompanyCode).toBe('CI');
+            expect(result.deliveryNote.vatCompanyName).toBe('Conqueror International');
+            expect(result.deliveryNote.vatCompanyTaxId).toBe('0312362838');
+            expect(result.deliveryNote.vatCompanyAddress).toBe('12 Nguyen Hue, District 1');
+        });
+
         it('ships the outstanding quantity and closes the order', async () => {
             const { order } = await seedSalesOrder([{ quantity: 4 }]);
 

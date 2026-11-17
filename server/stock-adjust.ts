@@ -158,6 +158,12 @@ export interface StockTakeRow {
   storeId: number | null;
   storeName: string | null;
   inventoryType: string;
+  /**
+   * Free-text physical bin (rack/shelf) copied from the inventory row. It is what tells
+   * two rows of the same product in the same store apart, so the adjustment screens can
+   * show which shelf is being corrected.
+   */
+  location: string | null;
   /** What the system thinks is on the shelf right now. */
   systemQuantity: number;
   /** What was counted the last time this row was counted, if ever. */
@@ -191,6 +197,7 @@ export async function listStockTake(
       storeId: inventory.storeId,
       storeName: stores.name,
       inventoryType: inventory.inventoryType,
+      location: inventory.location,
       systemQuantity: inventory.quantity,
     })
     .from(inventory)

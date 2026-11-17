@@ -1,5 +1,5 @@
 import { db } from "@db";
-import { inventory, products, stores, suppliers } from "@db/schema";
+import { inventory, products, stores } from "@db/schema";
 import { eq } from "drizzle-orm";
 import { applyStockChange, recordOpeningStock } from "./stock-ledger";
 
@@ -8,9 +8,14 @@ import { applyStockChange, recordOpeningStock } from "./stock-ledger";
  *
  * The client parses the CSV/Excel file and posts an array of row objects whose
  * keys are the canonical import fields (`productSku`, `productName`,
- * `inventoryType`, `store`, `supplier`, `quantity`, `location`, `purchaseDate`,
+ * `inventoryType`, `store`, `quantity`, `location`, `purchaseDate`,
  * `expiryDate`). Everything is re-validated here, because the browser is not a
  * trust boundary.
+ *
+ * The supplier is NOT an import field: a stock row's supplier is always the
+ * supplier of its product (`products.supplier_id` is the single source of truth).
+ * A `supplier` column in an older file is ignored rather than allowed to
+ * contradict the product.
  *
  * Rows are matched to existing inventory by product + store + type, so a row
  * updates an existing stock record (its quantity) instead of duplicating it.
@@ -212,22 +217,18 @@ export async function importInventory(
   };
 
   // Pre-load the lookup tables so a 1000 row file does not fire 1000 queries.
-  const productIdsBySku = new Map<string, number>();
+  // Each product carries its supplier, because that is where the stock row's supplier
+  // comes from - the file cannot choose one.
+  const productsBySku = new Map<string, { id: number; supplierId: number | null }>();
   const storeIdsByName = new Map<string, number>();
-  const supplierIdsByName = new Map<string, number>();
 
   for (const product of await db
-    .select({ id: products.id, sku: products.sku })
+    .select({ id: products.id, sku: products.sku, supplierId: products.supplierId })
     .from(products)) {
-    productIdsBySku.set(lower(product.sku), product.id);
+    productsBySku.set(lower(product.sku), { id: product.id, supplierId: product.supplierId });
   }
   for (const store of await db.select({ id: stores.id, name: stores.name }).from(stores)) {
     storeIdsByName.set(lower(store.name), store.id);
-  }
-  for (const supplier of await db
-    .select({ id: suppliers.id, name: suppliers.name })
-    .from(suppliers)) {
-    supplierIdsByName.set(lower(supplier.name), supplier.id);
   }
 
   // Existing inventory keyed by product + store + type so a repeated import
@@ -273,11 +274,14 @@ export async function importInventory(
       fail("Product SKU is required");
       continue;
     }
-    const productId = productIdsBySku.get(lower(sku));
-    if (!productId) {
+    const productRef = productsBySku.get(lower(sku));
+    if (!productRef) {
       fail(`Product not found for SKU: ${sku}`);
       continue;
     }
+    const productId = productRef.id;
+    // Derived, never taken from the file: the product owns the supplier.
+    const supplierId = productRef.supplierId ?? null;
 
     const inventoryType = normalizeInventoryType(raw.inventoryType);
     if (!inventoryType) {
@@ -307,17 +311,6 @@ export async function importInventory(
     } else if (inventoryType === "STORE") {
       fail("Store is required for STORE inventory");
       continue;
-    }
-
-    const supplierName = toText(raw.supplier);
-    let supplierId: number | null = null;
-    if (supplierName) {
-      const resolved = supplierIdsByName.get(lower(supplierName));
-      if (!resolved) {
-        fail(`Supplier not found: ${supplierName}`);
-        continue;
-      }
-      supplierId = resolved;
     }
 
     const purchaseDate = parseImportDate(raw.purchaseDate);
@@ -412,9 +405,11 @@ export async function importInventory(
         // Only overwrite the optional columns when the file actually supplies a value,
         // so re-importing a quantity sheet never clears existing details. `quantity` is
         // deliberately absent: it moves through the ledger, not through an UPDATE.
+        // The supplier is always re-derived from the product, which repairs any row
+        // that predates the single-source rule.
         const values: Record<string, unknown> = { updatedAt: new Date() };
         if (row.location !== null) values.location = row.location;
-        if (row.supplierId !== null) values.supplierId = row.supplierId;
+        values.supplierId = row.supplierId;
         if (row.purchaseDate !== null) values.purchaseDate = row.purchaseDate;
         if (row.expiryDate !== null) values.expiryDate = row.expiryDate;
 

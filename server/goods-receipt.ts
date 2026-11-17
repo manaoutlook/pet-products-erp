@@ -350,8 +350,24 @@ export async function receiveGoods(
   for (const line of receiptLines) {
     const item = line.item;
     const receivedQuantity = line.quantity;
+
+    // A stock row's supplier is the product's supplier. The order says who the goods were
+    // bought from, but the product master is the single source of truth for the link, so
+    // the receipt copies it rather than setting its own.
+    const product = await executor.query.products.findFirst({
+      where: eq(products.id, item.productId),
+    });
+
+    if (!product) {
+      throw new StockError(`Product with ID ${item.productId} not found`, 400);
+    }
+
     const [currentInventory] = await executor
-      .select({ id: inventory.id, quantity: inventory.quantity })
+      .select({
+        id: inventory.id,
+        quantity: inventory.quantity,
+        supplierId: inventory.supplierId,
+      })
       .from(inventory)
       .where(
         and(
@@ -364,6 +380,14 @@ export async function receiveGoods(
       .limit(1);
 
     if (currentInventory) {
+      // Repair any row that was written before the product owned the supplier.
+      if (currentInventory.supplierId !== (product.supplierId ?? null)) {
+        await executor
+          .update(inventory)
+          .set({ supplierId: product.supplierId ?? null, updatedAt: new Date() })
+          .where(eq(inventory.id, currentInventory.id));
+      }
+
       await applyStockChange(executor, {
         inventoryId: currentInventory.id,
         delta: receivedQuantity,
@@ -377,14 +401,6 @@ export async function receiveGoods(
         note: `Goods receipt ${receipt.receiptNumber}`,
       });
     } else {
-      const product = await executor.query.products.findFirst({
-        where: eq(products.id, item.productId),
-      });
-
-      if (!product) {
-        throw new StockError(`Product with ID ${item.productId} not found`, 400);
-      }
-
       const [createdInventory] = await executor
         .insert(inventory)
         .values({
@@ -397,7 +413,7 @@ export async function receiveGoods(
             item.productId.toString(),
             order.destinationStoreId
           ),
-          supplierId: order.supplierId,
+          supplierId: product.supplierId ?? null,
           purchaseDate: actualDeliveryDate.toISOString().split("T")[0],
         })
         .returning({ id: inventory.id });
