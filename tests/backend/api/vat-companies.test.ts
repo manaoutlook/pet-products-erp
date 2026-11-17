@@ -63,6 +63,31 @@ describe('VAT company form validation', () => {
   it('requires a company name', () => {
     expect(vatCompanyBodySchema.safeParse({ code: 'AB', name: '   ' }).success).toBe(false);
   });
+
+  it('accepts the VAT rate as a fraction and rounds it to the column scale', () => {
+    const parsed = vatCompanyBodySchema.parse({ ...validCompany, vatRate: 0.085 });
+
+    // DECIMAL(5,4): 0.0850 = 8.5%. The screen sends a fraction, never "8.5".
+    expect(parsed.vatRate).toBeCloseTo(0.085, 4);
+  });
+
+  it('leaves the rate out when none is sent, so the 10% column default applies', () => {
+    expect(vatCompanyBodySchema.parse(validCompany).vatRate).toBeUndefined();
+  });
+
+  it('rejects a percentage sent where a fraction belongs', () => {
+    // 8 means 800%. Catching this here is what stops a company from invoicing 8x the tax.
+    const result = vatCompanyBodySchema.safeParse({ ...validCompany, vatRate: 8 });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].message).toContain('between 0 and 100');
+    }
+  });
+
+  it('rejects a negative rate', () => {
+    expect(vatCompanyBodySchema.safeParse({ ...validCompany, vatRate: -0.1 }).success).toBe(false);
+  });
 });
 
 
@@ -85,6 +110,9 @@ describe('VAT company counters and seeds', () => {
       .insert(vatCompanies)
       .values({ code: 'AB', name: 'ABC Trading Co., Ltd.' })
       .returning();
+
+    // A company created without a rate charges the 10% standard rate.
+    expect(Number(company.vatRate)).toBeCloseTo(0.1, 4);
 
     // 'VAT_COMPANY' is 11 characters - writing it used to fail with
     // "value too long for type character varying(10)".

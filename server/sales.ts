@@ -12,7 +12,7 @@ import {
 import { and, eq, gte, sql } from "drizzle-orm";
 import { generateInvoiceNumber, generateVatCompanyInvoiceNumber } from "./invoice-counter";
 import { applyStockChange, recordStockMovements } from "./stock-ledger";
-import { computeSaleTotals, VAT_RATE } from "../shared/tax";
+import { computeSaleTotals, toVatRate } from "../shared/tax";
 import { VAT_COMPANY_SEEDS } from "../shared/invoice";
 
 export interface SaleItemInput {
@@ -342,8 +342,11 @@ export async function createSale(input: CreateSaleInput) {
     // Catalogue prices are VAT-EXCLUSIVE. `computeSaleTotals` is the single implementation
     // of the rule (shared/tax.ts) and the only place VAT is added:
     //   subtotal    = sum(line totals)
-    //   vatAmount   = withVat ? round(subtotal * VAT_RATE) : 0
+    //   vatAmount   = withVat ? round(subtotal x company rate) : 0
     //   totalAmount = subtotal + vatAmount
+    // The rate belongs to the company that issues the invoice (`vat_companies.vat_rate`), so
+    // CI and HI can charge different percentages. It is stored on the sale with the amounts,
+    // so a reprint cannot drift even if the company's rate is edited later.
     // These three numbers are stored and never recomputed. Before this, the till added 10%
     // in the browser, the database stored the VAT-exclusive total, and a reprint divided the
     // total by 1.1 - a 100,000 sale showed 110,000 at the till, 100,000 in the database and
@@ -351,7 +354,7 @@ export async function createSale(input: CreateSaleInput) {
     const totals = computeSaleTotals(
       pricedItems.reduce((sum, item) => sum + item.totalPrice, 0),
       withVat,
-      VAT_RATE,
+      toVatRate(vatCompany?.vatRate),
     );
 
     const [salesTransaction] = await tx
@@ -398,6 +401,7 @@ export async function createSale(input: CreateSaleInput) {
       actionData: actionData({
         itemsCount: pricedItems.length,
         subtotal: totals.subtotal,
+        vatRate: totals.vatRate,
         vatAmount: totals.vatAmount,
         totalAmount: totals.total,
         withVat,

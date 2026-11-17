@@ -120,6 +120,25 @@ describe('invoice documents', () => {
     expect(sale!.vatCompanyId).toBe(ciCompany.id);
   });
 
+  it('charges the rate configured on the issuing VAT company', async () => {
+    // The rate is a property of the company, not a constant: CI is set to 8% here.
+    await db.update(vatCompanies).set({ vatRate: '0.0800' }).where(eq(vatCompanies.id, ciCompany.id));
+
+    const sale = await sellTwoUnits({ withVat: true, vatCompanyId: ciCompany.id });
+
+    // 2 x 100,000 = 200,000 excl. VAT; 8% = 16,000; total 216,000.
+    expect(Number(sale!.vatRate)).toBeCloseTo(0.08, 4);
+    expect(Number(sale!.vatAmount)).toBe(16000);
+    expect(Number(sale!.totalAmount)).toBe(216000);
+
+    // ...and the reprint reads the stored rate, so it cannot disagree with the till.
+    const invoice = await buildInvoicePayload(sale!.id);
+    expect(invoice.vatRate).toBeCloseTo(0.08, 4);
+    expect(invoice.subtotal).toBe(200000);
+    expect(invoice.vatAmount).toBe(16000);
+    expect(invoice.total).toBe(216000);
+  });
+
   it('adds no VAT when the customer does not ask for a VAT invoice', async () => {
     const sale = await sellTwoUnits();
     expect(Number(sale!.subtotal)).toBe(200000);

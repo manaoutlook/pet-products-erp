@@ -26,7 +26,9 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
+import { formatPercent } from "@/utils/format";
 import { VAT_COMPANY_SEEDS } from "@shared/invoice";
+import { VAT_RATE, percentToRate, rateToPercent, toVatRate } from "@shared/tax";
 import { VAT_COMPANIES_QUERY_KEY, useVatCompanies, type VatCompany } from "@/hooks/use-vat-companies";
 
 /**
@@ -40,6 +42,10 @@ import { VAT_COMPANIES_QUERY_KEY, useVatCompanies, type VatCompany } from "@/hoo
  *
  * The tax code and address are what make a VAT invoice valid, so a company with a blank field is
  * listed as incomplete and cannot be chosen at the till (the server refuses it too).
+ *
+ * The VAT rate on this screen is the percentage EVERY invoice that company issues charges. The
+ * form edits it as a percentage ("8.5") while the database stores a fraction (0.085, the same
+ * unit as `sales_transactions.vat_rate`) - `percentToRate` / `rateToPercent` do that conversion.
  */
 
 interface FormValues {
@@ -50,6 +56,8 @@ interface FormValues {
   phone: string;
   email: string;
   bankAccount: string;
+  /** Percentage as typed in the form ("8.5"); converted to a fraction when saved. */
+  vatRate: string;
   isActive: boolean;
 }
 
@@ -61,6 +69,7 @@ const EMPTY_FORM: FormValues = {
   phone: "",
   email: "",
   bankAccount: "",
+  vatRate: String(rateToPercent(VAT_RATE)),
   isActive: true,
 };
 
@@ -92,8 +101,30 @@ function toForm(company: VatCompany): FormValues {
     phone: company.phone ?? "",
     email: company.email ?? "",
     bankAccount: company.bankAccount ?? "",
+    // The API returns the stored fraction (0.085); the field shows "8.5".
+    vatRate: String(rateToPercent(toVatRate(company.vatRate))),
     isActive: company.isActive,
   };
+}
+
+/**
+ * Validate the VAT % field.
+ *
+ * AI Agent Note: the operator types a PERCENTAGE here ("10", "8.5"), but the API stores the
+ * fraction (0.1, 0.085). Validating the percentage before the request means a typo shows up next
+ * to the field instead of as a server "Invalid request" toast. `percentToRate` does the
+ * conversion on save; `rateToPercent` fills the field when a company is opened for editing.
+ */
+const VAT_PERCENT_PATTERN = /^\d{1,3}(\.\d{1,2})?$/;
+
+function vatRateError(rawValue: string): string | null {
+  const value = rawValue.trim().replace(",", ".");
+  if (!value) return "VAT % is required";
+  if (!VAT_PERCENT_PATTERN.test(value)) {
+    return "Use a number with up to 2 decimals, e.g. 10 or 8.5";
+  }
+  if (Number(value) > 100) return "VAT % must be between 0 and 100";
+  return null;
 }
 
 function VatCompaniesPage() {
@@ -124,25 +155,26 @@ function VatCompaniesPage() {
   const saveMutation = useMutation({
     mutationFn: async (payload: FormValues) => {
       const creating = !editing;
+      const company = {
+        name: payload.name,
+        taxId: payload.taxId,
+        address: payload.address,
+        phone: payload.phone || null,
+        email: payload.email || null,
+        bankAccount: payload.bankAccount || null,
+        // The field holds a percentage ("8.5"); the API and the database hold the fraction
+        // (0.085), the same unit the invoice arithmetic uses.
+        vatRate: percentToRate(Number(payload.vatRate.trim().replace(",", "."))),
+        isActive: payload.isActive,
+      };
+
       const response = await fetch(
         creating ? "/api/vat-companies" : `/api/vat-companies/${editing!.id}`,
         {
           method: creating ? "POST" : "PUT",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify(
-            creating
-              ? payload
-              : {
-                  name: payload.name,
-                  taxId: payload.taxId,
-                  address: payload.address,
-                  phone: payload.phone || null,
-                  email: payload.email || null,
-                  bankAccount: payload.bankAccount || null,
-                  isActive: payload.isActive,
-                }
-          ),
+          body: JSON.stringify(creating ? { code: payload.code, ...company } : company),
         }
       );
 
@@ -187,10 +219,16 @@ function VatCompaniesPage() {
       toast({ title: "Company name is required", variant: "destructive" });
       return;
     }
+    const rateProblem = vatRateError(values.vatRate);
+    if (rateProblem) {
+      toast({ title: "Check the VAT %", description: rateProblem, variant: "destructive" });
+      return;
+    }
     saveMutation.mutate(values);
   };
 
   const codeValidationError = editing ? null : codeError(values.code);
+  const vatRateValidationError = vatRateError(values.vatRate);
 
   return (
     <div className="p-6 space-y-6">
@@ -203,7 +241,7 @@ function VatCompaniesPage() {
           <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
             The companies a VAT invoice may be issued under. The household business cannot issue
             a VAT invoice, so when a customer asks for one the sale is invoiced by one of these
-            companies, with its own name, tax code, address and invoice number sequence.
+            companies, with its own name, tax code, address, VAT rate and invoice number sequence.
           </p>
         </div>
         <div className="flex gap-2">
@@ -254,12 +292,13 @@ function VatCompaniesPage() {
               No VAT company configured yet.
             </p>
           ) : (
-            <Table className="table-actions-sticky min-w-[1000px]">
+            <Table className="table-actions-sticky min-w-[1080px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[80px]">Code</TableHead>
                   <TableHead>Company</TableHead>
                   <TableHead>Tax code</TableHead>
+                  <TableHead className="w-[90px]">VAT %</TableHead>
                   <TableHead>Address</TableHead>
                   <TableHead className="w-[150px]">Status</TableHead>
                   <TableHead className="text-right w-[110px]">Actions</TableHead>
@@ -273,6 +312,7 @@ function VatCompaniesPage() {
                     <TableCell>
                       {company.taxId || <span className="text-destructive">missing</span>}
                     </TableCell>
+                    <TableCell className="font-medium">{formatPercent(company.vatRate)}</TableCell>
                     <TableCell className="max-w-[280px] text-sm text-muted-foreground">
                       {company.address || <span className="text-destructive">missing</span>}
                     </TableCell>
@@ -306,122 +346,158 @@ function VatCompaniesPage() {
       </Card>
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        {/*
+          AI Agent Note: the form is taller than a laptop viewport (7 fields + helper text), so the
+          dialog is capped to 90vh and its body scrolls. Without this the footer buttons and the
+          close (X) button were pushed off-screen and could not be reached.
+        */}
+        <DialogContent className="flex max-h-[90vh] max-w-lg flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 border-b px-6 py-4 pr-12">
             <DialogTitle>{editing ? `Edit ${editing.code}` : "Add VAT company"}</DialogTitle>
             <DialogDescription>
               {editing
-                ? "These details are printed as the seller on every VAT invoice this company issues."
-                : "CI and HI already exist - open them in the list to fill in their tax code and address. Use this only for a further licensed company."}
+                ? "These details are printed as the seller on every VAT invoice this company issues, and its VAT % is charged on them."
+                : "CI and HI already exist - open them in the list to fill in their tax code, address and VAT rate. Use this only for a further licensed company."}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3">
-            <div>
-              <Label htmlFor="vat-code">Code (invoice prefix)</Label>
-              <Input
-                id="vat-code"
-                value={values.code}
-                disabled={Boolean(editing)}
-                maxLength={10}
-                className={codeValidationError && values.code ? "border-destructive" : undefined}
-                onChange={(event) =>
-                  // Strip anything that cannot appear in an invoice number as the user types:
-                  // the code is the prefix of CI-20261109-0001, never a template or a word.
-                  setValues((prev) => ({
-                    ...prev,
-                    code: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""),
-                  }))
-                }
-                placeholder="CI"
-              />
-              {codeValidationError && values.code ? (
-                <p className="text-xs text-destructive mt-1">{codeValidationError}</p>
-              ) : (
-                <p className="text-xs text-muted-foreground mt-1">
-                  2-10 letters or digits, e.g. <span className="font-mono">CI</span> becomes{" "}
-                  <span className="font-mono">CI-20261109-0001</span>. Cannot be changed later - it is
-                  part of every invoice number already issued.
-                </p>
-              )}
-            </div>
-            <div>
-              <Label htmlFor="vat-name">Company name</Label>
-              <Input
-                id="vat-name"
-                value={values.name}
-                onChange={(event) => setValues((prev) => ({ ...prev, name: event.target.value }))}
-              />
-            </div>
-            <div>
-              <Label htmlFor="vat-tax-id">Tax code</Label>
-              <Input
-                id="vat-tax-id"
-                value={values.taxId}
-                onChange={(event) => setValues((prev) => ({ ...prev, taxId: event.target.value }))}
-              />
-            </div>
-            <div>
-              <Label htmlFor="vat-address">Address</Label>
-              <Textarea
-                id="vat-address"
-                value={values.address}
-                onChange={(event) =>
-                  setValues((prev) => ({ ...prev, address: event.target.value }))
-                }
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <Label htmlFor="vat-phone">Phone</Label>
+                <Label htmlFor="vat-code">Code (invoice prefix)</Label>
                 <Input
-                  id="vat-phone"
-                  value={values.phone}
+                  id="vat-code"
+                  value={values.code}
+                  disabled={Boolean(editing)}
+                  maxLength={10}
+                  className={codeValidationError && values.code ? "border-destructive" : undefined}
                   onChange={(event) =>
-                    setValues((prev) => ({ ...prev, phone: event.target.value }))
+                    // Strip anything that cannot appear in an invoice number as the user types:
+                    // the code is the prefix of CI-20261109-0001, never a template or a word.
+                    setValues((prev) => ({
+                      ...prev,
+                      code: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""),
+                    }))
                   }
+                  placeholder="CI"
+                />
+                {codeValidationError && values.code ? (
+                  <p className="text-xs text-destructive mt-1">{codeValidationError}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    2-10 letters or digits, e.g. <span className="font-mono">CI</span> becomes{" "}
+                    <span className="font-mono">CI-20261109-0001</span>. Cannot be changed later - it
+                    is part of every invoice number already issued.
+                  </p>
+                )}
+              </div>
+              <div>
+                <Label htmlFor="vat-name">Company name</Label>
+                <Input
+                  id="vat-name"
+                  value={values.name}
+                  onChange={(event) => setValues((prev) => ({ ...prev, name: event.target.value }))}
                 />
               </div>
               <div>
-                <Label htmlFor="vat-email">Email</Label>
+                <Label htmlFor="vat-tax-id">Tax code</Label>
                 <Input
-                  id="vat-email"
-                  value={values.email}
+                  id="vat-tax-id"
+                  value={values.taxId}
+                  onChange={(event) => setValues((prev) => ({ ...prev, taxId: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="vat-rate">VAT %</Label>
+                <Input
+                  id="vat-rate"
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  value={values.vatRate}
+                  className={vatRateValidationError ? "border-destructive" : undefined}
                   onChange={(event) =>
-                    setValues((prev) => ({ ...prev, email: event.target.value }))
+                    setValues((prev) => ({ ...prev, vatRate: event.target.value }))
+                  }
+                  placeholder="10"
+                />
+                {vatRateValidationError ? (
+                  <p className="text-xs text-destructive mt-1">{vatRateValidationError}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Charged on every VAT invoice this company issues. Entered as a percentage - 10
+                    means 10%.
+                  </p>
+                )}
+              </div>
+              <div className="sm:col-span-2">
+                <Label htmlFor="vat-bank">Bank account</Label>
+                <Input
+                  id="vat-bank"
+                  value={values.bankAccount}
+                  onChange={(event) =>
+                    setValues((prev) => ({ ...prev, bankAccount: event.target.value }))
                   }
                 />
               </div>
-            </div>
-            <div>
-              <Label htmlFor="vat-bank">Bank account</Label>
-              <Input
-                id="vat-bank"
-                value={values.bankAccount}
-                onChange={(event) =>
-                  setValues((prev) => ({ ...prev, bankAccount: event.target.value }))
-                }
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <Switch
-                id="vat-active"
-                checked={values.isActive}
-                onCheckedChange={(checked) =>
-                  setValues((prev) => ({ ...prev, isActive: checked }))
-                }
-              />
-              <Label htmlFor="vat-active">Active (can issue new VAT invoices)</Label>
+              <div className="sm:col-span-2">
+                <Label htmlFor="vat-address">Address</Label>
+                <Textarea
+                  id="vat-address"
+                  value={values.address}
+                  onChange={(event) =>
+                    setValues((prev) => ({ ...prev, address: event.target.value }))
+                  }
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+                <div>
+                  <Label htmlFor="vat-phone">Phone</Label>
+                  <Input
+                    id="vat-phone"
+                    value={values.phone}
+                    onChange={(event) =>
+                      setValues((prev) => ({ ...prev, phone: event.target.value }))
+                    }
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="vat-email">Email</Label>
+                  <Input
+                    id="vat-email"
+                    value={values.email}
+                    onChange={(event) =>
+                      setValues((prev) => ({ ...prev, email: event.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-2 sm:col-span-2">
+                <Switch
+                  id="vat-active"
+                  checked={values.isActive}
+                  onCheckedChange={(checked) =>
+                    setValues((prev) => ({ ...prev, isActive: checked }))
+                  }
+                />
+                <Label htmlFor="vat-active">Active (can issue new VAT invoices)</Label>
+              </div>
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t px-6 py-4">
             <Button variant="outline" onClick={() => setFormOpen(false)}>
               Cancel
             </Button>
             <Button
               onClick={handleSubmit}
-              disabled={saveMutation.isPending || Boolean(codeValidationError)}
+              disabled={
+                saveMutation.isPending ||
+                Boolean(codeValidationError) ||
+                Boolean(vatRateValidationError)
+              }
             >
               {saveMutation.isPending ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />

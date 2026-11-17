@@ -2,7 +2,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@db";
 import { salesOrderItems, salesOrders } from "@db/schema";
 import { generateVatCompanyInvoiceNumber } from "./invoice-counter";
-import { computeSaleTotals, VAT_RATE } from "../shared/tax";
+import { computeSaleTotals, toVatRate } from "../shared/tax";
 import { vatCompanyMissingFields } from "../shared/vat-company";
 import type { InvoiceLine, SalesOrderInvoicePayload } from "../shared/invoice";
 
@@ -20,9 +20,10 @@ import type { InvoiceLine, SalesOrderInvoicePayload } from "../shared/invoice";
  *   - WHICH number it has: `vat_invoice_number`, allocated once from that company's own
  *     sequence (`CI-...` / `HI-...`) and then never changed.
  *
- * The numbers printed are the stored order totals plus VAT at the shared rate; they are not
- * derived from anything else. A correction is a new order with a new number - an issued
- * invoice is never edited.
+ * The numbers printed are the stored order totals plus VAT at the rate stored on the order
+ * (copied from the issuing company when the order was saved); they are not derived from
+ * anything else. A correction is a new order with a new number - an issued invoice is never
+ * edited.
  */
 
 export class SalesOrderInvoiceError extends Error {
@@ -52,9 +53,11 @@ export function buildSalesOrderInvoicePayload(order: OrderWithItems): SalesOrder
     lineTotal: Number(item.totalPrice),
   }));
 
-  // The order total is VAT-exclusive; VAT is added on top with the one shared rule.
+  // The order total is VAT-exclusive; VAT is added on top at the rate snapshotted from the
+  // issuing company when the order was saved (`sales_orders.vat_rate`), so an invoice keeps
+  // its rate even after that company's rate is corrected.
   const subtotal = Number(order.totalAmount);
-  const totals = computeSaleTotals(subtotal, true, VAT_RATE);
+  const totals = computeSaleTotals(subtotal, true, toVatRate(order.vatRate));
 
   return {
     salesOrderId: order.id,

@@ -95,6 +95,13 @@ interface VatCompanySnapshot {
   vatCompanyName: string | null;
   vatCompanyTaxId: string | null;
   vatCompanyAddress: string | null;
+  /**
+   * The rate this company charged when the order was saved, as a fraction ("0.0800" = 8%).
+   * Stored on the order (`sales_orders.vat_rate`) because the invoice prints VAT at the rate
+   * of the day it was raised - correcting the company's rate later must not change it.
+   * "0" = the order carries no VAT company.
+   */
+  vatRate: string;
 }
 
 const NO_VAT_COMPANY: VatCompanySnapshot = {
@@ -103,6 +110,7 @@ const NO_VAT_COMPANY: VatCompanySnapshot = {
   vatCompanyName: null,
   vatCompanyTaxId: null,
   vatCompanyAddress: null,
+  vatRate: "0",
 };
 
 /**
@@ -155,6 +163,8 @@ async function resolveVatCompanySnapshot(
     vatCompanyName: company.name,
     vatCompanyTaxId: company.taxId,
     vatCompanyAddress: company.address,
+    // The company's own rate, snapshotted now - see VatCompanySnapshot.vatRate.
+    vatRate: company.vatRate,
   };
 }
 

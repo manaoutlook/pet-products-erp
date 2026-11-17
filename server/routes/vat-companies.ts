@@ -8,6 +8,7 @@ import { validateBody, validateParams, idParamSchema } from "../validate";
 import { initializeVatCompanyCounter } from "../invoice-counter";
 import { vatCompanyMissingFields } from "../invoice-documents";
 import { VAT_COMPANY_SEEDS } from "../../shared/invoice";
+import { MAX_VAT_RATE, VAT_RATE } from "../../shared/tax";
 
 /**
  * VAT company endpoints - the two licensed companies that may issue a VAT invoice.
@@ -20,6 +21,11 @@ import { VAT_COMPANY_SEEDS } from "../../shared/invoice";
  * a VAT invoice, so a VAT document prints the name, tax code and address of the company selected
  * on the SALES ORDER. The POS no longer asks - the order decides which company issues its
  * sales order, delivery notes and VAT invoice.
+ *
+ * Each company also carries its own VAT RATE (`vatRate`, a fraction: 0.0800 = 8%), which is what
+ * every invoice it issues charges. Editing it here changes future documents only: a till sale
+ * stores the rate on `sales_transactions.vat_rate`, and a sales order snapshots it onto
+ * `sales_orders.vat_rate` when it is saved, so an issued invoice keeps the rate it was issued at.
  *
  * GET is open to any signed-in user because the sales-order form has to render the choice;
  * writes need `masterData` create/update, exactly like every other master-data screen.
@@ -42,6 +48,19 @@ export const vatCompanyBodySchema = z.object({
   phone: z.string().trim().max(50).optional().nullable(),
   email: z.string().trim().max(200).optional().nullable(),
   bankAccount: z.string().trim().max(500).optional().nullable(),
+  /**
+   * The rate this company charges on every invoice it issues, as a FRACTION (`0.08` = 8%),
+   * not a percentage - the same unit as `sales_transactions.vat_rate` and
+   * `computeSaleTotals()`'s `rate` argument. The screen converts the percentage the operator
+   * types with `percentToRate` (shared/tax.ts). Omitted = the column default, 10%.
+   */
+  vatRate: z
+    .number({ invalid_type_error: "VAT % must be a number" })
+    .min(0, "VAT % cannot be negative")
+    .max(MAX_VAT_RATE, "VAT % must be between 0 and 100")
+    // DECIMAL(5,4) keeps four decimals; rounding here means "8.5%" and 0.085 always agree.
+    .transform((rate) => Math.round(rate * 10_000) / 10_000)
+    .optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -50,6 +69,8 @@ const vatCompanyUpdateSchema = vatCompanyBodySchema.partial().omit({ code: true 
 function serialise(company: typeof vatCompanies.$inferSelect) {
   return {
     ...company,
+    // `decimal` columns come back as strings; the screens do arithmetic with this one.
+    vatRate: Number(company.vatRate),
     missingFields: vatCompanyMissingFields(company),
   };
 }
@@ -134,6 +155,8 @@ export function registerVatCompanyRoutes(app: Express) {
             phone: req.body.phone ?? null,
             email: req.body.email ?? null,
             bankAccount: req.body.bankAccount ?? null,
+            // Every invoice this company issues from now on charges this rate.
+            vatRate: (req.body.vatRate ?? VAT_RATE).toFixed(4),
             isActive: req.body.isActive ?? true,
           })
           .returning();
@@ -177,6 +200,13 @@ export function registerVatCompanyRoutes(app: Express) {
           if (req.body[key] !== undefined) {
             (updates as Record<string, unknown>)[key] = req.body[key];
           }
+        }
+
+        // `vat_rate` is a DECIMAL column, so the fraction is written at the column's scale.
+        // Orders raised earlier keep their own snapshot: changing the rate here only changes
+        // the documents issued from now on.
+        if (req.body.vatRate !== undefined) {
+          updates.vatRate = req.body.vatRate.toFixed(4);
         }
 
         const [updated] = await db

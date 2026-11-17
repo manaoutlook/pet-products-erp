@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useVatCompanies } from "@/hooks/use-vat-companies";
 import { Loader2, Check, Plus, Trash2 } from "lucide-react";
 import { formatCurrency, formatPercent } from "@/utils/format";
-import { computeSaleTotals, VAT_RATE } from "@shared/tax";
+import { computeSaleTotals, toVatRate } from "@shared/tax";
 
 /** A line as the form edits it - `unitPrice` may be omitted to keep the catalogue price. */
 export interface SalesOrderFormLine {
@@ -205,6 +205,15 @@ export function SalesOrderFormDialog({
   const { activeCompanies: vatCompanies, isLoading: vatCompaniesLoading } = useVatCompanies();
   const withVat = form.watch("withVat");
   const selectedVatCompanyId = form.watch("vatCompanyId");
+
+  // The company that issues this order's paperwork, and the rate it charges. The server copies
+  // that rate onto the order when it is saved, so the preview here matches the invoice printed
+  // later - until a company is chosen only the default rate can be shown.
+  const selectedVatCompany = useMemo(
+    () => vatCompanies.find((company) => String(company.id) === selectedVatCompanyId),
+    [vatCompanies, selectedVatCompanyId]
+  );
+  const vatRate = toVatRate(selectedVatCompany?.vatRate);
 
   const productOptions = useMemo(
     () =>
@@ -519,7 +528,7 @@ export function SalesOrderFormDialog({
                             <span className="block text-xs font-normal opacity-80">
                               {unusable
                                 ? `Incomplete: ${vatCompany.missingFields.join(", ")}`
-                                : `Tax code: ${vatCompany.taxId}`}
+                                : `Tax code: ${vatCompany.taxId} - VAT ${formatPercent(vatCompany.vatRate)}`}
                             </span>
                           </span>
                           {selected && <Check className="ml-2 h-4 w-4" />}
@@ -655,14 +664,15 @@ export function SalesOrderFormDialog({
                 </div>
                 {withVat
                   ? (() => {
-                      // The order stores the VAT-exclusive total; VAT is added on top, using
-                      // the same rule the till and the invoice use (shared/tax.ts).
-                      const totals = computeSaleTotals(previewTotal, true, VAT_RATE);
+                      // The order stores the VAT-exclusive total; VAT is added on top at the
+                      // selected company's rate, using the same rule the till and the invoice
+                      // use (shared/tax.ts).
+                      const totals = computeSaleTotals(previewTotal, true, vatRate);
                       return (
                         <>
                           <div className="flex justify-end gap-6">
                             <span className="text-muted-foreground">
-                              VAT ({formatPercent(VAT_RATE)})
+                              VAT ({formatPercent(vatRate)})
                             </span>
                             <span className="font-semibold">
                               {formatCurrency(totals.vatAmount)}

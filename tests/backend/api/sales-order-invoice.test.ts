@@ -117,6 +117,24 @@ describe('Sales Order VAT invoice', () => {
         expect(stored?.vatInvoiceIssuedAt).toBeTruthy();
     });
 
+    it('prints VAT at the rate stored on the order, not the company’s current rate', async () => {
+        // The order was raised while CI charged 5%, and the invoice is issued later.
+        const { order, company } = await seedVatOrder({ vatRate: '0.0500' });
+
+        // CI's rate is corrected in between - the issued invoice must not change.
+        await db
+            .update(vatCompanies)
+            .set({ vatRate: '0.1200' })
+            .where(eq(vatCompanies.id, company.id));
+
+        const invoice = await issueSalesOrderInvoice(order.id);
+
+        // 1,000 excl. VAT at the snapshotted 5% = 50 VAT, 1,050 total.
+        expect(invoice.vatRate).toBeCloseTo(0.05, 4);
+        expect(invoice.vatAmount).toBe(50);
+        expect(invoice.total).toBe(1050);
+    });
+
     it('returns the same document when issued again, without burning a number', async () => {
         const { order, company } = await seedVatOrder();
 

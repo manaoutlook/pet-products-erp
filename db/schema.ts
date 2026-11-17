@@ -343,6 +343,14 @@ export const salesOrders = pgTable("sales_orders", {
   vatCompanyName: varchar("vat_company_name", { length: 200 }),
   vatCompanyTaxId: varchar("vat_company_tax_id", { length: 50 }),
   vatCompanyAddress: text("vat_company_address"),
+  // The rate charged by the company above, copied onto the order when it is saved (fraction;
+  // 0.0800 = 8%). The VAT invoice prints VAT at THIS stored rate, so changing the company's
+  // rate today cannot alter the invoice of an order raised last month.
+  //
+  // `0` means the order carries no VAT company at all. The default of 10% exists for rows
+  // written before the column was added: those orders were invoiced at the standard rate, and a
+  // reprint has to keep producing the same document.
+  vatRate: decimal("vat_rate", { precision: 5, scale: 4 }).notNull().default("0.1000"),
   // The VAT invoice issued for this order, if any. The number comes from the selected
   // company's own sequence (CI-.../HI-...) and is written once: a reprint is the same document,
   // and a correction is a new order with a new number. NULL = no VAT invoice issued yet.
@@ -457,6 +465,15 @@ export const vatCompanies = pgTable("vat_companies", {
   phone: varchar("phone", { length: 50 }),
   email: varchar("email", { length: 200 }),
   bankAccount: text("bank_account"),
+  // The VAT rate this company charges on EVERY invoice it issues, as a fraction
+  // (0.1000 = 10%) - the same unit as `sales_transactions.vat_rate`, not a percentage.
+  // The VAT Companies screen edits it as a percentage and converts with
+  // `percentToRate` / `rateToPercent` (shared/tax.ts).
+  //
+  // AI Agent Note: this is the one place the rate is configured. A till invoice copies it onto
+  // the sale, and a sales order copies it onto the order (`sales_orders.vat_rate`) when the
+  // order is saved - so correcting the rate here can never rewrite a document already issued.
+  vatRate: decimal("vat_rate", { precision: 5, scale: 4 }).notNull().default("0.1000"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

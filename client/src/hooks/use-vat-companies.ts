@@ -20,6 +20,11 @@ export interface VatCompany {
   phone: string | null;
   email: string | null;
   bankAccount: string | null;
+  /**
+   * The rate this company charges on every invoice it issues, as a fraction (`0.08` = 8%).
+   * The VAT Companies screen edits it as a percentage; `rateToPercent` converts it for display.
+   */
+  vatRate: number;
   isActive: boolean;
   /** Labels still blank - while non-empty the company cannot issue a valid VAT invoice. */
   missingFields: string[];
