@@ -290,8 +290,11 @@ describe('Customer Management Tests', () => {
             });
 
             expect(customerWithPurchases?.salesTransactions).toHaveLength(2);
-            expect(customerWithPurchases?.salesTransactions[0].totalAmount).toBe('25000.00');
-            expect(customerWithPurchases?.salesTransactions[1].totalAmount).toBe('15000.00');
+            // `decimal(15,2)` does not arrive as one fixed type: a plain select yields the string
+            // "25000.00", a relational query yields the number 25000. Compare the money value, not
+            // the representation, or this test breaks on a Drizzle upgrade that changes neither.
+            expect(Number(customerWithPurchases?.salesTransactions[0].totalAmount)).toBe(25000);
+            expect(Number(customerWithPurchases?.salesTransactions[1].totalAmount)).toBe(15000);
         });
 
         it('should calculate customer total purchase amount', async () => {
@@ -430,8 +433,10 @@ describe('Customer Management Tests', () => {
             expect(deleted).toBeUndefined();
         });
 
-        it('should handle customer deletion with existing transactions', async () => {
-            // Create customer
+        it('refuses to delete a customer who has sales history', async () => {
+            // A sale is an accounting document, not a customer attribute: deleting the customer
+            // must never take the sale with it (or silently blank the buyer on it), so the foreign
+            // key from sales_transactions holds the profile in place.
             const [customer] = await db.insert(customerProfiles).values({
                 mobileNumber: '0901515151',
                 contactPerson: 'Transaction Customer',
@@ -440,7 +445,6 @@ describe('Customer Management Tests', () => {
                 customerType: 'B2B',
             }).returning();
 
-            // Create transaction for customer
             await db.insert(salesTransactions).values({
                 invoiceNumber: 'INV-DELETE-001',
                 storeId: testData.stores.store1.id,
@@ -452,21 +456,20 @@ describe('Customer Management Tests', () => {
                 status: 'completed',
             });
 
-            // Try to delete customer (this should work - foreign key allows it)
-            await db.delete(customerProfiles).where(eq(customerProfiles.id, customer.id));
+            await expect(
+                db.delete(customerProfiles).where(eq(customerProfiles.id, customer.id))
+            ).rejects.toThrow();
 
-            const deletedCustomer = await db.query.customerProfiles.findFirst({
+            // Both records are still exactly as they were.
+            const survivingCustomer = await db.query.customerProfiles.findFirst({
                 where: eq(customerProfiles.id, customer.id),
             });
+            expect(survivingCustomer?.contactPerson).toBe('Transaction Customer');
 
-            expect(deletedCustomer).toBeUndefined();
-
-            // Transaction should still exist but with null customer reference
             const transaction = await db.query.salesTransactions.findFirst({
                 where: eq(salesTransactions.invoiceNumber, 'INV-DELETE-001'),
             });
-
-            expect(transaction).toBeDefined();
+            expect(transaction?.customerProfileId).toBe(customer.id);
         });
     });
 

@@ -67,17 +67,34 @@ describe('Master Data Management Tests', () => {
         });
 
         it('should delete category', async () => {
-            const category = await db.query.categories.findFirst({
-                where: eq(categories.name, 'Test Category'),
-            });
+            // A category nothing points at can go. ("Test Category" cannot: the seeded product
+            // still references it, and the schema deliberately refuses that - see the next test.)
+            const [unused] = await db.insert(categories).values({
+                name: 'Unused Category',
+                description: 'No products reference this category',
+            }).returning();
 
-            await db.delete(categories).where(eq(categories.id, category!.id));
+            await db.delete(categories).where(eq(categories.id, unused.id));
 
             const deleted = await db.query.categories.findFirst({
-                where: eq(categories.id, category!.id),
+                where: eq(categories.id, unused.id),
             });
 
             expect(deleted).toBeUndefined();
+        });
+
+        it('refuses to delete a category that products still use', async () => {
+            // Deleting the category would orphan priced catalogue rows, so the foreign key blocks
+            // it; the API turns that into a 409 (CATEGORY_ASSIGNED_TO_PRODUCTS) before it gets here.
+            await expect(
+                db.delete(categories).where(eq(categories.id, testData.categories.category.id))
+            ).rejects.toThrow();
+
+            const survivor = await db.query.categories.findFirst({
+                where: eq(categories.id, testData.categories.category.id),
+            });
+
+            expect(survivor?.name).toBe('Test Category');
         });
 
         it('should enforce unique category names', async () => {
@@ -133,17 +150,31 @@ describe('Master Data Management Tests', () => {
         });
 
         it('should delete brand', async () => {
-            const brand = await db.query.brands.findFirst({
-                where: eq(brands.name, 'Test Brand'),
-            });
+            // Same rule as categories: only a brand no product points at may go.
+            const [unused] = await db.insert(brands).values({
+                name: 'Unused Brand',
+                description: 'No products reference this brand',
+            }).returning();
 
-            await db.delete(brands).where(eq(brands.id, brand!.id));
+            await db.delete(brands).where(eq(brands.id, unused.id));
 
             const deleted = await db.query.brands.findFirst({
-                where: eq(brands.id, brand!.id),
+                where: eq(brands.id, unused.id),
             });
 
             expect(deleted).toBeUndefined();
+        });
+
+        it('refuses to delete a brand that products still use', async () => {
+            await expect(
+                db.delete(brands).where(eq(brands.id, testData.brands.brand.id))
+            ).rejects.toThrow();
+
+            const survivor = await db.query.brands.findFirst({
+                where: eq(brands.id, testData.brands.brand.id),
+            });
+
+            expect(survivor?.name).toBe('Test Brand');
         });
 
         it('should enforce unique brand names', async () => {
@@ -264,8 +295,9 @@ describe('Master Data Management Tests', () => {
             expect(inventoryItem?.supplier?.name).toBe('Test Supplier Co.');
         });
 
-        it('should cascade delete relationships properly', async () => {
-            // Create a product with category and brand
+        it('frees a category and a brand once their last product is gone', async () => {
+            // A product holds its category and brand in place. Remove every product that uses them
+            // and the master data becomes deletable - nothing cascades silently in either direction.
             const [product] = await db.insert(products).values({
                 name: 'Cascade Test Product',
                 sku: 'CASCADE-001',
@@ -274,15 +306,27 @@ describe('Master Data Management Tests', () => {
                 brandId: testData.brands.brand.id,
             }).returning();
 
-            // Delete the category
+            await expect(
+                db.delete(categories).where(eq(categories.id, testData.categories.category.id))
+            ).rejects.toThrow();
+
+            // The seeded product carries the same category and brand, so both have to go.
+            await db.delete(products).where(eq(products.id, product.id));
+            await db.delete(products).where(eq(products.id, testData.products.product.id));
+
             await db.delete(categories).where(eq(categories.id, testData.categories.category.id));
+            await db.delete(brands).where(eq(brands.id, testData.brands.brand.id));
 
-            // Product should still exist (category deletion doesn't cascade to products in this schema)
-            const existingProduct = await db.query.products.findFirst({
-                where: eq(products.id, product.id),
-            });
-
-            expect(existingProduct).toBeDefined();
+            expect(
+                await db.query.categories.findFirst({
+                    where: eq(categories.id, testData.categories.category.id),
+                })
+            ).toBeUndefined();
+            expect(
+                await db.query.brands.findFirst({
+                    where: eq(brands.id, testData.brands.brand.id),
+                })
+            ).toBeUndefined();
         });
     });
 });

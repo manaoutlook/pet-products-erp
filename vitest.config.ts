@@ -22,6 +22,10 @@ export default defineConfig({
         pool: 'threads',
         // Longer timeout for database operations
         testTimeout: 15000,
+        // `beforeAll(resetTestDatabase)` drops and recreates the whole schema, which regularly
+        // takes longer than vitest's 10s default once the suite as a whole is under load. It is
+        // slow, not stuck - so give hooks the same generous budget as the tests themselves.
+        hookTimeout: 30000,
         // Environment variables for tests
         env: {
             NODE_ENV: 'test',
