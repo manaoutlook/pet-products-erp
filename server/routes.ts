@@ -50,7 +50,7 @@ import {
 import { z } from "zod";
 import { validateBody, validateParams, idParamSchema } from "./validate";
 import { resolveScope, scopeDenies, scopeStoreFilter } from "./scoping";
-import { getDashboardStats } from "./dashboard-stats";
+import { getDashboardStats, getOrderTrend } from "./dashboard-stats";
 import {
   applyStockChange,
   recordOpeningStock,
@@ -2171,27 +2171,20 @@ export function registerRoutes(app: Express): Server {
   });
 
   //// Orders trend for chart
-  app.get("/api/stats/orders-trend", requirePermission('users', 'read'), async (req, res) => {
-    const user = req.user;
-    if (!user) {
-      return res.status(401).json({ message: "Unauthorized" });
+  app.get("/api/stats/orders-trend", requireAuth, async (req, res) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const scope = await resolveScope(user);
+      // Bucketed by Vietnamese day, last 30 days, store-scoped - see getOrderTrend.
+      res.json(await getOrderTrend(scope));
+    } catch (error) {
+      console.error("Error fetching order trends:", error);
+      res.status(500).json({ message: "Failed to fetch order trends" });
     }
-
-    const scope = await resolveScope(user);
-    const storeFilter = scopeStoreFilter(scope, orders.storeId);
-
-    const trend = await db
-      .select({
-        date: sql<string>`date_trunc('day', created_at)::date`,
-        orders: sql<number>`count(*)`,
-      })
-      .from(orders)
-      .where(storeFilter)
-      .groupBy(sql`date_trunc('day', created_at)`)
-      .orderBy(sql`date_trunc('day', created_at)`)
-      .limit(30);
-
-    res.json(trend);
   });
 
   // Products API - available to all authenticated users

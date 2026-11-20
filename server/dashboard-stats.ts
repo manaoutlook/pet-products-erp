@@ -3,7 +3,13 @@ import { db } from "@db";
 import { inventory, orders, products } from "@db/schema";
 import type { AccessScope } from "./scoping";
 import { scopeStoreFilter } from "./scoping";
-import { endOfVietnamDay, shiftDay, startOfVietnamDay, vietnamDayOf } from "../shared/vietnam-day";
+import {
+  VIETNAM_UTC_OFFSET_MINUTES,
+  endOfVietnamDay,
+  shiftDay,
+  startOfVietnamDay,
+  vietnamDayOf,
+} from "../shared/vietnam-day";
 
 /**
  * The dashboard aggregates.
@@ -24,6 +30,50 @@ export interface DashboardStats {
   growth: number | null;
   totalProducts: number;
   lowStock: { id: number; name: string; sku: string; quantity: number; minStock: number }[];
+}
+
+/** One point on the dashboard's "Order Trends" chart: a Vietnamese day and the orders taken. */
+export interface OrderTrendPoint {
+  /** `YYYY-MM-DD`, a Vietnamese calendar day - the same day the tiles and the finance report use. */
+  date: string;
+  orders: number;
+}
+
+/**
+ * Orders per Vietnamese day for the last `days` days, oldest first.
+ *
+ * AI Agent Note - this used to bucket by `date_trunc('day', created_at)`, which is the *UTC*
+ * day, so the chart disagreed with the tiles above it and with the cash book; it also ordered
+ * ascending and then `limit(30)`, which returns the **oldest** 30 days of trading - after a
+ * month the chart froze on the shop's opening month. Both are fixed here so the chart cannot
+ * drift again without failing a test.
+ */
+export async function getOrderTrend(
+  scope: AccessScope,
+  now: Date = new Date(),
+  days: number = 30
+): Promise<OrderTrendPoint[]> {
+  const today = vietnamDayOf(now) || now.toISOString().slice(0, 10);
+
+  // The stored column is a naive `timestamp` holding UTC wall-clock, so adding the offset in
+  // SQL gives the Vietnamese wall-clock day - the offset comes from shared/vietnam-day.ts.
+  const offsetMinutes = sql.raw(String(VIETNAM_UTC_OFFSET_MINUTES));
+  const day = sql<string>`to_char(${orders.createdAt} + make_interval(mins => ${offsetMinutes}), 'YYYY-MM-DD')`;
+
+  const rows = await db
+    .select({ date: day, orders: sql<number>`count(*)` })
+    .from(orders)
+    .where(
+      and(
+        gte(orders.createdAt, startOfVietnamDay(shiftDay(today, -(days - 1)))),
+        lt(orders.createdAt, endOfVietnamDay(today)),
+        scopeStoreFilter(scope, orders.storeId)
+      )
+    )
+    .groupBy(day)
+    .orderBy(day);
+
+  return rows.map((row) => ({ date: row.date, orders: Number(row.orders ?? 0) }));
 }
 
 /** Shared with the report's revenue growth tile: 12.34% -> 12.3, and `null` when undefined. */
