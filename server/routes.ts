@@ -1,4 +1,8 @@
 import { createServer, type Server } from "http";
+// `Express` is a TYPE, not the global namespace: without this import `app: Express` falls back to
+// the ambient `Express` namespace, `app` becomes `any`, and every `(req, res)` handler below loses
+// its contextual typing (193 implicit-any errors).
+import type { Express } from "express";
 import { setupAuth } from "./auth";
 import { registerStoreRoutes } from "./routes/stores";
 import { registerCompanyRoutes } from "./routes/company";
@@ -46,6 +50,7 @@ import {
 import { z } from "zod";
 import { validateBody, validateParams, idParamSchema } from "./validate";
 import { resolveScope, scopeDenies, scopeStoreFilter } from "./scoping";
+import { getDashboardStats } from "./dashboard-stats";
 import {
   applyStockChange,
   recordOpeningStock,
@@ -2145,39 +2150,20 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Stats API
-  app.get("/api/stats", requirePermission('users', 'read'), async (req, res) => {
+  // Stats API - the dashboard tiles.
+  //
+  // `requireAuth`, not `users:read`: this is a dashboard aggregate, not user data, and a cashier
+  // who may open the till must be able to see today's takings. The aggregates are store-scoped
+  // inside getDashboardStats, exactly like the order lists.
+  app.get("/api/stats", requireAuth, async (req, res) => {
     try {
       const user = req.user;
       if (!user) {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
-      // AI Agent Note: aggregates need the same store filter as the lists, otherwise
-      // a manager's revenue tile still sums every store's orders.
       const scope = await resolveScope(user);
-      const storeFilter = scopeStoreFilter(scope, orders.storeId);
-
-      const [orderStats] = await db
-        .select({
-          totalOrders: sql<number>`count(*)`,
-          revenue: sql<number>`sum(total)`,
-        })
-        .from(orders)
-        .where(
-          and(
-            gte(orders.createdAt, new Date(new Date().setDate(new Date().getDate() - 30))),
-            lt(orders.createdAt, new Date()),
-            storeFilter
-          )
-        );
-
-      res.json({
-        last30Days: {
-          orders: orderStats.totalOrders ?? 0,
-          revenue: orderStats.revenue ?? 0,
-        }
-      });
+      res.json(await getDashboardStats(scope));
     } catch (error) {
       console.error('Error fetching stats:', error);
       res.status(500).send("Failed to fetch stats");

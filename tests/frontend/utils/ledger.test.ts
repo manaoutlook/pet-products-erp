@@ -1,12 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  endOfVietnamDay,
   isLedgerKind,
   ledgerColumnLabels,
   ledgerTotals,
   lineEffect,
-  startOfVietnamDay,
-  vietnamDayOf,
   withRunningBalance,
   type LedgerLine,
 } from "@shared/ledger";
@@ -124,19 +121,3 @@ describe("isLedgerKind", () => {
   });
 });
 
-describe("Vietnamese day boundaries", () => {
-  it("puts a 21:30 UTC receipt on the next Vietnamese day", () => {
-    // 23:30 UTC on the 3rd is 06:30 on the 4th in Ho Chi Minh City.
-    expect(vietnamDayOf("2026-11-03T23:30:00.000Z")).toBe("2026-11-04");
-    expect(vietnamDayOf("2026-11-03T00:30:00.000Z")).toBe("2026-11-03");
-  });
-
-  it("builds day boundaries at UTC+7, not UTC", () => {
-    expect(startOfVietnamDay("2026-11-04").toISOString()).toBe("2026-11-03T17:00:00.000Z");
-    expect(endOfVietnamDay("2026-11-04").toISOString()).toBe("2026-11-04T16:59:59.999Z");
-  });
-
-  it("returns an empty day for an unparseable value instead of Invalid Date", () => {
-    expect(vietnamDayOf("not-a-date")).toBe("");
-  });
-});

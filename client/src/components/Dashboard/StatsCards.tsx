@@ -8,35 +8,51 @@ import { useQuery } from "@tanstack/react-query";
 import { Package, ShoppingCart, TrendingUp, DollarSign } from "lucide-react";
 import { formatPrice } from "@/utils/price";
 
+/**
+ * What `/api/stats` returns. The field names are the contract - see the AI Agent Note on the
+ * route in server/routes.ts.
+ */
+interface DashboardStats {
+  last30Days: { orders: number; revenue: number; from: string; to: string };
+  previous30Days: { orders: number; revenue: number };
+  /** Percentage change in revenue vs the previous 30 days, `null` when there is no history. */
+  growth: number | null;
+  totalProducts: number;
+  lowStock: { id: number; name: string; sku: string; quantity: number; minStock: number }[];
+}
+
 function StatsCards() {
-  const { data: stats } = useQuery({
+  const { data: stats } = useQuery<DashboardStats>({
     queryKey: ['/api/stats'],
   });
 
   const cards = [
     {
-      title: "Total Orders",
-      value: stats?.totalOrders || 0,
+      title: "Orders",
+      value: stats?.last30Days?.orders ?? 0,
       icon: ShoppingCart,
-      description: "Total orders this month",
+      description: "Orders in the last 30 days",
     },
     {
       title: "Revenue",
-      value: formatPrice(stats?.revenue || 0),
+      value: formatPrice(stats?.last30Days?.revenue ?? 0),
       icon: DollarSign,
-      description: "Revenue this month",
+      description: "Revenue in the last 30 days",
     },
     {
       title: "Products",
-      value: stats?.totalProducts || 0,
+      value: stats?.totalProducts ?? 0,
       icon: Package,
-      description: "Active products",
+      description: "Products in the catalogue",
     },
     {
       title: "Growth",
-      value: `${stats?.growth || 0}%`,
+      // A shop with no earlier sales has no percentage to show; "—" says that honestly, where
+      // "0%" would read as "sales were flat".
+      value: stats?.growth == null ? "—" : `${stats.growth}%`,
       icon: TrendingUp,
-      description: "Growth from last month",
+      description:
+        stats?.growth == null ? "No previous 30 days to compare" : "Revenue vs previous 30 days",
     },
   ];
 

@@ -13,11 +13,13 @@ import {
 } from "recharts";
 
 function DashboardPage() {
-  const { data: stats } = useQuery({
+  const { data: stats } = useQuery<{
+    lowStock?: { id: number; name: string; quantity: number; minStock: number }[];
+  }>({
     queryKey: ['/api/stats'],
   });
 
-  const { data: orderTrends } = useQuery({
+  const { data: orderTrends } = useQuery<{ date: string; orders: number }[]>({
     queryKey: ['/api/stats/orders-trend'],
   });
 
@@ -47,12 +49,20 @@ function DashboardPage() {
 
         <Card className="p-6">
           <h2 className="text-lg font-semibold mb-4">Low Stock Alerts</h2>
-          {stats?.lowStock?.map((item: any) => (
-            <div key={item.id} className="flex justify-between items-center py-2">
-              <span>{item.name}</span>
-              <span className="text-destructive">{item.quantity} remaining</span>
-            </div>
-          ))}
+          {stats?.lowStock?.length ? (
+            stats.lowStock.map((item) => (
+              <div key={item.id} className="flex justify-between items-center py-2">
+                <span>{item.name}</span>
+                <span className="text-destructive">
+                  {item.quantity} left · min {item.minStock}
+                </span>
+              </div>
+            ))
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Nothing is below its minimum stock level.
+            </p>
+          )}
         </Card>
       </div>
     </div>

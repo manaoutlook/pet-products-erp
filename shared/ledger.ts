@@ -156,24 +156,17 @@ export function ledgerTotals(lines: readonly LedgerLine[], openingBalance: numbe
   };
 }
 
-/** The day a receipt belongs to on paper. Vietnam is UTC+7 all year, with no DST. */
-export const VIETNAM_UTC_OFFSET_MINUTES = 7 * 60;
+/**
+ * Day boundaries are Vietnamese calendar days, not UTC - see `shared/vietnam-day.ts` for why.
+ *
+ * Re-exported here so a caller that already imports the ledger shapes gets the same day helpers,
+ * but the implementation (and the single copy of the UTC+7 rule) lives in `vietnam-day.ts`.
+ */
+export {
+  VIETNAM_UTC_OFFSET_MINUTES,
+  endOfVietnamDay,
+  startOfVietnamDay,
+  vietnamDayOf,
+} from "./vietnam-day";
 
-export function vietnamDayOf(value: Date | string): string {
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return new Date(date.getTime() + VIETNAM_UTC_OFFSET_MINUTES * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
-}
-
-/** First instant of a Vietnamese calendar day, as a real `Date`. */
-export function startOfVietnamDay(day: string): Date {
-  return new Date(`${day}T00:00:00.000+07:00`);
-}
-
-/** Last instant of a Vietnamese calendar day, as a real `Date`. */
-export function endOfVietnamDay(day: string): Date {
-  return new Date(`${day}T23:59:59.999+07:00`);
-}
 

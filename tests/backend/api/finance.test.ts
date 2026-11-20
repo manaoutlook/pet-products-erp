@@ -14,6 +14,7 @@ import { cleanDatabase, resetSequences, seedTestData } from '../../helpers/test-
 import { createSale } from '../../../server/sales';
 import { recordPayment, voidPayment } from '../../../server/payments';
 import { cashBookLedger, customerStatementLedger } from '../../../server/ledger';
+import { vietnamDayOf } from '../../../shared/vietnam-day';
 import {
   FinanceError,
   createFinanceEntry,
@@ -42,7 +43,9 @@ import {
 describe('financial accounts', () => {
   let data: Awaited<ReturnType<typeof seedTestData>>;
   let ciCompany: typeof vatCompanies.$inferSelect;
-  const today = () => new Date().toISOString().slice(0, 10);
+  // The report speaks in Vietnamese days (UTC+7), so the tests must too: at 06:30 local the UTC
+  // date is still yesterday.
+  const today = () => vietnamDayOf(new Date());
 
   beforeEach(async () => {
     await cleanDatabase();
@@ -403,8 +406,8 @@ describe('financial accounts', () => {
    */
   describe('ledger printing', () => {
     const dayOffset = (days: number) => {
-      const date = new Date();
-      date.setDate(date.getDate() + days);
+      const date = new Date(`${today()}T00:00:00.000Z`);
+      date.setUTCDate(date.getUTCDate() + days);
       return date.toISOString().slice(0, 10);
     };
 
@@ -547,6 +550,48 @@ describe('financial accounts', () => {
       expect(statement.lines).toHaveLength(0);
       expect(statement.totals.closing).toBe(120000);
       expect(statement.totals.count).toBe(0);
+    });
+  });
+
+  /**
+   * The one-day drift an accountant will spot.
+   *
+   * Vietnam is UTC+7, so a receipt taken at 06:30 local on the 4th is stored as 23:30 UTC on the
+   * 3rd. A UTC-boundary report would count it in the 3rd's takings, and "today" would still be
+   * yesterday until 07:00. These tests pin the report to the Vietnamese day, and pin the printed
+   * cash book to the same day, so the screen and the paper cannot disagree.
+   */
+  describe('Vietnamese day boundaries', () => {
+    it('defaults the period to the Vietnamese day, not the UTC day', async () => {
+      // 23:30 UTC on 3 Nov is 06:30 on 4 Nov in Ho Chi Minh City.
+      const summary = await financeSummary({ today: new Date('2026-11-03T23:30:00.000Z') });
+
+      expect(summary.to).toBe('2026-11-04');
+      expect(summary.from).toBe('2026-11-01');
+    });
+
+    it('counts a receipt on the Vietnamese day the money was taken', async () => {
+      await sellTwoUnits(100000);
+
+      const [payment] = await db.select().from(invoicePayments);
+      await db
+        .update(invoicePayments)
+        .set({ paidAt: new Date('2026-11-03T23:30:00.000Z') })
+        .where(eq(invoicePayments.id, payment.id));
+
+      const localDay = await financeSummary({ from: '2026-11-04', to: '2026-11-04' });
+      expect(localDay.income.receipts).toBe(100000);
+      expect(localDay.income.receiptsCount).toBe(1);
+
+      // The UTC day the row is stored under must not claim it.
+      const utcDay = await financeSummary({ from: '2026-11-03', to: '2026-11-03' });
+      expect(utcDay.income.receipts).toBe(0);
+      expect(utcDay.income.receiptsCount).toBe(0);
+
+      // The printed cash book must put the same receipt on the same day.
+      const book = await cashBookLedger({ from: '2026-11-04', to: '2026-11-04' });
+      expect(book.totals.debit).toBe(100000);
+      expect(book.lines.filter((line) => line.source === 'receipt')).toHaveLength(1);
     });
   });
 });

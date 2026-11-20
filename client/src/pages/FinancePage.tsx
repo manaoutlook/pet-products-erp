@@ -69,6 +69,7 @@ import {
   type FundingKind,
 } from "@shared/finance";
 import { PAYMENT_METHODS, type InvoiceStatus } from "@shared/invoice-payment";
+import { vietnamDayOf } from "@shared/vietnam-day";
 
 /**
  * Financial Accounts - the money that is not a customer receipt.
@@ -243,7 +244,9 @@ async function readJson(response: Response) {
 }
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  // Vietnamese day, so the default period matches the printed cash book and the receipt register
+  // (see shared/vietnam-day.ts). A UTC "today" is still yesterday until 07:00 local.
+  return vietnamDayOf(new Date()) || new Date().toISOString().slice(0, 10);
 }
 
 function monthStartIso() {

@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { SearchInput } from "@/components/ui/search-input";
+import { vietnamDayOf } from "@shared/vietnam-day";
 import {
   Table,
   TableBody,
@@ -144,6 +145,16 @@ async function readJson(response: Response) {
   return body;
 }
 
+/**
+ * The Vietnamese day to prefill in "paid on".
+ *
+ * A receipt typed at 06:30 must default to today in Vietnam, not to the UTC day, which is still
+ * yesterday until 07:00 - otherwise the cashier posts the money into the previous day's takings.
+ */
+function todayIso() {
+  return vietnamDayOf(new Date()) || new Date().toISOString().slice(0, 10);
+}
+
 function StatusBadge({ status, label }: { status: InvoiceStatus; label: string }) {
   const { variant, icon: Icon } = STATUS_BADGE[status] ?? STATUS_BADGE.issued;
   return (
@@ -170,7 +181,7 @@ function ReceivablesPage() {
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<PaymentMethod>("BANK_TRANSFER");
   const [reference, setReference] = useState("");
-  const [paidAt, setPaidAt] = useState(new Date().toISOString().slice(0, 10));
+  const [paidAt, setPaidAt] = useState(todayIso());
   const [notes, setNotes] = useState("");
 
   // A void and a cancel both need a written reason, so they share one little dialog.
@@ -309,7 +320,7 @@ function ReceivablesPage() {
   const openPaymentDialog = (invoice: InvoiceRow) => {
     setRecordPaymentFor(invoice);
     setAmount(invoice.balanceDue.toFixed(0));
-    setPaidAt(new Date().toISOString().slice(0, 10));
+    setPaidAt(todayIso());
     setReference("");
     setNotes("");
   };

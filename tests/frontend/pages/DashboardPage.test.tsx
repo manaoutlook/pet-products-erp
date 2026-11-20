@@ -23,7 +23,9 @@ vi.mock('@/components/Dashboard/StatsCards', () => ({
     default: () => <div data-testid="stats-cards" />,
 }));
 
-function renderDashboard(lowStock: Array<{ id: number; name: string; quantity: number }> = []) {
+function renderDashboard(
+    lowStock: Array<{ id: number; name: string; quantity: number; minStock?: number }> = []
+) {
     const queryClient = new QueryClient({
         defaultOptions: {
             queries: {
@@ -63,10 +65,18 @@ describe('DashboardPage charts', () => {
     });
 
     it('renders low stock warnings with the destructive token', async () => {
-        renderDashboard([{ id: 1, name: 'Chew Toy', quantity: 2 }]);
+        renderDashboard([{ id: 1, name: 'Chew Toy', quantity: 2, minStock: 10 }]);
 
-        const warning = await screen.findByText('2 remaining');
+        const warning = await screen.findByText('2 left · min 10');
         expect(warning).toHaveClass('text-destructive');
         expect(screen.getByText('Chew Toy')).toBeInTheDocument();
+    });
+
+    it('says so when nothing is below its minimum level', async () => {
+        renderDashboard([]);
+
+        expect(
+            await screen.findByText('Nothing is below its minimum stock level.')
+        ).toBeInTheDocument();
     });
 });

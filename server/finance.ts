@@ -16,6 +16,7 @@ import {
   partnerBalanceOf,
   validatePartnerWithdrawal,
 } from "../shared/finance";
+import { endOfVietnamDay, startOfVietnamDay, vietnamDayOf } from "../shared/vietnam-day";
 
 /**
  * Financial accounts service.
@@ -425,16 +426,22 @@ export async function createFinancePartner(input: {
  *
  * Only POSTED finance entries count. Receipts count when they are not voided, by `paid_at`, so a
  * receipt dated inside the range belongs to that range no matter when it was typed in.
+ *
+ * The range is Vietnamese calendar days (`shared/vietnam-day.ts`), not UTC: a receipt taken at
+ * 06:30 local is 23:30 UTC the day before, and the printed cash book already uses Vietnam days -
+ * a UTC filter here would make the on-screen total and the paper disagree by one day.
  */
 export async function financeSummary(filters: FinanceSummaryFilters = {}) {
   const today = filters.today ?? new Date();
-  const defaultTo = today.toISOString().slice(0, 10);
+  const defaultTo = vietnamDayOf(today) || today.toISOString().slice(0, 10);
   const to = assertDate(filters.to ?? defaultTo, "To date");
   const from = assertDate(filters.from ?? `${to.slice(0, 7)}-01`, "From date");
   if (from > to) throw new FinanceError("The start date must be on or before the end date", 400);
 
-  const fromDate = new Date(`${from}T00:00:00.000Z`);
-  const toDate = new Date(`${to}T23:59:59.999Z`);
+  // `finance_entries.entry_date` is a plain date column, so it compares against the strings above;
+  // the timestamped tables (receipts, invoices) need the real instants of the local day.
+  const fromDate = startOfVietnamDay(from);
+  const toDate = endOfVietnamDay(to);
 
   const periodWhere = and(
     eq(financeEntries.status, "posted"),

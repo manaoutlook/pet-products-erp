@@ -10,6 +10,7 @@ import {
 import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { InvoiceError, getInvoice, insertInvoicePayment, refreshInvoiceBalance } from "./invoices";
 import { canAcceptPayment, validatePaymentAmount } from "../shared/invoice-payment";
+import { endOfVietnamDay, startOfVietnamDay } from "../shared/vietnam-day";
 import type { DbClient } from "./db-types";
 
 /**
@@ -257,11 +258,12 @@ function receiptWhere(filters: ListReceiptsFilters) {
     conditions.push(sql`${invoicePayments.voidedAt} IS NOT NULL`);
   }
   if (filters.method) conditions.push(eq(invoicePayments.paymentMethod, filters.method));
-  if (filters.from) conditions.push(gte(invoicePayments.paidAt, new Date(filters.from)));
+  // Receipts are counted on the Vietnamese day they were taken (see shared/vietnam-day.ts): a
+  // payment at 06:30 local is stored as 23:30 UTC the day before, so UTC bounds would drop it from
+  // "today" and hand it to yesterday.
+  if (filters.from) conditions.push(gte(invoicePayments.paidAt, startOfVietnamDay(filters.from.slice(0, 10))));
   if (filters.to) {
-    conditions.push(
-      lte(invoicePayments.paidAt, new Date(`${filters.to.slice(0, 10)}T23:59:59.999Z`))
-    );
+    conditions.push(lte(invoicePayments.paidAt, endOfVietnamDay(filters.to.slice(0, 10))));
   }
   if (filters.search?.trim()) {
     const term = `%${filters.search.trim()}%`;

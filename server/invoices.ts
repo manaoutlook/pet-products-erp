@@ -9,6 +9,7 @@ import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql, type SQL } from
 import type { DbClient } from "./db-types";
 import { generateReceiptNumber } from "./receipt-counter";
 import { computeSaleTotals, toVatRate } from "../shared/tax";
+import { endOfVietnamDay, startOfVietnamDay } from "../shared/vietnam-day";
 import {
   AGING_BUCKETS,
   DEFAULT_PAYMENT_TERM_DAYS,
@@ -388,9 +389,11 @@ function invoiceWhere(filters: ListInvoicesFilters): SQL | undefined {
   if (filters.customerProfileId) {
     conditions.push(eq(invoices.customerProfileId, filters.customerProfileId));
   }
-  if (filters.from) conditions.push(gte(invoices.issuedAt, new Date(filters.from)));
+  if (filters.from) conditions.push(gte(invoices.issuedAt, startOfVietnamDay(filters.from.slice(0, 10))));
   if (filters.to) {
-    conditions.push(lte(invoices.issuedAt, new Date(`${filters.to.slice(0, 10)}T23:59:59.999Z`)));
+    // Vietnamese day, not UTC: an invoice issued at 06:30 local is stored as 23:30 UTC the day
+    // before, and belongs to the local day on every report and printed sheet.
+    conditions.push(lte(invoices.issuedAt, endOfVietnamDay(filters.to.slice(0, 10))));
   }
   if (filters.search?.trim()) {
     const term = `%${filters.search.trim()}%`;

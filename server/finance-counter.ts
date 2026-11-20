@@ -1,6 +1,7 @@
 import { db } from "@db";
 import { invoiceCounters } from "@db/schema";
 import { and, eq, isNull, sql } from "drizzle-orm";
+import { vietnamDayOf } from "../shared/vietnam-day";
 import type { DbClient } from "./db-types";
 
 /**
@@ -62,7 +63,8 @@ export async function generateFinanceEntryNumber(executor?: DbClient): Promise<s
       .where(eq(invoiceCounters.id, counter.id))
       .returning({ currentNumber: invoiceCounters.currentNumber });
 
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    // Vietnamese day, so the date inside the document number matches the date printed on it.
+    const dateStr = vietnamDayOf(new Date()).replace(/-/g, "");
     return `${generateFinancePrefix()}${dateStr}-${updated.currentNumber
       .toString()
       .padStart(4, "0")}`;
