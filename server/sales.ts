@@ -11,6 +11,7 @@ import {
 } from "@db/schema";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { generateInvoiceNumber, generateVatCompanyInvoiceNumber } from "./invoice-counter";
+import { cancelInvoiceForSale, registerPosSaleInvoice } from "./invoices";
 import { applyStockChange, recordStockMovements } from "./stock-ledger";
 import { computeSaleTotals, toVatRate } from "../shared/tax";
 import { VAT_COMPANY_SEEDS } from "../shared/invoice";
@@ -54,6 +55,15 @@ export interface CreateSaleInput {
    * editing the customer profile later must not change an invoice already issued.
    */
   buyer?: SaleBuyerInput | null;
+  /**
+   * Money the customer actually handed over. Omitted = the sale is settled in full at the till.
+   *
+   * AI Agent Note - this does NOT change the sale: the invoice is always issued for the full
+   * value (`total_amount`), and `amountPaidNow` only decides whether the receivable starts as
+   * `paid` (full), `partially_paid` (deposit) or `issued` (a customer who will pay later).
+   * Never pass the paid amount as the sale total - that would understate the document.
+   */
+  amountPaidNow?: number | null;
 }
 
 /**
@@ -395,6 +405,36 @@ export async function createSale(input: CreateSaleInput) {
       })),
     );
 
+    // ---------------------------------------------------------------------------------
+    // The receivable of this sale
+    // ---------------------------------------------------------------------------------
+    // One invoice per sale, written in the same transaction as the sale itself: a sale can
+    // never exist without the debt it created, and a failed registration rolls the sale back.
+    // The invoice copies `subtotal`/`vat_rate`/`vat_amount`/`total_amount` from the sale - it
+    // does NOT recompute them, so the document and the receivable always quote the same money.
+    // `amountPaidNow` (default: the full total) becomes the first payment receipt.
+    await registerPosSaleInvoice(tx, {
+      invoiceNumber,
+      kind: withVat ? 'VAT' : 'RETAIL',
+      source: 'POS_SALE',
+      salesTransactionId: salesTransaction.id,
+      vatCompanyId: vatCompany?.id ?? null,
+      customerProfileId: customerProfileId || null,
+      buyerName: buyerSnapshot.companyName?.trim() || buyerSnapshot.name,
+      storeId,
+      paymentTermDays: 0,
+      subtotal: totals.subtotal,
+      vatRate: totals.vatRate,
+      vatAmount: totals.vatAmount,
+      totalAmount: totals.total,
+      amountPaidNow:
+        input.amountPaidNow === null || input.amountPaidNow === undefined
+          ? undefined
+          : Number(input.amountPaidNow),
+      paymentMethod,
+      userId,
+    });
+
     await tx.insert(salesTransactionActions).values({
       salesTransactionId: salesTransaction.id,
       actionType: 'sale_completed',
@@ -594,6 +634,15 @@ export async function refundSale(input: RefundSaleInput) {
       performedByUserId: userId,
     });
 
+    // The money went back to the customer, so the receivable is closed too: the invoice is
+    // stamped CANCELLED and its receipts are voided (money returned), all in this transaction.
+    // The document is not deleted - the customer's copy must remain explainable.
+    await cancelInvoiceForSale(tx, {
+      salesTransactionId: transactionId,
+      userId,
+      reason: reason?.trim() || `Sale refunded (${requestedRefund})`,
+    });
+
     return { refundAmount: requestedRefund };
   });
 }
@@ -657,6 +706,14 @@ export async function cancelSale(input: CancelSaleInput) {
       actionType: 'transaction_cancelled',
       actionData: actionData({ reason: reason || 'Cancelled by user', cancelledBy: userId }),
       performedByUserId: userId,
+    });
+
+    // A cancelled sale is not owed to anybody: cancel the receivable with it, in the same
+    // transaction, and void the receipts taken at the till.
+    await cancelInvoiceForSale(tx, {
+      salesTransactionId: transactionId,
+      userId,
+      reason: reason?.trim() || 'Sale cancelled',
     });
   });
 }

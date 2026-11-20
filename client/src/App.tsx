@@ -33,6 +33,9 @@ const SalesOrdersPage = lazy(() => import("./pages/SalesOrdersPage"));
 const DeliveryNotesPage = lazy(() => import("./pages/DeliveryNotesPage"));
 const CustomerProfilesPage = lazy(() => import("./pages/CustomerProfilesPage"));
 const ReceiptsPage = lazy(() => import("./pages/ReceiptsPage"));
+const ReceivablesPage = lazy(() => import("./pages/ReceivablesPage"));
+const FinancePage = lazy(() => import("./pages/FinancePage"));
+const LedgerPage = lazy(() => import("./pages/LedgerPage"));
 const RegionPage = lazy(() => import("./pages/RegionPage"));
 const CompanyProfilePage = lazy(() => import("./pages/CompanyProfilePage"));
 const VatCompaniesPage = lazy(() => import("./pages/VatCompaniesPage"));
@@ -85,6 +88,18 @@ function App() {
             </Route>
             <Route path="/receipts">
               <RequirePermission module="receipts" action="read"><ReceiptsPage /></RequirePermission>
+            </Route>
+            {/* Receivables: what customers still owe, and the receipts that settle it. */}
+            <Route path="/receivables">
+              <RequirePermission module="receipts" action="read"><ReceivablesPage /></RequirePermission>
+            </Route>
+            {/* Financial accounts: expense/income entries, partner capital, and the money report. */}
+            <Route path="/finance">
+              <RequirePermission module="finance" action="read"><FinancePage /></RequirePermission>
+            </Route>
+            {/* Ledger printing: the printable cash book and customer statements (read-only). */}
+            <Route path="/finance/ledger">
+              <RequirePermission module="finance" action="read"><LedgerPage /></RequirePermission>
             </Route>
             <Route path="/purchase-orders">
               <RequirePermission module="orders" action="read"><PurchaseOrdersPage /></RequirePermission>

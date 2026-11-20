@@ -248,6 +248,7 @@ function AdjustmentForm({ mode, rows, canAdjust }: AdjustmentFormProps) {
         description: data.adjustment.movementWritten
           ? `${selected?.productName ?? "Stock"} is now ${data.adjustment.quantityAfter}, was ${data.adjustment.quantityBefore}.`
           : data.message,
+        variant: data.adjustment.movementWritten ? "success" : "destructive",
       });
       setAmount("");
       refreshLedgers();
@@ -575,7 +576,7 @@ export default function StockAdjustmentsPage() {
         </CardHeader>
         <CardContent>
           <div className="rounded-md border">
-            <Table>
+            <Table className="min-w-[1000px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>When</TableHead>

@@ -72,7 +72,8 @@ function RolesPage() {
           stores: { create: false, read: false, update: false, delete: false },
           masterData: { create: false, read: false, update: false, delete: false },
           pos: { create: false, read: false, update: false, delete: false },
-          receipts: { create: false, read: false, update: false, delete: false }
+          receipts: { create: false, read: false, update: false, delete: false },
+          finance: { create: false, read: false, update: false, delete: false },
         }
       };
 
@@ -124,7 +125,8 @@ function RolesPage() {
           stores: { create: false, read: true, update: false, delete: false },
           masterData: { create: false, read: false, update: false, delete: false },
           pos: { create: false, read: false, update: false, delete: false },
-          receipts: { create: false, read: false, update: false, delete: false }
+          receipts: { create: false, read: false, update: false, delete: false },
+          finance: { create: false, read: false, update: false, delete: false },
         }
       };
 
@@ -230,7 +232,8 @@ function RolesPage() {
           stores: { create: false, read: true, update: false, delete: false },
           masterData: { create: false, read: false, update: false, delete: false },
           pos: { create: false, read: false, update: false, delete: false },
-          receipts: { create: false, read: false, update: false, delete: false }
+          receipts: { create: false, read: false, update: false, delete: false },
+          finance: { create: false, read: false, update: false, delete: false },
         }
       };
 

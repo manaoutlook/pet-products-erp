@@ -44,6 +44,20 @@ describe('checkHierarchicalPermission', () => {
         expect(checkHierarchicalPermission('staff', 'products', 'read')).toBe(false);
     });
 
+    it('keeps the financial accounts behind their own permission', () => {
+        // A cashier who can sell has no business reading the company's money book.
+        expect(checkHierarchicalPermission('staff', 'finance', 'read', {
+            pos: { create: true, read: true },
+        })).toBe(false);
+
+        const bookkeeper = { finance: { create: true, read: true, update: false, delete: false } };
+        expect(checkHierarchicalPermission('staff', 'finance', 'read', bookkeeper)).toBe(true);
+        expect(checkHierarchicalPermission('staff', 'finance', 'create', bookkeeper)).toBe(true);
+        // Voiding an entry is an update; the bookkeeper posts but never deletes.
+        expect(checkHierarchicalPermission('staff', 'finance', 'update', bookkeeper)).toBe(false);
+        expect(checkHierarchicalPermission('staff', 'finance', 'delete', bookkeeper)).toBe(false);
+    });
+
     it('denies unknown hierarchy levels outright', () => {
         expect(checkHierarchicalPermission('contractor', 'products', 'read', {
             products: { read: true },

@@ -461,11 +461,11 @@ export function ReceiptPrinter({ receiptData, company, onPrint, onClose }: Recei
               <div key={index} className="mb-2">
                   <div className="flex justify-between">
                     <span className="flex-1">{item.product.name}</span>
-                    <span>${Number(item.unitPrice).toFixed(2)}</span>
+                    <span>{formatCurrency(item.unitPrice)}</span>
                   </div>
                   <div className="flex justify-between text-xs text-slate-600">
                     <span>Qty: {item.quantity}</span>
-                    <span>Total: ${Number(item.totalPrice).toFixed(2)}</span>
+                    <span>Total: {formatCurrency(item.totalPrice)}</span>
                   </div>
               </div>
             ))}
@@ -477,7 +477,7 @@ export function ReceiptPrinter({ receiptData, company, onPrint, onClose }: Recei
           <div className="mb-4">
             <div className="flex justify-between">
               <span>Subtotal:</span>
-              <span>${receiptData.subtotal.toFixed(2)}</span>
+              <span>{formatCurrency(receiptData.subtotal)}</span>
             </div>
             <div className="flex justify-between">
               <span>{vatLineLabel(receiptData)}:</span>
@@ -486,7 +486,7 @@ export function ReceiptPrinter({ receiptData, company, onPrint, onClose }: Recei
             <div className="border-t-2 border-slate-800 my-2"></div>
             <div className="flex justify-between font-bold text-lg">
               <span>TOTAL:</span>
-              <span>${receiptData.total.toFixed(2)}</span>
+              <span>{formatCurrency(receiptData.total)}</span>
             </div>
           </div>
 

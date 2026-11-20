@@ -23,7 +23,8 @@ async function seedUsersAndRoles() {
           stores: { create: false, read: true, update: false, delete: false },
           masterData: { create: false, read: true, update: false, delete: false },
           pos: { create: true, read: true, update: true, delete: false },
-          receipts: { create: true, read: true, update: true, delete: false }
+          receipts: { create: true, read: true, update: true, delete: false },
+          finance: { create: true, read: true, update: true, delete: false },
         }
       },
       {
@@ -38,7 +39,7 @@ async function seedUsersAndRoles() {
           stores: { create: false, read: true, update: false, delete: false },
           masterData: { create: false, read: true, update: false, delete: false },
           pos: { create: true, read: true, update: true, delete: false },
-          receipts: { create: true, read: true, update: true, delete: false }
+          receipts: { create: true, read: true, update: true, delete: false },
         }
       },
       {
@@ -53,7 +54,7 @@ async function seedUsersAndRoles() {
           stores: { create: false, read: true, update: false, delete: false },
           masterData: { create: true, read: true, update: true, delete: false },
           pos: { create: false, read: true, update: false, delete: false },
-          receipts: { create: false, read: true, update: false, delete: false }
+          receipts: { create: false, read: true, update: false, delete: false },
         }
       },
       {
@@ -68,7 +69,7 @@ async function seedUsersAndRoles() {
           stores: { create: false, read: true, update: false, delete: false },
           masterData: { create: false, read: true, update: false, delete: false },
           pos: { create: false, read: true, update: false, delete: false },
-          receipts: { create: true, read: true, update: false, delete: false }
+          receipts: { create: true, read: true, update: false, delete: false },
         }
       },
       {
@@ -84,7 +85,8 @@ async function seedUsersAndRoles() {
           stores: { create: true, read: true, update: true, delete: false },
           masterData: { create: true, read: true, update: true, delete: true },
           pos: { create: true, read: true, update: true, delete: true },
-          receipts: { create: true, read: true, update: true, delete: true }
+          receipts: { create: true, read: true, update: true, delete: true },
+          finance: { create: true, read: true, update: true, delete: false },
         }
       },
       {
@@ -101,6 +103,7 @@ async function seedUsersAndRoles() {
           masterData: { create: true, read: true, update: true, delete: true },
           pos: { create: true, read: true, update: true, delete: true },
           receipts: { create: true, read: true, update: true, delete: true },
+          finance: { create: true, read: true, update: true, delete: true },
           customerProfiles: { create: true, read: true, update: true, delete: true }
         }
       }

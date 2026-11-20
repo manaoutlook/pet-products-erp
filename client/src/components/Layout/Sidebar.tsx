@@ -31,7 +31,8 @@ import {
   ListIcon,
   ArrowRight,
   ShoppingBag,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Wallet
 } from "lucide-react";
 import { useState } from "react";
 
@@ -39,7 +40,7 @@ interface NavItem {
   name: string;
   href?: string;
   icon: any;
-  module?: 'products' | 'orders' | 'inventory' | 'users' | 'stores' | 'masterData' | 'pos' | 'receipts' | 'customerProfiles';
+  module?: 'products' | 'orders' | 'inventory' | 'users' | 'stores' | 'masterData' | 'pos' | 'receipts' | 'finance' | 'customerProfiles';
   action?: 'create' | 'read' | 'update' | 'delete';
   adminOnly?: boolean;
   children?: NavItem[];
@@ -205,6 +206,20 @@ function Sidebar() {
       href: "/receipts",
       icon: ListIcon,
       module: 'receipts', // Receipts now has its own permission
+      action: 'read'
+    },
+    {
+      name: "Receivables",
+      href: "/receivables",
+      icon: Wallet,
+      module: 'receipts', // Same permission: the people who handle money see what is owed
+      action: 'read'
+    },
+    {
+      name: "Financial Accounts",
+      href: "/finance",
+      icon: Landmark,
+      module: 'finance', // Expenses, other income and partner capital live behind their own permission
       action: 'read'
     },
     {

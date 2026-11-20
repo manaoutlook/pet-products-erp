@@ -31,7 +31,38 @@ interface SalesOrderListRow {
   customerName: string;
   status: string;
   orderDate?: string | null;
+  companyName?: string | null;
+  contactPerson?: string | null;
+  phone?: string | null;
+  deliveryAddress?: string | null;
+  /**
+   * The VAT company chosen when the order was raised. Copied onto the note at issue, so the
+   * printed sheet names the same issuer as the order and the invoice.
+   */
+  vatCompanyCode?: string | null;
+  vatCompanyName?: string | null;
+  vatCompanyTaxId?: string | null;
+  vatCompanyAddress?: string | null;
   items?: SalesOrderListLine[] | null;
+}
+
+/**
+ * The note row returned by POST /api/delivery-notes - the snapshot the server actually saved.
+ *
+ * Printing from the created row (not from the order in the list) keeps the first print and a
+ * later reprint from the Delivery Notes screen on the same letterhead.
+ */
+interface IssuedDeliveryNote {
+  deliveryNoteNumber?: string;
+  deliveryDate?: string;
+  companyName?: string | null;
+  contactPerson?: string | null;
+  phone?: string | null;
+  deliveryAddress?: string | null;
+  vatCompanyCode?: string | null;
+  vatCompanyName?: string | null;
+  vatCompanyTaxId?: string | null;
+  vatCompanyAddress?: string | null;
 }
 
 /** What the user typed for one order line. */
@@ -202,12 +233,13 @@ export function DeliveryNoteFormDialog({
 
       return response.json();
     },
-    onSuccess: (result: { deliveryNote?: { deliveryNoteNumber?: string; deliveryDate?: string } }) => {
+    onSuccess: (result: { deliveryNote?: IssuedDeliveryNote }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/delivery-notes"] });
       // The order status and the per-line tallies moved inside the same transaction.
       queryClient.invalidateQueries({ queryKey: ["/api/sales-orders"] });
 
-      const number = result?.deliveryNote?.deliveryNoteNumber;
+      const issued = result?.deliveryNote;
+      const number = issued?.deliveryNoteNumber;
       toast({
         title: "Delivery note issued",
         description: number ? `${number} is ready to print` : "The delivery note has been saved",
@@ -218,8 +250,20 @@ export function DeliveryNoteFormDialog({
       if (selectedOrder && number) {
         setIssuedNote({
           deliveryNoteNumber: number,
-          deliveryDate: result.deliveryNote?.deliveryDate ?? new Date().toISOString(),
+          deliveryDate: issued?.deliveryDate ?? new Date().toISOString(),
           customerName: selectedOrder.customerName,
+          // The customer block and the VAT company letterhead were copied from the order when
+          // the note was issued. Read them back off the created note - the same row a reprint
+          // from the Delivery Notes screen loads - so this first print cannot fall back to the
+          // shop's own Company Profile while the reprint shows the VAT company.
+          companyName: issued?.companyName ?? selectedOrder.companyName ?? null,
+          contactPerson: issued?.contactPerson ?? selectedOrder.contactPerson ?? null,
+          phone: issued?.phone ?? selectedOrder.phone ?? null,
+          deliveryAddress: issued?.deliveryAddress ?? selectedOrder.deliveryAddress ?? null,
+          vatCompanyCode: issued?.vatCompanyCode ?? selectedOrder.vatCompanyCode ?? null,
+          vatCompanyName: issued?.vatCompanyName ?? selectedOrder.vatCompanyName ?? null,
+          vatCompanyTaxId: issued?.vatCompanyTaxId ?? selectedOrder.vatCompanyTaxId ?? null,
+          vatCompanyAddress: issued?.vatCompanyAddress ?? selectedOrder.vatCompanyAddress ?? null,
           remarks: remarks.trim() || null,
           salesOrder: { orderNumber: selectedOrder.orderNumber },
           items: shippingLines.map(({ line, draft }) => ({

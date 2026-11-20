@@ -21,6 +21,7 @@ interface Permissions {
   masterData: Permission;
   pos: Permission;
   receipts: Permission;
+  finance: Permission;
   customerProfiles: Permission;
 }
 

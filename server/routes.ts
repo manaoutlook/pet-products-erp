@@ -5,6 +5,7 @@ import { registerCompanyRoutes } from "./routes/company";
 import { registerVatCompanyRoutes } from "./routes/vat-companies";
 import { registerSalesOrderRoutes, registerSalesOrderWriteRoutes } from "./routes/sales-orders";
 import { registerDeliveryNoteRoutes } from "./routes/delivery-notes";
+import { registerFinanceRoutes } from "./routes/finance";
 import { db } from "@db";
 import {
   buildProductDeletionError,
@@ -56,6 +57,20 @@ import { adjustStock, listStockTake } from "./stock-adjust";
 import { listInventoryTransactions } from "./inventory-transactions";
 import { crypto } from "./auth";
 import { createSale, refundSale, cancelSale, SaleError } from "./sales";
+import {
+  InvoiceError,
+  backfillInvoices,
+  cancelInvoice,
+  getInvoice,
+  listInvoices,
+} from "./invoices";
+import {
+  getPayment,
+  listInvoicePayments,
+  listReceipts,
+  recordPayment,
+  voidPayment,
+} from "./payments";
 import {
   InvoiceDocumentError,
   archiveIssuedInvoiceDocument,
@@ -162,6 +177,16 @@ const createSaleSchema = z.object({
   vatCompanyId: z.number().int().positive().nullish(),
   // The buyer block for a VAT invoice, snapshotted onto the sale by createSale.
   buyer: saleBuyerSchema.nullish(),
+  // How much of the sale is paid right now. Omitted = the whole thing (a normal counter sale);
+  // a smaller amount leaves a balance on the sale's invoice, which is then collected through
+  // /api/invoices/:id/payments (a business customer on credit).
+  amountPaidNow: z
+    .union([z.number(), z.string(), z.null()])
+    .optional()
+    .transform((value) => (value === null || value === undefined || value === '' ? undefined : Number(value)))
+    .refine((value) => value === undefined || (Number.isFinite(value) && value >= 0), {
+      message: "The amount paid must be zero or more",
+    }),
 });
 
 const refundSaleSchema = z.object({
@@ -176,6 +201,27 @@ const refundSaleSchema = z.object({
 const cancelSaleSchema = z.object({
   reason: z.string().max(500, "Reason must be 500 characters or fewer").optional(),
 });
+
+// Receivables: one receipt against an invoice. The amount is deliberately a raw number or text
+// here and validated by shared/invoice-payment.ts, which is the same rule the UI shows, so
+// "1.500.000" typed into a text box fails with a readable sentence instead of a zod dump.
+const recordInvoicePaymentSchema = z.object({
+  amount: z.union([z.number(), z.string()]),
+  paymentMethod: z.string().trim().min(1, "Choose how the money was received").max(20),
+  paidAt: z.union([z.string(), z.null(), z.undefined()]).optional(),
+  reference: z.string().max(100, "Reference must be 100 characters or fewer").nullish(),
+  notes: z.string().max(500, "Notes must be 500 characters or fewer").nullish(),
+  storeId: z.number().int().positive().nullish(),
+});
+
+const voidInvoicePaymentSchema = z.object({
+  reason: z.string().trim().min(1, "A reason is required to void a receipt").max(500),
+});
+
+const cancelInvoiceSchema = z.object({
+  reason: z.string().max(500, "Reason must be 500 characters or fewer").optional(),
+});
+
 
 const checkStockSchema = z.object({
   items: z.array(saleItemSchema).min(1, "Provide at least one item"),
@@ -334,6 +380,11 @@ export function registerRoutes(app: Express): Server {
   registerSalesOrderRoutes(app);
   registerSalesOrderWriteRoutes(app);
   registerDeliveryNoteRoutes(app);
+
+  // Financial accounts: the manual money book (expenses, other income, partner capital) and the
+  // report that adds it to the invoice receipts owned by Receivables. Registered after the order
+  // documents because `GET /api/finance/outstanding` reads the same invoices they issue.
+  registerFinanceRoutes(app);
 
   // Purchase Orders endpoints
   app.get("/api/purchase-orders", requireAuth, async (req, res) => {
@@ -1066,6 +1117,7 @@ export function registerRoutes(app: Express): Server {
         masterData: { create: true, read: true, update: true, delete: true },
         pos: { create: true, read: true, update: true, delete: true },
         receipts: { create: true, read: true, update: true, delete: true },
+        finance: { create: true, read: true, update: true, delete: true },
         customerProfiles: { create: true, read: true, update: true, delete: true }
       } : {
         products: { create: false, read: true, update: false, delete: false },
@@ -1076,6 +1128,7 @@ export function registerRoutes(app: Express): Server {
         masterData: { create: false, read: false, update: false, delete: false },
         pos: { create: false, read: false, update: false, delete: false },
         receipts: { create: false, read: false, update: false, delete: false },
+        finance: { create: false, read: false, update: false, delete: false },
         customerProfiles: { create: false, read: false, update: false, delete: false }
       });
 
@@ -3762,7 +3815,7 @@ export function registerRoutes(app: Express): Server {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
-      const { items, paymentMethod, customerProfileId, transactionType, withVat, vatCompanyId, buyer } = req.body;
+      const { items, paymentMethod, customerProfileId, transactionType, withVat, vatCompanyId, buyer, amountPaidNow } = req.body;
 
       const transaction = await createSale({
         userId: user.id,
@@ -3773,6 +3826,7 @@ export function registerRoutes(app: Express): Server {
         withVat,
         vatCompanyId,
         buyer,
+        amountPaidNow,
       });
 
       res.json({
@@ -3780,7 +3834,9 @@ export function registerRoutes(app: Express): Server {
         transaction,
       });
     } catch (error) {
-      if (error instanceof SaleError) {
+      // A sale writes its invoice in the same transaction, so an invoice problem (e.g. "paid more
+      // than the sale is worth") is a sale problem and must not surface as a 500.
+      if (error instanceof SaleError || error instanceof InvoiceError) {
         return res.status(error.status).json({
           message: error.message,
           ...(error.suggestion ? { suggestion: error.suggestion } : {}),
@@ -4159,6 +4215,269 @@ export function registerRoutes(app: Express): Server {
           message: "Failed to archive the invoice document",
           suggestion: "Please try again later"
         });
+      }
+    }
+  );
+
+  // ---------------------------------------------------------------------------------
+  // Receivables: invoices and payment receipts
+  // ---------------------------------------------------------------------------------
+  // GET  /api/invoices                      - the outstanding report (totals + aging)
+  // GET  /api/invoices/:id                  - one invoice with its receipts
+  // GET  /api/invoices/:id/payments         - the receipts of one invoice
+  // POST /api/invoices/:id/payments         - record a receipt (partial payments)
+  // POST /api/invoices/:id/cancel           - cancel (refuses while receipts exist)
+  // POST /api/invoices/backfill             - register sales made before receivables existed
+  // GET  /api/invoice-payments              - the customer-receipt register (RCPT-…)
+  // GET  /api/invoice-payments/:id          - one receipt (reprint)
+  // POST /api/invoice-payments/:id/void     - void a receipt, keeping the row
+  //
+  // AI Agent Note: these endpoints never change what an invoice SAYS - the sale value, the VAT
+  // and the buyer are snapshots written at issue time (server/invoices.ts). Recording money only
+  // moves `amount_paid` / `balance_due`; a mistake is a void with a reason, never an edit or a
+  // delete. Permission module is `receipts`, the same one that gates refunds and cancellation of
+  // an issued sale.
+  //
+  // A sales-order invoice has no `store_id` (it is a company document shipped from whichever
+  // warehouse had stock, and sales orders are not store-scoped either), so store scoping only
+  // applies to till invoices. A storeless invoice is therefore visible to any user who holds
+  // the permission - the same rule GET /api/sales-orders applies.
+
+  /** Load an invoice and refuse one from a store the user cannot see (as a 404, not a 403). */
+  const loadInvoiceForUser = async (invoiceId: number, user: any) => {
+    const invoice = await getInvoice(invoiceId);
+    const scope = await resolveScope(user);
+    if (invoice.storeId != null && scopeDenies(scope, invoice.storeId)) {
+      throw new InvoiceError('Invoice not found', 404, 'Reload the receivables list');
+    }
+    return invoice;
+  };
+
+  /** The one place invoice/payment errors turn into JSON, so every route answers alike. */
+  const handleInvoiceError = (res: any, error: unknown, fallback: string) => {
+    if (error instanceof InvoiceError) {
+      return res.status(error.status).json({
+        message: error.message,
+        ...(error.suggestion ? { suggestion: error.suggestion } : {}),
+      });
+    }
+    console.error(`${fallback}:`, error instanceof Error ? error.message : error);
+    return res.status(500).json({
+      message: fallback,
+      suggestion: "Please try again later",
+    });
+  };
+
+  app.get(
+    "/api/invoices",
+    requirePermission('receipts', 'read'),
+    async (req, res) => {
+      try {
+        const scope = await resolveScope(req.user!);
+
+        res.json(
+          await listInvoices({
+            status: typeof req.query.status === 'string' ? req.query.status : undefined,
+            kind: typeof req.query.kind === 'string' ? req.query.kind : undefined,
+            source: typeof req.query.source === 'string' ? req.query.source : undefined,
+            search: typeof req.query.search === 'string' ? req.query.search : undefined,
+            from: typeof req.query.from === 'string' ? req.query.from : undefined,
+            to: typeof req.query.to === 'string' ? req.query.to : undefined,
+            customerProfileId: req.query.customerProfileId
+              ? Number(req.query.customerProfileId)
+              : undefined,
+            limit: req.query.limit ? Number(req.query.limit) : undefined,
+            offset: req.query.offset ? Number(req.query.offset) : undefined,
+            storeIds: scope.kind === 'global' ? null : scope.storeIds,
+          })
+        );
+      } catch (error) {
+        handleInvoiceError(res, error, "Failed to load the receivables report");
+      }
+    }
+  );
+
+  app.get(
+    "/api/invoices/:id",
+    requirePermission('receipts', 'read'),
+    validateParams(idParamSchema, "Use a numeric invoice id"),
+    async (req, res) => {
+      try {
+        const invoice = await loadInvoiceForUser(Number(req.params.id), req.user);
+        res.json({ invoice });
+      } catch (error) {
+        handleInvoiceError(res, error, "Failed to load the invoice");
+      }
+    }
+  );
+
+  app.get(
+    "/api/invoices/:id/payments",
+    requirePermission('receipts', 'read'),
+    validateParams(idParamSchema, "Use a numeric invoice id"),
+    async (req, res) => {
+      try {
+        const invoice = await loadInvoiceForUser(Number(req.params.id), req.user);
+        res.json({ payments: await listInvoicePayments(invoice.id) });
+      } catch (error) {
+        handleInvoiceError(res, error, "Failed to load the invoice receipts");
+      }
+    }
+  );
+
+  app.post(
+    "/api/invoices/:id/payments",
+    requirePermission('receipts', 'update'),
+    validateParams(idParamSchema, "Use a numeric invoice id"),
+    validateBody(recordInvoicePaymentSchema, "Check the amount, method and date"),
+    async (req, res) => {
+      try {
+        const user = req.user!;
+        const invoice = await loadInvoiceForUser(Number(req.params.id), user);
+
+        // The receipt belongs to the shop that took the money. A scoped user may only book it to
+        // a store they are assigned to; global users may leave it empty, in which case it follows
+        // the invoice's store (or stays storeless for a sales order invoice).
+        const scope = await resolveScope(user);
+        const requestedStoreId: number | null = req.body.storeId ?? null;
+        if (
+          requestedStoreId != null &&
+          scope.kind !== 'global' &&
+          !scope.storeIds.includes(requestedStoreId)
+        ) {
+          return res.status(403).json({
+            message: "You cannot record money for that store",
+            suggestion: "Pick a store you are assigned to",
+          });
+        }
+
+        const result = await recordPayment({
+          invoiceId: invoice.id,
+          amount: req.body.amount,
+          paymentMethod: req.body.paymentMethod,
+          paidAt: req.body.paidAt,
+          reference: req.body.reference,
+          notes: req.body.notes,
+          userId: user.id,
+          storeId: requestedStoreId ?? (scope.kind === 'global' ? null : scope.storeIds[0] ?? null),
+        });
+
+        res.status(201).json({
+          message: "Payment recorded",
+          receiptNumber: result.payment.receiptNumber,
+          payment: result.payment,
+          invoice: result.invoice,
+        });
+      } catch (error) {
+        handleInvoiceError(res, error, "Failed to record the payment");
+      }
+    }
+  );
+
+  app.post(
+    "/api/invoices/:id/cancel",
+    requirePermission('receipts', 'update'),
+    validateParams(idParamSchema, "Use a numeric invoice id"),
+    validateBody(cancelInvoiceSchema, "Check the cancellation reason"),
+    async (req, res) => {
+      try {
+        const user = req.user!;
+        const invoice = await loadInvoiceForUser(Number(req.params.id), user);
+
+        const cancelled = await cancelInvoice({
+          invoiceId: invoice.id,
+          userId: user.id,
+          reason: req.body.reason,
+        });
+
+        res.json({ message: "Invoice cancelled", invoice: cancelled });
+      } catch (error) {
+        handleInvoiceError(res, error, "Failed to cancel the invoice");
+      }
+    }
+  );
+
+  app.post(
+    "/api/invoices/backfill",
+    requirePermission('receipts', 'update'),
+    async (req, res) => {
+      try {
+        // `?dryRun=true` counts what would be created without writing anything, so the numbers can
+        // be checked before the receivables register is touched.
+        const dryRun = req.query.dryRun === 'true' || req.body?.dryRun === true;
+        res.json(await backfillInvoices({ dryRun }));
+      } catch (error) {
+        handleInvoiceError(res, error, "Failed to backfill the receivables register");
+      }
+    }
+  );
+
+  app.get(
+    "/api/invoice-payments",
+    requirePermission('receipts', 'read'),
+    async (req, res) => {
+      try {
+        const scope = await resolveScope(req.user!);
+        const status = req.query.status;
+
+        res.json(
+          await listReceipts({
+            status: status === 'active' || status === 'voided' ? status : undefined,
+            method: typeof req.query.method === 'string' ? req.query.method : undefined,
+            search: typeof req.query.search === 'string' ? req.query.search : undefined,
+            from: typeof req.query.from === 'string' ? req.query.from : undefined,
+            to: typeof req.query.to === 'string' ? req.query.to : undefined,
+            limit: req.query.limit ? Number(req.query.limit) : undefined,
+            offset: req.query.offset ? Number(req.query.offset) : undefined,
+            storeIds: scope.kind === 'global' ? null : scope.storeIds,
+          })
+        );
+      } catch (error) {
+        handleInvoiceError(res, error, "Failed to load the customer receipts");
+      }
+    }
+  );
+
+  app.get(
+    "/api/invoice-payments/:id",
+    requirePermission('receipts', 'read'),
+    validateParams(idParamSchema, "Use a numeric receipt id"),
+    async (req, res) => {
+      try {
+        const payment = await getPayment(Number(req.params.id));
+        // The receipt inherits the invoice's store, so the same scope rule decides visibility.
+        await loadInvoiceForUser(payment.invoiceId, req.user);
+        res.json({ payment });
+      } catch (error) {
+        handleInvoiceError(res, error, "Failed to load the receipt");
+      }
+    }
+  );
+
+  app.post(
+    "/api/invoice-payments/:id/void",
+    requirePermission('receipts', 'update'),
+    validateParams(idParamSchema, "Use a numeric receipt id"),
+    validateBody(voidInvoicePaymentSchema, "Give a reason for voiding the receipt"),
+    async (req, res) => {
+      try {
+        const user = req.user!;
+        const receipt = await getPayment(Number(req.params.id));
+        await loadInvoiceForUser(receipt.invoiceId, user);
+
+        const result = await voidPayment({
+          paymentId: receipt.id,
+          userId: user.id,
+          reason: req.body.reason,
+        });
+
+        res.json({
+          message: "Receipt voided",
+          payment: result.payment,
+          invoice: result.invoice,
+        });
+      } catch (error) {
+        handleInvoiceError(res, error, "Failed to void the receipt");
       }
     }
   );

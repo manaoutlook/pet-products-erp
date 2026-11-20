@@ -82,7 +82,7 @@ describe('ReceiptPrinter preview', () => {
 
         expect(screen.getByText('DC-20261107-0001')).toBeTruthy();
         expect(screen.getByText('Royal Canin <Adult>')).toBeTruthy();
-        expect(screen.getByText('$44000.00')).toBeTruthy();
+        expect(screen.getByText(/44\.000\s*₫/)).toBeTruthy();
         expect(screen.getByText(/Qty: 1/)).toBeTruthy();
     });
 
@@ -152,7 +152,7 @@ describe('ReceiptPrinter print sheet', () => {
         // Content is carried over, and user-entered text is escaped.
         expect(html).toContain('DC-20261107-0001');
         expect(html).toContain('Royal Canin &lt;Adult&gt;');
-        expect(html).toContain('$44000.00');
+        expect(html).toMatch(/44\.000\s*₫/);
 
         // Footer branding is shared with the preview and the jsPDF export - a receipt that
         // is printed must not advertise a different domain from the one on screen.

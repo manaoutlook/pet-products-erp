@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll } from 'vitest';
-import { db } from '../../../../db';
+import { db } from '../../db';
 import {
     users,
     roles,
@@ -14,7 +14,7 @@ import {
     transferRequests,
     customerProfiles,
     userStoreAssignments
-} from '../../../../db/schema';
+} from '../../db/schema';
 import { cleanDatabase, resetSequences, seedTestData, resetTestDatabase } from '../helpers/test-db';
 import { eq } from 'drizzle-orm';
 
@@ -29,6 +29,7 @@ const ROLE_PERMISSIONS = {
         masterData: { create: true, read: true, update: true, delete: true },
         pos: { create: true, read: true, update: true, delete: true },
         receipts: { create: true, read: true, update: true, delete: true },
+        finance: { create: true, read: true, update: true, delete: true },
     },
     store_manager: {
         products: { create: true, read: true, update: true, delete: false },
@@ -39,6 +40,7 @@ const ROLE_PERMISSIONS = {
         masterData: { create: false, read: true, update: false, delete: false },
         pos: { create: true, read: true, update: true, delete: false },
         receipts: { create: true, read: true, update: true, delete: false },
+        finance: { create: true, read: true, update: true, delete: false },
     },
     sales_associate: {
         products: { create: false, read: true, update: false, delete: false },
@@ -49,6 +51,7 @@ const ROLE_PERMISSIONS = {
         masterData: { create: false, read: true, update: false, delete: false },
         pos: { create: true, read: true, update: true, delete: false },
         receipts: { create: true, read: true, update: true, delete: false },
+        finance: { create: true, read: true, update: true, delete: false },
     },
     inventory_clerk: {
         products: { create: false, read: true, update: false, delete: false },
@@ -59,6 +62,7 @@ const ROLE_PERMISSIONS = {
         masterData: { create: true, read: true, update: true, delete: false },
         pos: { create: false, read: true, update: false, delete: false },
         receipts: { create: false, read: true, update: false, delete: false },
+        finance: { create: false, read: true, update: false, delete: false },
     },
     customer_service: {
         products: { create: false, read: true, update: false, delete: false },
@@ -69,6 +73,7 @@ const ROLE_PERMISSIONS = {
         masterData: { create: false, read: true, update: false, delete: false },
         pos: { create: false, read: true, update: false, delete: false },
         receipts: { create: true, read: true, update: false, delete: false },
+        finance: { create: true, read: true, update: false, delete: false },
     }
 };
 
@@ -207,14 +212,19 @@ describe('Role-Based Access Control Integration Tests', () => {
         });
 
         it('should NOT allow store manager to create users (users.create: false)', async () => {
-            // In real API, this would be blocked
-            await expect(async () => {
-                await db.insert(users).values({
-                    username: 'new_user_by_manager',
-                    password: 'password',
-                    roleId: testData.roles.manager.id,
-                });
-            }).rejects.toThrow(); // This should fail due to foreign key if role doesn't exist
+            // The permission map is the gate - the API checks users.create before it ever
+            // reaches the users table, so the stored role must carry the false flag.
+            expect(ROLE_PERMISSIONS.store_manager.users.create).toBe(false);
+
+            const [saved] = await db.insert(roles).values({
+                name: 'store_manager_denied_users_test',
+                isSystemAdmin: false,
+                permissions: ROLE_PERMISSIONS.store_manager,
+            }).returning();
+
+            const stored = saved.permissions as typeof ROLE_PERMISSIONS.store_manager;
+            expect(stored.users.create).toBe(false);
+            expect(stored.users.read).toBe(true);
         });
     });
 
@@ -379,6 +389,12 @@ describe('Role-Based Access Control Integration Tests', () => {
         });
 
         it('should allow customer service to read all data (read permissions)', async () => {
+            await db.insert(inventory).values({
+                productId: testData.products.product.id,
+                storeId: testData.stores.store1.id,
+                quantity: 5,
+            });
+
             const productsList = await db.select().from(products);
             const inventoryList = await db.select().from(inventory);
             const storesList = await db.select().from(stores);
@@ -447,6 +463,7 @@ describe('Role-Based Access Control Integration Tests', () => {
                     masterData: { create: true, read: true, update: true, delete: true },
                     pos: { create: true, read: true, update: true, delete: true },
                     receipts: { create: true, read: true, update: true, delete: true },
+                    finance: { create: true, read: true, update: true, delete: true },
                 },
             }).returning();
 

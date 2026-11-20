@@ -190,6 +190,7 @@ export async function seedTestData() {
             masterData: { create: true, read: true, update: true, delete: true },
             pos: { create: true, read: true, update: true, delete: true },
             receipts: { create: true, read: true, update: true, delete: true },
+            finance: { create: true, read: true, update: true, delete: true },
         },
     }).returning();
 
@@ -206,6 +207,7 @@ export async function seedTestData() {
             masterData: { create: false, read: true, update: false, delete: false },
             pos: { create: true, read: true, update: true, delete: false },
             receipts: { create: true, read: true, update: true, delete: false },
+            finance: { create: true, read: true, update: true, delete: false },
         },
     }).returning();
 

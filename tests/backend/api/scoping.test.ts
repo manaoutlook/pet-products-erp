@@ -16,6 +16,7 @@ const allPermissions = {
   masterData: { create: true, read: true, update: true, delete: true },
   pos: { create: true, read: true, update: true, delete: true },
   receipts: { create: true, read: true, update: true, delete: true },
+  finance: { create: true, read: true, update: true, delete: true },
 };
 
 describe('resolveScope', () => {

@@ -2,6 +2,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@db";
 import { salesOrderItems, salesOrders } from "@db/schema";
 import { generateVatCompanyInvoiceNumber } from "./invoice-counter";
+import { ensureSalesOrderInvoiceRegistered } from "./invoices";
 import { computeSaleTotals, toVatRate } from "../shared/tax";
 import { vatCompanyMissingFields } from "../shared/vat-company";
 import type { InvoiceLine, SalesOrderInvoicePayload } from "../shared/invoice";
@@ -179,6 +180,9 @@ export async function issueSalesOrderInvoice(
 
     // Already issued: return the same document. Never allocate a second number.
     if (order.vatInvoiceNumber) {
+      // ...but make sure the receivable exists (orders invoiced before the `invoices` table
+      // was introduced get their row on the first reprint). Idempotent.
+      await ensureSalesOrderInvoiceRegistered(tx, orderId);
       return buildSalesOrderInvoicePayload(order as OrderWithItems);
     }
 
@@ -208,6 +212,11 @@ export async function issueSalesOrderInvoice(
         "Reload the order and print the issued invoice."
       );
     }
+
+    // The tax invoice is a document; this row is what is owed against it. Written in the same
+    // transaction, so an issued number can never exist without its receivable (and the order's
+    // customer can settle it in instalments through server/payments.ts).
+    await ensureSalesOrderInvoiceRegistered(tx, orderId);
 
     return buildSalesOrderInvoicePayload({
       ...order,

@@ -41,6 +41,7 @@ interface Permissions {
   masterData: Permission;
   pos: Permission;
   receipts: Permission;
+  finance: Permission;
   customerProfiles: Permission;
 }
 
@@ -143,6 +144,7 @@ function RolePermissionsPage() {
     { key: 'masterData' as const, label: 'Master Data Module' },
     { key: 'pos' as const, label: 'Point of Sales Module' },
     { key: 'receipts' as const, label: 'Receipts Module' },
+    { key: 'finance' as const, label: 'Financial Accounts Module' },
     { key: 'customerProfiles' as const, label: 'Customer Profiles Module' },
   ];
 

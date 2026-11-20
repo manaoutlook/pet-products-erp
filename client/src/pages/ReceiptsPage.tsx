@@ -57,6 +57,8 @@ import { usePermissions } from "@/hooks/use-permissions";
 import { useCompanyInfo } from "@/hooks/use-company";
 import { ReceiptPrinter, type ReceiptData } from "@/components/POS/ReceiptPrinter";
 import { InvoicePrintDialog } from "@/components/POS/InvoicePrint";
+import { CustomerReceiptsPanel } from "@/components/Receipts/CustomerReceiptsPanel";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { InvoicePayload } from "@shared/invoice";
 
 interface SalesTransaction {
@@ -98,7 +100,43 @@ interface SalesTransaction {
   }>;
 }
 
+type ReceiptsTab = "till" | "customer";
+
+/**
+ * Deep link: `/receipts?tab=customer` opens the customer-receipt register straight away.
+ *
+ * The Finance report sends the owner here when they click the "Money in" figure or the
+ * "Customer receipts" income row, so the transaction behind the total is one click away.
+ */
+function tabFromLocation(): ReceiptsTab {
+  if (typeof window === "undefined") return "till";
+  return new URLSearchParams(window.location.search).get("tab") === "customer"
+    ? "customer"
+    : "till";
+}
+
 function ReceiptsPage() {
+  const [tab, setTab] = useState<ReceiptsTab>(tabFromLocation);
+
+  /**
+   * Keep the address bar in step with the visible tab, so a refresh (or a shared link) lands on
+   * the same register. `replaceState` avoids filling history with tab switches.
+   */
+  const handleTabChange = (value: string) => {
+    const next: ReceiptsTab = value === "customer" ? "customer" : "till";
+    setTab(next);
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (next === "customer") params.set("tab", "customer");
+    else params.delete("tab");
+    const query = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${query ? `?${query}` : ""}`
+    );
+  };
+
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedReceipt, setSelectedReceipt] = useState<ReceiptData | null>(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
@@ -375,7 +413,9 @@ function ReceiptsPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Receipt Management</h1>
           <p className="text-muted-foreground">
-            Search, view, print, and manage transaction receipts
+            Till receipts prove a sale; customer receipts prove money received against an invoice.
+            Two registers, two numbering series - a <code>DC-</code> sale is never the same
+            document as an <code>RCPT-</code> payment, even when the trailing digits match.
           </p>
         </div>
         <Button
@@ -387,224 +427,237 @@ function ReceiptsPage() {
         </Button>
       </div>
 
-      {/* Search */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Search className="h-5 w-5" />
-            Search Receipts
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex gap-4">
-            <div className="flex-1">
-              <Label htmlFor="search">Search by Invoice Number, Transaction ID, or Customer</Label>
-              <SearchInput
-                id="search"
-                containerClassName="mt-1"
-                placeholder="e.g., STR001-20241210-0001, 123, or customer name"
-                value={searchTerm}
-                onValueChange={setSearchTerm}
-              />
-            </div>
-            <div className="flex items-end">
-              <Button
-                onClick={() => receiptsQuery.refetch()}
-                disabled={receiptsQuery.isLoading}
-              >
-                <Search className="h-4 w-4 mr-2" />
-                Search
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <Tabs value={tab} onValueChange={handleTabChange} className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="till">Till receipts</TabsTrigger>
+          <TabsTrigger value="customer">Customer receipts</TabsTrigger>
+        </TabsList>
 
-      {/* Receipts Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Receipt className="h-5 w-5" />
-            Transaction Receipts
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {receiptsQuery.isLoading ? (
-            <div className="text-center py-8">
-              <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4 text-muted-foreground" />
-              <p className="text-muted-foreground">Loading receipts...</p>
-            </div>
-          ) : receiptsQuery.data && receiptsQuery.data.length > 0 ? (
-            <>
-            <TableControlsBar controls={receiptsTable} noun="receipts" />
-            <Table className="table-actions-sticky min-w-[1100px]">
-              <TableHeader>
-                <TableRow>
-                  <ColumnHeader controls={receiptsTable} columnKey="invoiceNumber" label="Invoice #" filterPlaceholder="Filter invoice #" />
-                  <ColumnHeader controls={receiptsTable} columnKey="transactionDate" label="Date" filterPlaceholder="Filter date" />
-                  <ColumnHeader controls={receiptsTable} columnKey="cashier" label="Cashier" filterPlaceholder="Filter cashier" />
-                  <ColumnHeader controls={receiptsTable} columnKey="store" label="Store" filterPlaceholder="Filter store" />
-                  <ColumnHeader controls={receiptsTable} columnKey="total" label="Amount" filterPlaceholder="Filter amount" />
-                  <ColumnHeader controls={receiptsTable} columnKey="status" label="Status" filterPlaceholder="Filter status" />
-                  <TableHead className="align-top text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {receiptsTable.rows.map((transaction: SalesTransaction) => (
-                  <TableRow key={transaction.id}>
-                    <TableCell className="font-medium">
-                      {transaction.invoiceNumber}
-                    </TableCell>
-                    <TableCell>
-                      {formatDate(transaction.transactionDate)}
-                    </TableCell>
-                    <TableCell>
-                      {transaction.cashierUser?.username || 'Unknown'}
-                    </TableCell>
-                    <TableCell>
-                      {transaction.store?.name || 'DC'}
-                    </TableCell>
-                    <TableCell>
-                      {formatCurrency(transaction.totalAmount)}
-                    </TableCell>
-                    <TableCell>
-                      {getStatusBadge(transaction.status)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleViewReceipt(transaction)}
-                        >
-                          <Eye className="h-4 w-4 mr-1" />
-                          View
-                        </Button>
+        <TabsContent value="till" className="space-y-6">
+          {/* Search */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Search className="h-5 w-5" />
+                Search Receipts
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <Label htmlFor="search">Search by Invoice Number, Transaction ID, or Customer</Label>
+                  <SearchInput
+                    id="search"
+                    containerClassName="mt-1"
+                    placeholder="e.g., STR001-20241210-0001, 123, or customer name"
+                    value={searchTerm}
+                    onValueChange={setSearchTerm}
+                  />
+                </div>
+                <div className="flex items-end">
+                  <Button
+                    onClick={() => receiptsQuery.refetch()}
+                    disabled={receiptsQuery.isLoading}
+                  >
+                    <Search className="h-4 w-4 mr-2" />
+                    Search
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleViewReceipt(transaction)}
-                        >
-                          <Printer className="h-4 w-4 mr-1" />
-                          Print
-                        </Button>
+          {/* Receipts Table */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Receipt className="h-5 w-5" />
+                Transaction Receipts
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {receiptsQuery.isLoading ? (
+                <div className="text-center py-8">
+                  <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4 text-muted-foreground" />
+                  <p className="text-muted-foreground">Loading receipts...</p>
+                </div>
+              ) : receiptsQuery.data && receiptsQuery.data.length > 0 ? (
+                <>
+                <TableControlsBar controls={receiptsTable} noun="receipts" />
+                <Table className="table-actions-sticky min-w-[1100px]">
+                  <TableHeader>
+                    <TableRow>
+                      <ColumnHeader controls={receiptsTable} columnKey="invoiceNumber" label="Invoice #" filterPlaceholder="Filter invoice #" />
+                      <ColumnHeader controls={receiptsTable} columnKey="transactionDate" label="Date" filterPlaceholder="Filter date" />
+                      <ColumnHeader controls={receiptsTable} columnKey="cashier" label="Cashier" filterPlaceholder="Filter cashier" />
+                      <ColumnHeader controls={receiptsTable} columnKey="store" label="Store" filterPlaceholder="Filter store" />
+                      <ColumnHeader controls={receiptsTable} columnKey="total" label="Amount" filterPlaceholder="Filter amount" />
+                      <ColumnHeader controls={receiptsTable} columnKey="status" label="Status" filterPlaceholder="Filter status" />
+                      <TableHead className="align-top text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {receiptsTable.rows.map((transaction: SalesTransaction) => (
+                      <TableRow key={transaction.id}>
+                        <TableCell className="font-medium">
+                          {transaction.invoiceNumber}
+                        </TableCell>
+                        <TableCell>
+                          {formatDate(transaction.transactionDate)}
+                        </TableCell>
+                        <TableCell>
+                          {transaction.cashierUser?.username || 'Unknown'}
+                        </TableCell>
+                        <TableCell>
+                          {transaction.store?.name || 'DC'}
+                        </TableCell>
+                        <TableCell>
+                          {formatCurrency(transaction.totalAmount)}
+                        </TableCell>
+                        <TableCell>
+                          {getStatusBadge(transaction.status)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleViewReceipt(transaction)}
+                            >
+                              <Eye className="h-4 w-4 mr-1" />
+                              View
+                            </Button>
 
-                        {/*
-                          The A4 tax invoice. Rebuilt from the stored sale and printed from the
-                          archived copy, so it is byte-for-byte the document that was issued -
-                          including the product names as they were then.
-                        */}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openInvoice(transaction.id)}
-                        >
-                          <FileText className="h-4 w-4 mr-1" />
-                          Invoice
-                        </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleViewReceipt(transaction)}
+                            >
+                              <Printer className="h-4 w-4 mr-1" />
+                              Print
+                            </Button>
 
-                        {hasPermission('receipts', 'update') && canCancel(transaction) && (
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button variant="outline" size="sm" className="text-orange-600">
-                                <X className="h-4 w-4 mr-1" />
-                                Cancel
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Cancel Transaction</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Are you sure you want to cancel transaction {transaction.invoiceNumber}?
-                                  This action cannot be undone.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={() => handleCancelTransaction(transaction.id)}
-                                  className="bg-orange-600 hover:bg-orange-700"
-                                >
-                                  Cancel Transaction
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        )}
+                            {/*
+                              The A4 tax invoice. Rebuilt from the stored sale and printed from the
+                              archived copy, so it is byte-for-byte the document that was issued -
+                              including the product names as they were then.
+                            */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openInvoice(transaction.id)}
+                            >
+                              <FileText className="h-4 w-4 mr-1" />
+                              Invoice
+                            </Button>
 
-                        {hasPermission('receipts', 'update') && canRefund(transaction) && (
-                          <Dialog>
-                            <DialogTrigger asChild>
-                              <Button variant="outline" size="sm" className="text-green-600">
-                                <DollarSign className="h-4 w-4 mr-1" />
-                                Refund
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                              <DialogHeader>
-                                <DialogTitle>Process Refund</DialogTitle>
-                              </DialogHeader>
-                              <div className="space-y-4">
-                                <div>
-                                  <Label htmlFor="refund-amount">Refund Amount (leave empty for full refund)</Label>
-                                  <Input
-                                    id="refund-amount"
-                                    type="number"
-                                    step="0.01"
-                                    placeholder={`Max: $${parseFloat(transaction.totalAmount).toFixed(2)}`}
-                                    value={refundAmount}
-                                    onChange={(e) => setRefundAmount(e.target.value)}
-                                    className="mt-1"
-                                  />
-                                </div>
-                                <div>
-                                  <Label htmlFor="refund-reason">Reason for Refund</Label>
-                                  <Input
-                                    id="refund-reason"
-                                    placeholder="Customer request, defective product, etc."
-                                    value={refundReason}
-                                    onChange={(e) => setRefundReason(e.target.value)}
-                                    className="mt-1"
-                                  />
-                                </div>
-                                <div className="flex justify-end gap-2">
-                                  <Button
-                                    variant="outline"
-                                    onClick={() => {
-                                      setRefundAmount("");
-                                      setRefundReason("");
-                                    }}
-                                  >
+                            {hasPermission('receipts', 'update') && canCancel(transaction) && (
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="outline" size="sm" className="text-orange-600">
+                                    <X className="h-4 w-4 mr-1" />
                                     Cancel
                                   </Button>
-                                  <Button
-                                    variant="create"
-                                    onClick={() => handleRefundTransaction(transaction.id)}
-                                  >
-                                    Process Refund
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Cancel Transaction</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Are you sure you want to cancel transaction {transaction.invoiceNumber}?
+                                      This action cannot be undone.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      onClick={() => handleCancelTransaction(transaction.id)}
+                                      className="bg-orange-600 hover:bg-orange-700"
+                                    >
+                                      Cancel Transaction
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            )}
+
+                            {hasPermission('receipts', 'update') && canRefund(transaction) && (
+                              <Dialog>
+                                <DialogTrigger asChild>
+                                  <Button variant="outline" size="sm" className="text-green-600">
+                                    <DollarSign className="h-4 w-4 mr-1" />
+                                    Refund
                                   </Button>
-                                </div>
-                              </div>
-                            </DialogContent>
-                          </Dialog>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            </>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              <Receipt className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p className="text-lg font-medium">No receipts found</p>
-              <p className="text-sm">Try adjusting your search criteria</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                                </DialogTrigger>
+                                <DialogContent>
+                                  <DialogHeader>
+                                    <DialogTitle>Process Refund</DialogTitle>
+                                  </DialogHeader>
+                                  <div className="space-y-4">
+                                    <div>
+                                      <Label htmlFor="refund-amount">Refund Amount (leave empty for full refund)</Label>
+                                      <Input
+                                        id="refund-amount"
+                                        type="number"
+                                        step="0.01"
+                                        placeholder={`Max: $${parseFloat(transaction.totalAmount).toFixed(2)}`}
+                                        value={refundAmount}
+                                        onChange={(e) => setRefundAmount(e.target.value)}
+                                        className="mt-1"
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label htmlFor="refund-reason">Reason for Refund</Label>
+                                      <Input
+                                        id="refund-reason"
+                                        placeholder="Customer request, defective product, etc."
+                                        value={refundReason}
+                                        onChange={(e) => setRefundReason(e.target.value)}
+                                        className="mt-1"
+                                      />
+                                    </div>
+                                    <div className="flex justify-end gap-2">
+                                      <Button
+                                        variant="outline"
+                                        onClick={() => {
+                                          setRefundAmount("");
+                                          setRefundReason("");
+                                        }}
+                                      >
+                                        Cancel
+                                      </Button>
+                                      <Button
+                                        variant="create"
+                                        onClick={() => handleRefundTransaction(transaction.id)}
+                                      >
+                                        Process Refund
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </DialogContent>
+                              </Dialog>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                </>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Receipt className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p className="text-lg font-medium">No receipts found</p>
+                  <p className="text-sm">Try adjusting your search criteria</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="customer" className="space-y-6">
+          <CustomerReceiptsPanel company={company} />
+        </TabsContent>
+      </Tabs>
 
       {/* Receipt Modal - the card scrolls internally (see ReceiptPrinter), so the overlay only
           centres it. Do not add another max-h/overflow wrapper here: two scroll areas fight. */}

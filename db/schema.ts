@@ -16,6 +16,7 @@ type Permissions = {
   masterData: { create: boolean; read: boolean; update: boolean; delete: boolean };
   pos: { create: boolean; read: boolean; update: boolean; delete: boolean };
   receipts: { create: boolean; read: boolean; update: boolean; delete: boolean };
+  finance: { create: boolean; read: boolean; update: boolean; delete: boolean };
 };
 
 // Roles table with proper JSONB handling and hierarchy levels
@@ -582,6 +583,187 @@ export const salesTransactionActions = pgTable("sales_transaction_actions", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Invoices table - the receivables register (one invoice per sale / sales order)
+//
+// AI Agent Note - why this table exists at all, and what it is NOT:
+//
+// `sales_transactions` is the record of a counter sale; `sales_orders` is the record of an
+// order. Neither has room for the one thing a credit sale needs: how much of the document has
+// been PAID so far. This table is the AR (accounts receivable) side of an issued document:
+//
+//   - one row per document (`source` = POS_SALE | SALES_ORDER). The unique indexes make a
+//     second invoice for the same sale/order impossible;
+//   - `total_amount` / `vat_amount` / `subtotal` / `vat_rate` are a SNAPSHOT copied from the
+//     source document at registration time. They are never recomputed and never updated -
+//     the rule "the money is computed once" (shared/tax.ts) still holds. Partial payments only
+//     move `amount_paid` / `balance_due`, never the invoice value;
+//   - `amount_paid` and `balance_due` are a cache of the sum of `invoice_payments` rows. They
+//     are written in the same transaction that inserts a payment, under a row lock
+//     (`SELECT ... FOR UPDATE`, see server/payments.ts). Recompute from the payments table if
+//     they ever disagree;
+//   - status is the DB truth: 'issued' | 'partially_paid' | 'paid' | 'cancelled'. 'overdue' is
+//     DERIVED at read time from `due_date` (see shared/invoice-payment.ts) because a row cannot
+//     become overdue without someone touching it.
+export const invoices = pgTable("invoices", {
+  id: serial("id").primaryKey(),
+  invoiceNumber: varchar("invoice_number", { length: 50 }).notNull().unique(),
+  // 'VAT' (a licensed company's tax invoice) | 'RETAIL' (the shop's own receipt document)
+  kind: varchar("kind", { length: 10 }).notNull(),
+  // 'POS_SALE' | 'SALES_ORDER'
+  source: varchar("source", { length: 20 }).notNull(),
+  salesTransactionId: integer("sales_transaction_id").references(() => salesTransactions.id),
+  salesOrderId: integer("sales_order_id").references(() => salesOrders.id),
+  vatCompanyId: integer("vat_company_id").references(() => vatCompanies.id),
+  customerProfileId: integer("customer_profile_id").references(() => customerProfiles.id),
+  // Buyer name copied for the receivables list, so the report does not need a join per row.
+  buyerName: text("buyer_name").notNull().default(""),
+  storeId: integer("store_id").references(() => stores.id),
+  issuedAt: timestamp("issued_at").notNull().defaultNow(),
+  // When the balance becomes past due. NULL = no credit term (the invoice is due on issue).
+  dueDate: date("due_date"),
+  currency: varchar("currency", { length: 3 }).notNull().default("VND"),
+  subtotal: decimal("subtotal", { precision: 15, scale: 2 }).notNull().default("0"),
+  vatRate: decimal("vat_rate", { precision: 5, scale: 4 }).notNull().default("0"),
+  vatAmount: decimal("vat_amount", { precision: 15, scale: 2 }).notNull().default("0"),
+  totalAmount: decimal("total_amount", { precision: 15, scale: 2 }).notNull(),
+  amountPaid: decimal("amount_paid", { precision: 15, scale: 2 }).notNull().default("0"),
+  balanceDue: decimal("balance_due", { precision: 15, scale: 2 }).notNull().default("0"),
+  status: varchar("status", { length: 20 }).notNull().default("issued"),
+  statusUpdatedAt: timestamp("status_updated_at").defaultNow(),
+  // Cancelling an invoice never deletes anything: the document is stamped, the reason and the
+  // user are kept, and its recorded payments stay visible (they must be refunded separately).
+  cancelledAt: timestamp("cancelled_at"),
+  cancelledByUserId: integer("cancelled_by_user_id").references(() => users.id),
+  cancelReason: text("cancel_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  // One invoice per source document. Postgres treats NULLs as distinct, so the POS index only
+  // constrains POS_SALE rows and the order index only SALES_ORDER rows.
+  salesTransactionUnique: uniqueIndex("invoices_sales_transaction_unique").on(
+    table.salesTransactionId
+  ),
+  salesOrderUnique: uniqueIndex("invoices_sales_order_unique").on(table.salesOrderId),
+  sourceIndex: index("invoices_source_status_idx").on(table.source, table.status),
+  issuedAtIndex: index("invoices_issued_at_idx").on(table.issuedAt),
+  dueDateIndex: index("invoices_due_date_idx").on(table.dueDate),
+  amountsNonNegative: check(
+    "invoices_amounts_non_negative",
+    sql`${table.totalAmount} >= 0 AND ${table.amountPaid} >= 0 AND ${table.balanceDue} >= 0`
+  ),
+  sourceConsistency: check(
+    "invoices_source_consistency",
+    sql`(${table.source} = 'POS_SALE' AND ${table.salesTransactionId} IS NOT NULL AND ${table.salesOrderId} IS NULL)
+      OR (${table.source} = 'SALES_ORDER' AND ${table.salesOrderId} IS NOT NULL AND ${table.salesTransactionId} IS NULL)`
+  ),
+}));
+
+// Invoice Payments table - one row = one payment receipt against an invoice
+//
+// AI Agent Note: a payment is a document of its own (it gets its own `RCPT-YYYYMMDD-NNNN`
+// number, see server/receipt-counter.ts) because a customer who pays in three instalments
+// needs three pieces of paper. Nothing here may touch the invoice's `total_amount` - the debt
+// shrinks, the document value does not.
+export const invoicePayments = pgTable("invoice_payments", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoice_id").notNull().references(() => invoices.id),
+  receiptNumber: varchar("receipt_number", { length: 50 }).notNull().unique(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  paymentMethod: varchar("payment_method", { length: 20 }).notNull(),
+  paidAt: timestamp("paid_at").notNull().defaultNow(),
+  // Bank transfer reference / cheque number / anything the customer will quote back.
+  reference: varchar("reference", { length: 100 }),
+  notes: text("notes"),
+  receivedByUserId: integer("received_by_user_id").notNull().references(() => users.id),
+  storeId: integer("store_id").references(() => stores.id),
+  // A receipt is never edited. A wrong one is voided (reason + who + when) and the invoice
+  // balance is recomputed; the original row stays for the audit trail.
+  voidedAt: timestamp("voided_at"),
+  voidedByUserId: integer("voided_by_user_id").references(() => users.id),
+  voidReason: text("void_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  invoiceIndex: index("invoice_payments_invoice_idx").on(table.invoiceId),
+  paidAtIndex: index("invoice_payments_paid_at_idx").on(table.paidAt),
+  amountPositive: check("invoice_payments_amount_positive", sql`${table.amount} > 0`),
+}));
+
+// Finance Partners - the people who put money into the company (capital or a temporary loan).
+//
+// AI Agent Note: a partner is a NAMED counterparty, not a free-text string, because a
+// withdrawal is checked against what that same partner has deposited: see
+// `shared/finance.ts::validatePartnerWithdrawal`. The balance itself is derived from
+// `finance_entries` (posted deposits - posted withdrawals) and never cached here, so voiding an
+// entry corrects the balance without a second write.
+export const financePartners = pgTable("finance_partners", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 200 }).notNull().unique(),
+  phone: varchar("phone", { length: 20 }),
+  notes: text("notes"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdByUserId: integer("created_by_user_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Finance Entries - the manual money book (expenses, other income, partner capital).
+//
+// AI Agent Note - what is here and what is NOT:
+//
+//  - Customer receipts are NOT copied in. `invoice_payments` stays the single source of truth for
+//    money received against an invoice; the financial report adds that stream to these rows.
+//  - `direction` is stored next to `entry_type` and constrained by the database:
+//      income / partner_deposit          -> credit (money in)
+//      expense / partner_withdrawal      -> debit  (money out)
+//  - Nothing is edited or deleted after posting. A wrong row is VOIDED with who/when/why
+//    (`status = 'voided'`), exactly like a payment receipt, and drops out of the report totals.
+//  - `entry_number` (`FIN-YYYYMMDD-NNNN`) is allocated inside the insert transaction from the
+//    shared `invoice_counters` table (`counter_type = 'FINANCE'`), so a rolled-back entry cannot
+//    burn a number.
+export const financeEntries = pgTable("finance_entries", {
+  id: serial("id").primaryKey(),
+  entryNumber: varchar("entry_number", { length: 50 }).notNull().unique(),
+  // 'income' | 'expense' | 'partner_deposit' | 'partner_withdrawal'
+  entryType: varchar("entry_type", { length: 24 }).notNull(),
+  // 'debit' | 'credit' - derived from entryType, stored so the ledger and the report agree.
+  direction: varchar("direction", { length: 6 }).notNull(),
+  category: varchar("category", { length: 80 }).notNull(),
+  description: text("description").notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(), // VND
+  entryDate: date("entry_date").notNull(),
+  paymentMethod: varchar("payment_method", { length: 20 }).notNull().default("CASH"),
+  reference: varchar("reference", { length: 100 }),
+  notes: text("notes"),
+  // Set for partner deposits/withdrawals only. 'capital' = equity, 'loan' = temporary top-up.
+  partnerId: integer("partner_id").references(() => financePartners.id),
+  fundingKind: varchar("funding_kind", { length: 10 }),
+  // 'posted' | 'voided'. A voided row stays in the book and is excluded from every total.
+  status: varchar("status", { length: 10 }).notNull().default("posted"),
+  voidedAt: timestamp("voided_at"),
+  voidedByUserId: integer("voided_by_user_id").references(() => users.id),
+  voidReason: text("void_reason"),
+  createdByUserId: integer("created_by_user_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  entryDateIndex: index("finance_entries_entry_date_idx").on(table.entryDate),
+  typeStatusIndex: index("finance_entries_type_status_idx").on(table.entryType, table.status),
+  partnerIndex: index("finance_entries_partner_idx").on(table.partnerId),
+  amountPositive: check("finance_entries_amount_positive", sql`${table.amount} > 0`),
+  directionMatchesType: check(
+    "finance_entries_direction_matches_type",
+    sql`(${table.entryType} IN ('income', 'partner_deposit') AND ${table.direction} = 'credit')
+      OR (${table.entryType} IN ('expense', 'partner_withdrawal') AND ${table.direction} = 'debit')`
+  ),
+  partnerConsistency: check(
+    "finance_entries_partner_consistency",
+    sql`(${table.entryType} IN ('partner_deposit', 'partner_withdrawal')
+          AND ${table.partnerId} IS NOT NULL AND ${table.fundingKind} IS NOT NULL)
+      OR (${table.entryType} IN ('income', 'expense')
+          AND ${table.partnerId} IS NULL AND ${table.fundingKind} IS NULL)`
+  ),
+}));
+
 // Transfer Requests table - Inter-store inventory transfer requests
 export const transferRequests = pgTable("transfer_requests", {
   id: serial("id").primaryKey(),
@@ -860,6 +1042,69 @@ export const salesTransactionsRelations = relations(salesTransactions, ({ many, 
   vatCompany: one(vatCompanies, {
     fields: [salesTransactions.vatCompanyId],
     references: [vatCompanies.id],
+  }),
+}));
+
+// Add relations for the receivables register
+export const invoicesRelations = relations(invoices, ({ many, one }) => ({
+  payments: many(invoicePayments),
+  salesTransaction: one(salesTransactions, {
+    fields: [invoices.salesTransactionId],
+    references: [salesTransactions.id],
+  }),
+  salesOrder: one(salesOrders, {
+    fields: [invoices.salesOrderId],
+    references: [salesOrders.id],
+  }),
+  vatCompany: one(vatCompanies, {
+    fields: [invoices.vatCompanyId],
+    references: [vatCompanies.id],
+  }),
+  customerProfile: one(customerProfiles, {
+    fields: [invoices.customerProfileId],
+    references: [customerProfiles.id],
+  }),
+  store: one(stores, {
+    fields: [invoices.storeId],
+    references: [stores.id],
+  }),
+}));
+
+export const invoicePaymentsRelations = relations(invoicePayments, ({ one }) => ({
+  invoice: one(invoices, {
+    fields: [invoicePayments.invoiceId],
+    references: [invoices.id],
+  }),
+  receivedByUser: one(users, {
+    fields: [invoicePayments.receivedByUserId],
+    references: [users.id],
+  }),
+  voidedByUser: one(users, {
+    fields: [invoicePayments.voidedByUserId],
+    references: [users.id],
+  }),
+  store: one(stores, {
+    fields: [invoicePayments.storeId],
+    references: [stores.id],
+  }),
+}));
+
+export const financePartnersRelations = relations(financePartners, ({ many }) => ({
+  entries: many(financeEntries),
+}));
+
+export const financeEntriesRelations = relations(financeEntries, ({ one }) => ({
+  partner: one(financePartners, {
+    fields: [financeEntries.partnerId],
+    references: [financePartners.id],
+  }),
+  createdByUser: one(users, {
+    fields: [financeEntries.createdByUserId],
+    references: [users.id],
+  }),
+  voidedByUser: one(users, {
+    fields: [financeEntries.voidedByUserId],
+    references: [users.id],
   }),
 }));
 
@@ -1143,6 +1388,28 @@ export const insertInvoiceCounterSchema = createInsertSchema(invoiceCounters);
 export const selectInvoiceCounterSchema = createSelectSchema(invoiceCounters);
 export type InsertInvoiceCounter = typeof invoiceCounters.$inferInsert;
 export type SelectInvoiceCounter = typeof invoiceCounters.$inferSelect;
+
+// Receivables register (invoices + the payment receipts recorded against them)
+export const insertInvoiceSchema = createInsertSchema(invoices);
+export const selectInvoiceSchema = createSelectSchema(invoices);
+export type InsertInvoice = typeof invoices.$inferInsert;
+export type SelectInvoice = typeof invoices.$inferSelect;
+
+export const insertInvoicePaymentSchema = createInsertSchema(invoicePayments);
+export const selectInvoicePaymentSchema = createSelectSchema(invoicePayments);
+export type InsertInvoicePayment = typeof invoicePayments.$inferInsert;
+export type SelectInvoicePayment = typeof invoicePayments.$inferSelect;
+
+// Financial accounts: the manual money book and the partners who fund the company
+export const insertFinancePartnerSchema = createInsertSchema(financePartners);
+export const selectFinancePartnerSchema = createSelectSchema(financePartners);
+export type InsertFinancePartner = typeof financePartners.$inferInsert;
+export type SelectFinancePartner = typeof financePartners.$inferSelect;
+
+export const insertFinanceEntrySchema = createInsertSchema(financeEntries);
+export const selectFinanceEntrySchema = createSelectSchema(financeEntries);
+export type InsertFinanceEntry = typeof financeEntries.$inferInsert;
+export type SelectFinanceEntry = typeof financeEntries.$inferSelect;
 
 // VAT company schemas
 export const insertVatCompanySchema = createInsertSchema(vatCompanies);
