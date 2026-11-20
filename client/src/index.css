@@ -789,10 +789,6 @@
     box-shadow: var(--shadow-xs);
   }
 
-  .erp-nav-subitem {
-    @apply erp-nav-item rounded-md py-1.5 pl-9 text-[0.8125rem];
-  }
-
   .erp-nav-group-label {
     @apply px-3 pb-1 pt-4 uppercase text-muted-foreground;
     font-size: 0.6875rem;
