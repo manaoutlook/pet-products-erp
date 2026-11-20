@@ -10,7 +10,7 @@ import Sidebar from '@/components/Layout/Sidebar';
  * - a folded section reveals itself when the current page is inside it, and an open
  *   section stays open across reloads;
  * - what a role may not open is not offered, heading included;
- * - the active row is marked, deep links included (`/finance/ledger` -> Financial Accounts).
+ * - the active row is marked, deep links included (`/finance/ledger` -> Finance).
  */
 
 const locationState = vi.hoisted(() => ({ value: '/' }));
@@ -134,7 +134,7 @@ describe('Sidebar', () => {
         const names = linkNames();
         expect(names.indexOf('Point of Sale')).toBeLessThan(names.indexOf('Inventory List'));
         expect(names.indexOf('Stock Adjustments')).toBeLessThan(names.indexOf('Receipts'));
-        expect(names.indexOf('Financial Accounts')).toBeLessThan(names.indexOf('Products'));
+        expect(names.indexOf('Finance')).toBeLessThan(names.indexOf('Products'));
     });
 
     it('keeps every row flat - no section for a single link', () => {
@@ -290,8 +290,8 @@ describe('Sidebar permissions and active state', () => {
         locationState.value = '/finance/ledger';
         render(<Sidebar />);
 
-        // /finance/ledger is the ledger tab of Financial Accounts, not a page of its own.
-        expect(screen.getByRole('link', { name: 'Financial Accounts' })).toHaveAttribute(
+        // /finance/ledger is the ledger tab of Finance, not a page of its own.
+        expect(screen.getByRole('link', { name: 'Finance' })).toHaveAttribute(
             'aria-current',
             'page'
         );

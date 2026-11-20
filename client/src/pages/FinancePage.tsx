@@ -72,7 +72,7 @@ import { PAYMENT_METHODS, type InvoiceStatus } from "@shared/invoice-payment";
 import { vietnamDayOf } from "@shared/vietnam-day";
 
 /**
- * Financial Accounts - the money that is not a customer receipt.
+ * Finance - the money that is not a customer receipt.
  *
  * Three tabs over one book:
  *   Report   - income (invoice receipts + manual income), expenses, net profit, partner capital,
@@ -624,7 +624,7 @@ function FinancePage() {
     <div className="space-y-4 p-4 lg:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Financial Accounts</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Finance</h1>
           <p className="text-sm text-muted-foreground">
             Manual expenses, other income and partner money - customer receipts are read in from
             Receivables.

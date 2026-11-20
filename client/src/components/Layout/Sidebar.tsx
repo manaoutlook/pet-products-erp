@@ -143,7 +143,7 @@ const navigationSections: NavSection[] = [
     items: [
       { name: "Receipts", href: "/receipts", icon: Receipt, module: 'receipts', action: 'read' },
       { name: "Receivables", href: "/receivables", icon: Wallet, module: 'receipts', action: 'read' },
-      { name: "Financial Accounts", href: "/finance", icon: Banknote, module: 'finance', action: 'read' },
+      { name: "Finance", href: "/finance", icon: Banknote, module: 'finance', action: 'read' },
     ],
   },
   {

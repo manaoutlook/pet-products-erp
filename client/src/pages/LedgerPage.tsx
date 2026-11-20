@@ -175,7 +175,7 @@ export default function LedgerPage() {
           <Button variant="ghost" size="sm" asChild>
             <Link href="/finance">
               <ArrowLeft className="mr-1 h-4 w-4" />
-              Financial Accounts
+              Finance
             </Link>
           </Button>
           <h1 className="mt-1 text-2xl font-bold tracking-tight">Ledger printing</h1>
