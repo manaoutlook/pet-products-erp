@@ -19,8 +19,8 @@ import {
   backfillInvoices,
   cancelInvoice,
   getInvoice,
-  isoDateOffset,
   listInvoices,
+  vietnamDateOffset,
 } from '../../../server/invoices';
 import { listReceipts, recordPayment, voidPayment } from '../../../server/payments';
 import { issueSalesOrderInvoice } from '../../../server/sales-order-invoices';
@@ -165,7 +165,7 @@ describe('receivables', () => {
     expect(Number(invoice.balanceDue)).toBe(0);
     expect(invoice.status).toBe('paid');
     // A counter sale is due on issue, not on terms.
-    expect(invoice.dueDate).toBe(isoDateOffset(new Date(invoice.issuedAt), 0));
+    expect(invoice.dueDate).toBe(vietnamDateOffset(new Date(invoice.issuedAt), 0));
 
     expect(invoice.payments).toHaveLength(1);
     expect(invoice.payments[0].receiptNumber).toMatch(/^RCPT-\d{8}-\d{4}$/);
@@ -328,7 +328,7 @@ describe('receivables', () => {
     expect(Number(invoice.totalAmount)).toBe(1100000);
     expect(invoice.status).toBe('issued');
     expect(invoice.dueDate).toBe(
-      isoDateOffset(new Date(invoice.issuedAt), DEFAULT_PAYMENT_TERM_DAYS)
+      vietnamDateOffset(new Date(invoice.issuedAt), DEFAULT_PAYMENT_TERM_DAYS)
     );
   });
 

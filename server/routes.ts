@@ -81,7 +81,7 @@ import {
   archiveIssuedInvoiceDocument,
   buildInvoicePayload,
 } from "./invoice-documents";
-import { generateInventoryBarcode, generateOrderNumber } from "./numbering";
+import { generateInventoryBarcode, generateOrderNumber, generateTransferNumber } from "./numbering";
 import { receiveGoods } from "./goods-receipt";
 import {
   MAX_GALLERY_IMAGES,
@@ -4838,8 +4838,9 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      // Generate transfer number
-      const transferNumber = `TRF-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
+      // Generate transfer number - Vietnam day + time of day, unique behind transfer_number's
+      // UNIQUE constraint (see generateTransferNumber).
+      const transferNumber = generateTransferNumber('TRF');
 
       // Create transfer request
       const [transferRequest] = await db
@@ -5664,7 +5665,7 @@ export function registerRoutes(app: Express): Server {
       }
 
       // Create a quick transfer record (without full request workflow)
-      const transferNumber = `QTRF-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
+      const transferNumber = generateTransferNumber('QTRF');
 
       const [quickTransfer] = await db
         .insert(transferRequests)

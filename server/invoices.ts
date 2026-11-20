@@ -9,7 +9,7 @@ import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql, type SQL } from
 import type { DbClient } from "./db-types";
 import { generateReceiptNumber } from "./receipt-counter";
 import { computeSaleTotals, toVatRate } from "../shared/tax";
-import { endOfVietnamDay, startOfVietnamDay } from "../shared/vietnam-day";
+import { endOfVietnamDay, shiftDay, startOfVietnamDay, vietnamDayOf } from "../shared/vietnam-day";
 import {
   AGING_BUCKETS,
   DEFAULT_PAYMENT_TERM_DAYS,
@@ -53,11 +53,17 @@ export class InvoiceError extends Error {
   }
 }
 
-/** `2026-03-12` (the format `date` columns read/write) for a date offset by `days`. */
-export function isoDateOffset(from: Date, days: number): string {
-  const date = new Date(from.getTime());
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
+/**
+ * The Vietnamese calendar day `from` falls on, shifted by `days`, as `2026-03-12` - the format
+ * `date` columns read/write.
+ *
+ * AI Agent Note - this used to shift on UTC (`setUTCDate(...).toISOString()`), so an invoice
+ * issued at 06:30 in Ho Chi Minh City (= 23:30 UTC the day before) got a due date one day early.
+ * Payment terms are agreed in Vietnamese days, and the aging buckets in finance.ts count in them,
+ * so both the issue and the due date must be Vietnamese days.
+ */
+export function vietnamDateOffset(from: Date, days: number): string {
+  return shiftDay(vietnamDayOf(from), days);
 }
 
 export interface RegisterInvoiceInput {
@@ -105,7 +111,7 @@ export async function registerInvoice(
     buyerName: (input.buyerName ?? '').trim(),
     storeId: input.storeId ?? null,
     issuedAt,
-    dueDate: isoDateOffset(issuedAt, Math.max(0, Math.trunc(termDays))),
+    dueDate: vietnamDateOffset(issuedAt, Math.max(0, Math.trunc(termDays))),
     currency: 'VND',
     subtotal: input.subtotal.toFixed(2),
     vatRate: input.vatRate.toString(),

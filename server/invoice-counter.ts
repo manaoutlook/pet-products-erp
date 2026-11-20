@@ -3,6 +3,7 @@ import { invoiceCounters, vatCompanies } from "@db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import type { DbClient } from "./db-types";
 import { VAT_INVOICE_PREFIXES } from "../shared/invoice";
+import { vietnamDayOf } from "../shared/vietnam-day";
 
 export { VAT_INVOICE_PREFIXES };
 
@@ -89,7 +90,7 @@ async function nextSequence(
       prefix: invoiceCounters.prefix,
     });
 
-  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const dateStr = vietnamDayOf(new Date()).replace(/-/g, "");
   return `${updated.prefix}${dateStr}-${updated.currentNumber.toString().padStart(4, '0')}`;
 }
 
