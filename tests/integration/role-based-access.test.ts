@@ -342,31 +342,33 @@ describe('Role-Based Access Control Integration Tests', () => {
         });
 
         it('should NOT allow inventory clerk to create sales transactions (pos.create: false)', async () => {
-            // In real API, this would be blocked
-            await expect(async () => {
-                await db.insert(salesTransactions).values({
-                    invoiceNumber: 'CLERK-SALE-001',
-                    storeId: testData.stores.store1.id,
-                    transactionType: 'STORE_SALE',
-                    cashierUserId: inventoryClerkUser.id,
-                    totalAmount: '10000.00',
-                    paymentMethod: 'CASH',
-                    status: 'completed',
-                });
-            }).not.toThrow(); // Database allows, but API should prevent
+            // In real API, this would be blocked. The insert is awaited (not fired at an
+            // `expect(...).not.toThrow()`, which only ever sees a synchronous throw): a
+            // floating INSERT used to land during the next test's TRUNCATE and deadlock.
+            const inserted = await db.insert(salesTransactions).values({
+                invoiceNumber: 'CLERK-SALE-001',
+                storeId: testData.stores.store1.id,
+                transactionType: 'STORE_SALE',
+                cashierUserId: inventoryClerkUser.id,
+                totalAmount: '10000.00',
+                paymentMethod: 'CASH',
+                status: 'completed',
+            }).returning();
+
+            expect(inserted).toHaveLength(1); // Database allows, but API should prevent
         });
 
         it('should NOT allow inventory clerk to create purchase orders (orders.create: false)', async () => {
-            // In real API, this would be blocked
-            await expect(async () => {
-                await db.insert(purchaseOrders).values({
-                    orderNumber: 'CLERK-PO-001',
-                    supplierId: testData.suppliers.supplier.id,
-                    destinationStoreId: testData.stores.warehouse.id,
-                    status: 'pending',
-                    totalAmount: '20000.00',
-                });
-            }).not.toThrow(); // Database allows, but API should prevent
+            // In real API, this would be blocked. See the note above on why this is awaited.
+            const inserted = await db.insert(purchaseOrders).values({
+                orderNumber: 'CLERK-PO-001',
+                supplierId: testData.suppliers.supplier.id,
+                destinationStoreId: testData.stores.warehouse.id,
+                status: 'pending',
+                totalAmount: '20000.00',
+            }).returning();
+
+            expect(inserted).toHaveLength(1); // Database allows, but API should prevent
         });
     });
 
@@ -432,14 +434,14 @@ describe('Role-Based Access Control Integration Tests', () => {
         });
 
         it('should NOT allow customer service to create inventory (inventory.create: false)', async () => {
-            // In real API, this would be blocked
-            await expect(async () => {
-                await db.insert(inventory).values({
-                    productId: testData.products.product.id,
-                    storeId: testData.stores.store1.id,
-                    quantity: 10,
-                });
-            }).not.toThrow(); // Database allows, but API should prevent
+            // In real API, this would be blocked. Awaited for the deadlock reason above.
+            const inserted = await db.insert(inventory).values({
+                productId: testData.products.product.id,
+                storeId: testData.stores.store1.id,
+                quantity: 10,
+            }).returning();
+
+            expect(inserted).toHaveLength(1); // Database allows, but API should prevent
         });
     });
 
