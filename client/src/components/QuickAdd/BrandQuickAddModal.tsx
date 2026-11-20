@@ -118,6 +118,9 @@ function BrandQuickAddModal({ onSuccess, trigger }: BrandQuickAddModalProps) {
                   <FormControl>
                     <Input 
                       {...field}
+                      // `description` is optional and nullable in the schema, and a controlled
+                      // input cannot receive `null` - an empty string keeps it controlled.
+                      value={field.value ?? ""}
                       placeholder="Enter brand description"
                     />
                   </FormControl>

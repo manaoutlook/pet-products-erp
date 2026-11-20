@@ -33,6 +33,29 @@ const purchaseOrderSchema = z.object({
 
 type FormData = z.infer<typeof purchaseOrderSchema>;
 
+/**
+ * The rows this dialog reads from the API. Typing them is what lets `warehouses`, the product
+ * price lookup and the selects below be checked: an untyped `useQuery` makes the data `unknown`,
+ * and every `.filter`/`.find` on it then fails the type check (or silently works on `any`).
+ */
+interface SupplierOption {
+  id: number;
+  name: string;
+}
+
+interface ProductOption {
+  id: number;
+  name: string;
+  price: string;
+}
+
+interface StoreOption {
+  id: number;
+  name: string;
+  type: string | null;
+}
+
+
 export function CreatePurchaseOrderDialog() {
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
@@ -52,20 +75,20 @@ export function CreatePurchaseOrderDialog() {
     },
   });
 
-  const { data: suppliers = [] } = useQuery({
+  const { data: suppliers = [] } = useQuery<SupplierOption[]>({
     queryKey: ['/api/suppliers'],
   });
 
-  const { data: products = [] } = useQuery({
+  const { data: products = [] } = useQuery<ProductOption[]>({
     queryKey: ['/api/products'],
   });
 
-  const { data: stores = [] } = useQuery({
+  const { data: stores = [] } = useQuery<StoreOption[]>({
     queryKey: ['/api/stores'],
   });
 
   // AI Agent Note: Filter stores for those with type 'WAREHOUSE' (Distribution Center)
-  const warehouses = stores.filter((s: any) => s.type === 'WAREHOUSE');
+  const warehouses = stores.filter((s) => s.type === 'WAREHOUSE');
 
   const createPurchaseOrder = useMutation({
     mutationFn: async (data: FormData) => {
@@ -126,7 +149,7 @@ export function CreatePurchaseOrderDialog() {
 
   const handleProductChange = (index: number, productId: string) => {
     form.setValue(`items.${index}.productId`, productId);
-    const selectedProduct = products.find((p: any) => p.id.toString() === productId);
+    const selectedProduct = products.find((p) => p.id.toString() === productId);
     if (selectedProduct) {
       form.setValue(`items.${index}.unitPrice`, selectedProduct.price.toString());
     }
@@ -162,7 +185,7 @@ export function CreatePurchaseOrderDialog() {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {suppliers.map((supplier: any) => (
+                      {suppliers.map((supplier) => (
                         <SelectItem key={supplier.id} value={supplier.id.toString()}>
                           {supplier.name}
                         </SelectItem>
@@ -270,7 +293,7 @@ export function CreatePurchaseOrderDialog() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {products.map((product: any) => (
+                            {products.map((product) => (
                               <SelectItem key={product.id} value={product.id.toString()}>
                                 {product.name}
                               </SelectItem>
