@@ -32,7 +32,7 @@ import {
     userStoreAssignments,
 } from '../../db/schema';
 import path from 'path';
-import * as bcrypt from 'bcrypt';
+import { crypto as passwordCrypto } from '../../server/auth';
 
 export async function runMigrations() {
     // `drizzle-kit push` is the only schema mechanism: it diffs db/schema.ts against the
@@ -212,15 +212,18 @@ export async function seedTestData() {
     }).returning();
 
     // Create test users (password: "test123")
+    // AI Agent Note: hashed with the server's own scrypt helper, not bcrypt. A bcrypt row can
+    // never pass `crypto.compare`, so the seeded users could not log in through the real API -
+    // any test of the login flow had to invent its own user.
     const [adminUser] = await db.insert(users).values({
         username: 'test_admin',
-        password: await bcrypt.hash('test123', 10), // Hash password for auth tests
+        password: await passwordCrypto.hash('test123'),
         roleId: adminRole.id,
     }).returning();
 
     const [managerUser] = await db.insert(users).values({
         username: 'test_manager',
-        password: await bcrypt.hash('test123', 10),
+        password: await passwordCrypto.hash('test123'),
         roleId: managerRole.id,
     }).returning();
 
