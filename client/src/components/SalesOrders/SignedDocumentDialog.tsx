@@ -68,6 +68,9 @@ export function SignedDocumentDialog({ note, canUpdate, children }: SignedDocume
       uploadImageFile(picked, `/api/delivery-notes/${note.id}/signed-document`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/delivery-notes"] });
+      // The order status is derived from the signatures: filing the last one flips the row
+      // from "Awaiting signature" to "Delivered".
+      queryClient.invalidateQueries({ queryKey: ["/api/sales-orders"] });
       toast({
         title: "Signed document saved",
         description: `${note.deliveryNoteNumber} is signed off - the note is complete.`,

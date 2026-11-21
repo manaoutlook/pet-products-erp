@@ -187,7 +187,12 @@ export function registerSalesOrderRoutes(app: Express) {
           },
           // Light summary only: the list needs to know whether a shipment already went out.
           deliveryNotes: {
-            columns: { id: true, deliveryNoteNumber: true, deliveryDate: true },
+            columns: {
+              id: true,
+              deliveryNoteNumber: true,
+              deliveryDate: true,
+              signedDocumentUrl: true,
+            },
           },
           preparedByUser: { columns: { id: true, username: true } },
         },

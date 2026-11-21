@@ -52,6 +52,8 @@ interface DeliveryNoteSummary {
   id: number;
   deliveryNoteNumber: string;
   deliveryDate: string;
+  /** Null until the customer's signed copy is filed - the note then holds the order back. */
+  signedDocumentUrl?: string | null;
 }
 
 interface SalesOrderRow {
@@ -84,6 +86,8 @@ interface SalesOrderRow {
 const STATUS_BADGES: Record<string, { label: string; variant: "info" | "warning" | "success" | "destructive" | "secondary" }> = {
   open: { label: "Open", variant: "info" },
   partially_delivered: { label: "Partially delivered", variant: "warning" },
+  // Everything shipped, but the customer has not signed (or the signed copy is not filed yet).
+  awaiting_signature: { label: "Awaiting signature", variant: "warning" },
   delivered: { label: "Delivered", variant: "success" },
   cancelled: { label: "Cancelled", variant: "destructive" },
 };
@@ -371,6 +375,8 @@ function SalesOrdersPage() {
                       const canDeliver =
                         order.status === "open" || order.status === "partially_delivered";
                       const noteCount = order.deliveryNotes?.length ?? 0;
+                      const unsignedNotes =
+                        order.deliveryNotes?.filter((note) => !note.signedDocumentUrl).length ?? 0;
 
                       return (
                         <TableRow key={order.id}>
@@ -411,6 +417,9 @@ function SalesOrdersPage() {
                             {noteCount > 0 && (
                               <div className="mt-1 text-caption text-muted-foreground">
                                 {noteCount} delivery note{noteCount === 1 ? "" : "s"}
+                                {unsignedNotes > 0
+                                  ? ` · ${unsignedNotes} awaiting signature`
+                                  : ""}
                               </div>
                             )}
                           </TableCell>

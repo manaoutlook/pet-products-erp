@@ -7,6 +7,7 @@ import helmet from "helmet";
 import path from "node:path";
 import { registerRoutes } from "./routes";
 import { ensureVatCompanySeeds } from "./routes/vat-companies";
+import { resyncUnsignedDeliveredOrders } from "./sales-orders";
 import { setupVite, serveStatic, log } from "./vite";
 import { errorHandler } from "./error-handler";
 import { apiLimiter } from "./rate-limit";
@@ -106,6 +107,18 @@ if (process.env.NODE_ENV !== 'test') {
     // Migration 0022 seeds them, but a database built by `npm run db:push` has the table and no
     // rows - see server/routes/vat-companies.ts.
     await ensureVatCompanySeeds();
+
+    // Orders closed under the old rule ("printing the note = delivered") were marked delivered
+    // without the customer's signed copy. Re-derive them so the list matches the paperwork;
+    // a failure here must not stop the server from starting.
+    try {
+      const repaired = await resyncUnsignedDeliveredOrders(db);
+      if (repaired > 0) {
+        log(`${repaired} delivered order(s) now await the customer's signature`);
+      }
+    } catch (error) {
+      console.error("[boot] Could not re-check delivery signatures:", error);
+    }
 
     // importantly only setup vite in development and after
     // setting up all the other routes so the catch-all route

@@ -331,6 +331,10 @@ export function DeliveryNoteFormDialog({
                 )}{" "}
                 unit(s) shipped against order {issuedNote.salesOrder?.orderNumber ?? "—"}.
               </p>
+              <p className="mt-1">
+                The order stays <span className="font-medium">Awaiting signature</span> until the
+                signed copy is uploaded on the Delivery Notes screen.
+              </p>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => onOpenChange(false)}>

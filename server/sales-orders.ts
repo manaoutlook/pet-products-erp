@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import {
   deliveryNoteItems,
   deliveryNotes,
@@ -21,9 +21,19 @@ import { generateDeliveryNoteNumber } from "./numbering";
  * The order status is never edited by hand (except cancelling): it is derived from the lines
  * by `recalculateSalesOrderStatus`, so the list can never show "delivered" on an order that
  * still has undelivered units.
+ *
+ * Units leaving the warehouse is only half of a delivery: the printed note travels with the
+ * goods and comes back signed. Until every note carrying those units has its signed copy on
+ * file the order reads `awaiting_signature`, and filing the picture is what finally makes it
+ * `delivered` - see `attachSignedDocument`.
  */
 
-export type SalesOrderStatus = "open" | "partially_delivered" | "delivered" | "cancelled";
+export type SalesOrderStatus =
+  | "open"
+  | "partially_delivered"
+  | "awaiting_signature"
+  | "delivered"
+  | "cancelled";
 
 /**
  * Raised when a sales order / delivery note operation is refused.
@@ -47,14 +57,18 @@ export function money(value: number | null | undefined): number {
 }
 
 /**
- * Derive the order status from its lines.
+ * Derive the order status from its lines and the notes that carried them.
  *
  * Pure on purpose: this is the whole rule ("nothing delivered / some delivered / everything
- * delivered") and it is unit-tested without a database.
+ * delivered but not signed off / everything delivered and signed") and it is unit-tested
+ * without a database. `unsignedNotes` is the number of delivery notes on this order whose
+ * signed copy has not been filed yet - a delivery note is printed unsigned and only becomes
+ * proof of delivery once the customer's signature comes back.
  */
 export function summariseStatus(
   lines: Array<{ quantity: number; deliveredQuantity: number }>,
-  current: SalesOrderStatus = "open"
+  current: SalesOrderStatus = "open",
+  unsignedNotes = 0
 ): SalesOrderStatus {
   // A cancelled order is final: delivering against it is refused elsewhere, and the status
   // must not silently flip back if somebody adds a line or fixes a quantity.
@@ -68,16 +82,20 @@ export function summariseStatus(
     0
   );
 
-  if (ordered > 0 && delivered >= ordered) return "delivered";
+  if (ordered > 0 && delivered >= ordered) {
+    // Everything shipped, but the paperwork is not closed: the customer has not signed (or
+    // the office has not filed the picture of the signed note) for at least one shipment.
+    return unsignedNotes > 0 ? "awaiting_signature" : "delivered";
+  }
   if (delivered > 0) return "partially_delivered";
   return "open";
 }
 
 /**
- * Recompute and persist `sales_orders.status` from its lines.
+ * Recompute and persist `sales_orders.status` from its lines and unsigned delivery notes.
  *
  * Always pass the caller's transaction (`db.transaction((tx) => ...)`) so the status change
- * commits together with the delivery note that caused it.
+ * commits together with the delivery note (or signed copy) that caused it.
  */
 export async function recalculateSalesOrderStatus(
   executor: DbClient,
@@ -100,7 +118,20 @@ export async function recalculateSalesOrderStatus(
     .from(salesOrderItems)
     .where(eq(salesOrderItems.salesOrderId, salesOrderId));
 
-  const status = summariseStatus(lines, order.status as SalesOrderStatus);
+  // A cancelled note never counted as delivery, so it cannot hold the order back either.
+  const unsignedNotes = await executor
+    .select({ id: deliveryNotes.id })
+    .from(deliveryNotes)
+    .where(
+      and(
+        eq(deliveryNotes.salesOrderId, salesOrderId),
+        ne(deliveryNotes.status, "cancelled"),
+        isNull(deliveryNotes.signedDocumentUrl)
+      )
+    );
+
+  const status = summariseStatus(lines, order.status as SalesOrderStatus, unsignedNotes.length);
+
 
   if (status !== order.status) {
     await executor
@@ -349,6 +380,9 @@ export interface AttachSignedDocumentInput {
  * in good condition" tick the printed sheet carries, so a reprint matches the signed copy.
  * A cancelled note is refused, and re-filing replaces the previous picture (a blurry first photo
  * of the sheet is the common case).
+ *
+ * The signed copy is what closes the delivery, so the order is re-derived here: filing the last
+ * outstanding signature flips it from `awaiting_signature` to `delivered`.
  */
 export async function attachSignedDocument(
   executor: DbClient,
@@ -388,7 +422,39 @@ export async function attachSignedDocument(
     .where(eq(deliveryNotes.id, existing.id))
     .returning();
 
+  // The order only reads `delivered` once every shipment's signed copy is on file.
+  await recalculateSalesOrderStatus(executor, updated.salesOrderId);
+
   return updated;
+}
+
+/**
+ * One-off repair for orders that were closed before signatures were required.
+ *
+ * Orders delivered under the old rule sit at `delivered` while one of their notes still has no
+ * signed copy. Booting runs this single statement so the list stops claiming a delivery is
+ * complete when the paper trail is not - a signed copy filed later flips them back through
+ * `recalculateSalesOrderStatus`. Safe to run on every boot (it matches nothing once repaired).
+ */
+export async function resyncUnsignedDeliveredOrders(executor: DbClient): Promise<number> {
+  const repaired = await executor
+    .update(salesOrders)
+    .set({ status: "awaiting_signature", updatedAt: new Date() })
+    .where(
+      and(
+        eq(salesOrders.status, "delivered"),
+        sql`exists (
+          select 1
+            from delivery_notes n
+           where n.sales_order_id = ${salesOrders.id}
+             and n.status <> 'cancelled'
+             and n.signed_document_url is null
+        )`
+      )
+    )
+    .returning({ id: salesOrders.id });
+
+  return repaired.length;
 }
 
 /** Recompute one line's money from quantity x unit price, so the client cannot fake totals. */

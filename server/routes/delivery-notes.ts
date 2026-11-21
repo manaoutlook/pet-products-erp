@@ -218,11 +218,15 @@ export function registerDeliveryNoteRoutes(app: Express) {
         // new file), and it keeps the storage module free of database knowledge.
         const url = await saveSignedDeliveryNoteDocument(body.image);
 
-        const deliveryNote = await attachSignedDocument(db, {
-          deliveryNoteId: Number(req.params.id),
-          signedDocumentUrl: url,
-          userId: req.user!.id,
-        });
+        // The signed copy also re-derives the order status (awaiting_signature -> delivered), so
+        // both writes share one transaction.
+        const deliveryNote = await db.transaction((tx) =>
+          attachSignedDocument(tx, {
+            deliveryNoteId: Number(req.params.id),
+            signedDocumentUrl: url,
+            userId: req.user!.id,
+          })
+        );
 
         res.json({
           message: `Signed document saved - delivery note ${deliveryNote.deliveryNoteNumber} is complete`,

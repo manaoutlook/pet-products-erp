@@ -170,6 +170,29 @@ describe('filing the signed document against a delivery note', () => {
         expect(stored.customerConfirmed).toBe(true);
     });
 
+    it('closes the order only once the signed copy is filed', async () => {
+        const note = await seedDeliveredNote();
+
+        // Printing the note ships the goods but leaves the order awaiting the signature.
+        const [shipped] = await db
+            .select()
+            .from(salesOrders)
+            .where(eq(salesOrders.id, note.salesOrderId));
+        expect(shipped.status).toBe('awaiting_signature');
+
+        await attachSignedDocument(db, {
+            deliveryNoteId: note.id,
+            signedDocumentUrl: '/uploads/delivery-notes/proof.png',
+            userId: testData.users.admin.id,
+        });
+
+        const [signedOff] = await db
+            .select()
+            .from(salesOrders)
+            .where(eq(salesOrders.id, note.salesOrderId));
+        expect(signedOff.status).toBe('delivered');
+    });
+
     it('replaces a blurry first picture instead of refusing a second upload', async () => {
         const note = await seedDeliveredNote();
 

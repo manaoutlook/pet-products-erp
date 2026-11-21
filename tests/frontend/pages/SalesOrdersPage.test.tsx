@@ -147,8 +147,58 @@ describe('SalesOrdersPage', () => {
 
         const row = rowFor('SO-20261108-1234');
         expect(within(row).getByText('Partially delivered')).toBeInTheDocument();
-        expect(within(row).getByText('1 delivery note')).toBeInTheDocument();
+        expect(within(row).getByText(/1 delivery note/)).toBeInTheDocument();
         expect(screen.getByTitle('Issue a delivery note')).toBeEnabled();
+    });
+
+    it('only reads Delivered once the signed copy is on file', async () => {
+        renderPage([
+            makeOrder({
+                status: 'awaiting_signature',
+                items: makeLine(10),
+                deliveryNotes: [
+                    {
+                        id: 1,
+                        deliveryNoteNumber: 'DN-20261108-1234',
+                        deliveryDate: '2026-11-08T00:00:00.000Z',
+                        signedDocumentUrl: null,
+                    },
+                ],
+            }),
+        ]);
+
+        await waitFor(() => expect(screen.getByText('SO-20261108-1234')).toBeInTheDocument());
+
+        const row = rowFor('SO-20261108-1234');
+        // Printing the note shipped the goods, but nobody has signed for them yet.
+        expect(within(row).getByText('Awaiting signature')).toBeInTheDocument();
+        expect(within(row).getByText(/1 awaiting signature/)).toBeInTheDocument();
+        expect(within(row).queryByText('Delivered')).not.toBeInTheDocument();
+        expect(screen.getByTitle('Nothing left to deliver')).toBeDisabled();
+    });
+
+    it('reads Delivered once every note is signed off', async () => {
+        renderPage([
+            makeOrder({
+                status: 'delivered',
+                items: makeLine(10),
+                deliveryNotes: [
+                    {
+                        id: 1,
+                        deliveryNoteNumber: 'DN-20261108-1234',
+                        deliveryDate: '2026-11-08T00:00:00.000Z',
+                        signedDocumentUrl: '/uploads/delivery-notes/proof.png',
+                    },
+                ],
+            }),
+        ]);
+
+        await waitFor(() => expect(screen.getByText('SO-20261108-1234')).toBeInTheDocument());
+
+        const row = rowFor('SO-20261108-1234');
+        expect(within(row).getByText('Delivered')).toBeInTheDocument();
+        // Nothing is outstanding for the signature, so the hint disappears.
+        expect(within(row).queryByText(/awaiting signature/)).not.toBeInTheDocument();
     });
 
     it('freezes editing once units have shipped but keeps delivering', async () => {

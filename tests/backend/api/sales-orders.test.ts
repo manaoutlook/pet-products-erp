@@ -16,6 +16,7 @@ import {
     orderLineTotals,
     orderTotal,
     recalculateSalesOrderStatus,
+    resyncUnsignedDeliveredOrders,
     summariseStatus,
 } from '../../../server/sales-orders';
 import { generateDeliveryNoteNumber, generateSalesOrderNumber } from '../../../server/numbering';
@@ -111,6 +112,26 @@ describe('Sales Orders & Delivery Notes', () => {
                     { quantity: 2, deliveredQuantity: 2 },
                 ])
             ).toBe('delivered');
+        });
+
+        it('waits for the signature once everything shipped unsigned', () => {
+            // Printing the note is not proof of delivery - the signed copy is.
+            expect(
+                summariseStatus(
+                    [
+                        { quantity: 10, deliveredQuantity: 10 },
+                        { quantity: 2, deliveredQuantity: 2 },
+                    ],
+                    'open',
+                    1
+                )
+            ).toBe('awaiting_signature');
+        });
+
+        it('stays partially delivered while units are still owed, signed or not', () => {
+            expect(
+                summariseStatus([{ quantity: 10, deliveredQuantity: 6 }], 'open', 1)
+            ).toBe('partially_delivered');
         });
 
         it('counts a line as complete at its ordered quantity, never above it', () => {
@@ -306,7 +327,7 @@ describe('Sales Orders & Delivery Notes', () => {
             expect(result.deliveryNote.vatCompanyAddress).toBe('12 Nguyen Hue, District 1');
         });
 
-        it('ships the outstanding quantity and closes the order', async () => {
+        it('ships the outstanding quantity and waits for the signature', async () => {
             const { order } = await seedSalesOrder([{ quantity: 4 }]);
 
             const result = await issueDeliveryNote(db, {
@@ -325,11 +346,12 @@ describe('Sales Orders & Delivery Notes', () => {
                 orderedQuantity: 4,
                 deliveredQuantity: 4,
             });
-            expect(result.status).toBe('delivered');
+            // The goods are out, but the note travels unsigned - only the signed copy closes it.
+            expect(result.status).toBe('awaiting_signature');
             expect(result.outstandingQuantity).toBe(0);
 
             const [stored] = await db.select().from(salesOrders).where(eq(salesOrders.id, order.id));
-            expect(stored.status).toBe('delivered');
+            expect(stored.status).toBe('awaiting_signature');
 
             const [line] = await db
                 .select()
@@ -358,7 +380,7 @@ describe('Sales Orders & Delivery Notes', () => {
                 items: [{ salesOrderItemId: items[0].id, deliveredQuantity: 4 }],
             });
 
-            expect(second.status).toBe('delivered');
+            expect(second.status).toBe('awaiting_signature');
             expect(second.outstandingQuantity).toBe(0);
 
             // Two notes, each reporting the ordered quantity as it was - reprints must not drift.
@@ -500,6 +522,40 @@ describe('Sales Orders & Delivery Notes', () => {
 
             const [stored] = await db.select().from(salesOrders).where(eq(salesOrders.id, order.id));
             expect(stored.status).toBe('delivered');
+        });
+
+        it('holds a fully shipped order at awaiting_signature until the note is signed', async () => {
+            const { order } = await seedSalesOrder([{ quantity: 3 }]);
+
+            await issueDeliveryNote(db, {
+                salesOrderId: order.id,
+                deliveryDate: new Date(),
+                userId: testData.users.admin.id,
+            });
+
+            // The unsigned note is what keeps the order open, even though nothing is owed.
+            expect(await recalculateSalesOrderStatus(db, order.id)).toBe('awaiting_signature');
+        });
+
+        it('repairs orders closed under the old rule (delivered without a signature)', async () => {
+            const { order } = await seedSalesOrder([{ quantity: 3 }]);
+
+            await issueDeliveryNote(db, {
+                salesOrderId: order.id,
+                deliveryDate: new Date(),
+                userId: testData.users.admin.id,
+            });
+
+            // Pretend this order was closed before signatures were required.
+            await db
+                .update(salesOrders)
+                .set({ status: 'delivered' })
+                .where(eq(salesOrders.id, order.id));
+
+            expect(await resyncUnsignedDeliveredOrders(db)).toBe(1);
+
+            const [stored] = await db.select().from(salesOrders).where(eq(salesOrders.id, order.id));
+            expect(stored.status).toBe('awaiting_signature');
         });
 
     });
