@@ -77,19 +77,22 @@ export interface ReceiptData {
 }
 
 /**
- * Label of the VAT line on any output of this component.
+ * The VAT line of a receipt, or `null` when the receipt has none.
  *
- * A retail sale (no VAT invoice) prints "VAT" with a zero amount; a VAT sale prints the stored
- * rate. Hardcoding "Tax (10%)" was the third copy of the 10% rule and it lied as soon as the
- * rate or the customer's choice differed.
+ * A receipt belongs to a sale that was not invoiced with VAT (a household business - Hộ kinh
+ * doanh - cannot issue a VAT invoice at the till), so it has no VAT row at all. Printing
+ * "VAT (not invoiced): 0 ₫" put a line on the paper that added up to nothing and invited
+ * questions at the counter. A VAT sale still prints its stored rate.
  */
-function vatLineLabel(data: ReceiptData): string {
-  if (!data.withVat) return 'VAT (not invoiced)';
+function vatLine(data: ReceiptData): { label: string; amount: number } | null {
+  if (!data.withVat) return null;
+
   const rate = Number(data.vatRate ?? 0);
-  return `VAT (${Number.isFinite(rate) ? `${(rate * 100).toFixed(0)}%` : '0%'})`;
+  return {
+    label: `VAT (${Number.isFinite(rate) ? `${(rate * 100).toFixed(0)}%` : '0%'})`,
+    amount: Number(data.tax ?? 0),
+  };
 }
-
-
 interface ReceiptPrinterProps {
   receiptData: ReceiptData | null;
   /**
@@ -146,6 +149,9 @@ function buildPrintDocument(data: ReceiptData, company: CompanyHeader): string {
   // VND, formatted once for the whole app (utils/format.ts) - the receipt must show the
   // same figure as the invoice and the sale screen.
   const money = (value: number) => formatCurrency(value);
+
+  // `null` for a sale that was not invoiced with VAT - the receipt then has no VAT row at all.
+  const vat = vatLine(data);
 
   const items = data.items
     .map(
@@ -217,7 +223,11 @@ function buildPrintDocument(data: ReceiptData, company: CompanyHeader): string {
 
         <div class="section">
           <div class="row"><span>Subtotal:</span><span>${money(data.subtotal)}</span></div>
-          <div class="row"><span>${vatLineLabel(data)}:</span><span>${money(data.tax)}</span></div>
+          ${
+            vat
+              ? `<div class="row"><span>${vat.label}:</span><span>${money(vat.amount)}</span></div>`
+              : ''
+          }
           <div class="total-line"></div>
           <div class="row bold total"><span>TOTAL:</span><span>${money(data.total)}</span></div>
         </div>
@@ -246,6 +256,9 @@ export function ReceiptPrinter({ receiptData, company, onPrint, onClose }: Recei
   // no output. Reported once here so Print, TXT and PDF cannot drift apart.
   const missingFields = companyHeaderMissingFields(company);
   const isPrintable = missingFields.length === 0;
+
+  /** `null` when the sale was not invoiced with VAT - the preview then shows no VAT row. */
+  const vat = vatLine(receiptData);
 
   const refuseWhenIncomplete = (): boolean => {
     if (isPrintable) return false;
@@ -322,7 +335,7 @@ export function ReceiptPrinter({ receiptData, company, onPrint, onClose }: Recei
       */
       const layout = layoutReceipt(
         receiptData,
-        vatLineLabel(receiptData),
+        vatLine(receiptData)?.label ?? null,
         company as CompanyHeader | null,
         measureReceiptText
       );
@@ -479,10 +492,12 @@ export function ReceiptPrinter({ receiptData, company, onPrint, onClose }: Recei
               <span>Subtotal:</span>
               <span>{formatCurrency(receiptData.subtotal)}</span>
             </div>
-            <div className="flex justify-between">
-              <span>{vatLineLabel(receiptData)}:</span>
-              <span>{formatCurrency(receiptData.tax)}</span>
-            </div>
+            {vat && (
+              <div className="flex justify-between">
+                <span>{vat.label}:</span>
+                <span>{formatCurrency(vat.amount)}</span>
+              </div>
+            )}
             <div className="border-t-2 border-slate-800 my-2"></div>
             <div className="flex justify-between font-bold text-lg">
               <span>TOTAL:</span>

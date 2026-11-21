@@ -139,7 +139,8 @@ function round(value: number): number {
  */
 export function layoutReceipt(
   data: ReceiptPdfData,
-  vatLabel: string,
+  /** `null` when the sale was not invoiced with VAT: the row is left off the paper entirely. */
+  vatLabel: string | null,
   company: Partial<CompanyHeader> | null | undefined,
   measure: ReceiptMeasurer
 ): ReceiptPdfLayout {
@@ -289,11 +290,15 @@ export function layoutReceipt(
     align: 'right',
     gapAfterMm: 0.5,
   });
-  block(`${vatLabel}: ${formatCurrency(data.tax)}`, {
-    sizePt: SIZE.body,
-    align: 'right',
-    gapAfterMm: 1.5,
-  });
+  // A retail sale that was not invoiced with VAT prints no VAT row: the subtotal and the total
+  // are the same amount, so a "0 ₫" line only takes space on 80 mm paper.
+  if (vatLabel) {
+    block(`${vatLabel}: ${formatCurrency(data.tax)}`, {
+      sizePt: SIZE.body,
+      align: 'right',
+      gapAfterMm: 1.5,
+    });
+  }
   rule(false, 0.8, 1.5);
   block(`TOTAL: ${formatCurrency(data.total)}`, {
     sizePt: SIZE.total,
