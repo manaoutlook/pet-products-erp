@@ -402,7 +402,12 @@ export function registerSalesOrderWriteRoutes(app: Express) {
             );
           }
 
-          const { lines, total } = await buildSalesOrderLines(tx, body.items);
+          // Prices are only enforced when the order is first raised: an order created before the
+          // product master was filled in must stay editable, otherwise a missing B2B price
+          // would lock the order (and its delivery notes) forever.
+          const { lines, total } = await buildSalesOrderLines(tx, body.items, {
+            requirePrices: false,
+          });
           const vatCompany = await resolveVatCompanySnapshot(tx, body.vatCompanyId);
 
           await tx.delete(salesOrderItems).where(eq(salesOrderItems.salesOrderId, salesOrderId));

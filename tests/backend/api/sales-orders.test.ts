@@ -239,6 +239,128 @@ describe('Sales Orders & Delivery Notes', () => {
         });
     });
 
+    describe('product prices', () => {
+        /** A catalogue product with the given price columns, for the guard tests below. */
+        async function seedPricedProduct(overrides: {
+            sku: string;
+            name: string;
+            landingPrice?: string | null;
+            b2bPrice?: string | null;
+            b2cPrice?: string | null;
+        }) {
+            const [product] = await db
+                .insert(products)
+                .values({
+                    name: overrides.name,
+                    description: overrides.name,
+                    sku: overrides.sku,
+                    price: '100.00',
+                    landingPrice: overrides.landingPrice ?? null,
+                    b2bPrice: overrides.b2bPrice ?? null,
+                    b2cPrice: overrides.b2cPrice ?? null,
+                    categoryId: testData.categories.category.id,
+                    brandId: testData.brands.brand.id,
+                    minStock: 1,
+                })
+                .returning();
+
+            return product;
+        }
+
+        it('refuses a product with no Landing, B2B or B2C price and says what to fill in', async () => {
+            const unpriced = await seedPricedProduct({
+                sku: 'UNPRICED-001',
+                name: 'Unpriced Feed',
+            });
+
+            const error = await buildSalesOrderLines(db, [
+                { productId: unpriced.id, quantity: 2 },
+            ]).catch((thrown) => thrown);
+
+            expect(error).toBeInstanceOf(SalesOrderError);
+            expect(error.status).toBe(400);
+            // The message names the product and every blank field, so the user can fix it.
+            expect(error.message).toContain('1 product is missing prices');
+            expect(error.message).toContain(
+                'UNPRICED-001 (Unpriced Feed): Landing Price, B2B Price, B2C Price'
+            );
+            expect(error.suggestion).toContain(
+                'fill in Landing Price, B2B Price and B2C Price'
+            );
+        });
+
+        it('lists only the blank fields when a product is partially priced', async () => {
+            const halfPriced = await seedPricedProduct({
+                sku: 'HALF-001',
+                name: 'Half Priced Food',
+                landingPrice: '80.00',
+                b2bPrice: '100.00',
+                b2cPrice: null,
+            });
+
+            const error = await buildSalesOrderLines(db, [
+                { productId: halfPriced.id, quantity: 1 },
+            ]).catch((thrown) => thrown);
+
+            expect(error).toBeInstanceOf(SalesOrderError);
+            expect(error.message).toContain('HALF-001 (Half Priced Food): B2C Price.');
+            expect(error.message).not.toContain('Landing Price');
+            expect(error.message).not.toContain('B2B Price');
+        });
+
+        it('treats a price of 0 as filled in', async () => {
+            const free = await seedPricedProduct({
+                sku: 'FREE-001',
+                name: 'Sample Sachet',
+                landingPrice: '0.00',
+                b2bPrice: '0.00',
+                b2cPrice: '0.00',
+            });
+
+            const { lines, total } = await buildSalesOrderLines(db, [
+                { productId: free.id, quantity: 3 },
+            ]);
+
+            expect(lines[0]).toMatchObject({ productCode: 'FREE-001', unitPrice: '100.00' });
+            expect(total).toBe(300);
+        });
+
+        it('reports every offending product in one message', async () => {
+            const first = await seedPricedProduct({ sku: 'NOPRICE-001', name: 'No Price A' });
+            const second = await seedPricedProduct({
+                sku: 'NOPRICE-002',
+                name: 'No Price B',
+                landingPrice: '10.00',
+                b2bPrice: '20.00',
+                b2cPrice: null,
+            });
+
+            const error = await buildSalesOrderLines(db, [
+                { productId: first.id, quantity: 1 },
+                { productId: second.id, quantity: 1 },
+            ]).catch((thrown) => thrown);
+
+            expect(error).toBeInstanceOf(SalesOrderError);
+            expect(error.message).toContain('2 products are missing prices');
+            expect(error.message).toContain('NOPRICE-001 (No Price A)');
+            expect(error.message).toContain('NOPRICE-002 (No Price B): B2C Price.');
+        });
+
+        it('accepts an unpriced product when the guard is switched off for an edit', async () => {
+            // Orders raised before this rule must stay editable - filling the product in is the
+            // fix, not losing the order.
+            const legacy = await seedPricedProduct({ sku: 'LEGACY-001', name: 'Legacy Food' });
+
+            const { lines } = await buildSalesOrderLines(
+                db,
+                [{ productId: legacy.id, quantity: 2 }],
+                { requirePrices: false }
+            );
+
+            expect(lines[0]).toMatchObject({ productCode: 'LEGACY-001', quantity: 2 });
+        });
+    });
+
     describe('schema constraints', () => {
         it('refuses a duplicate sales order number', async () => {
             const { order } = await seedSalesOrder([{ quantity: 1 }]);

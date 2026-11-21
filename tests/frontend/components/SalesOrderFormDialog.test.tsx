@@ -26,8 +26,37 @@ vi.mock('@/hooks/use-vat-companies', () => ({
 }));
 
 const products = [
-    { id: 1, name: 'Dog Food', sku: 'SKU-1', price: '100000' },
-    { id: 2, name: 'Cat Toy', sku: 'SKU-2', price: 50000 },
+    {
+        id: 1,
+        name: 'Dog Food',
+        sku: 'SKU-1',
+        price: '100000',
+        landingPrice: '70000',
+        b2bPrice: '100000',
+        b2cPrice: '120000',
+    },
+    {
+        id: 2,
+        name: 'Cat Toy',
+        sku: 'SKU-2',
+        price: 50000,
+        landingPrice: 35000,
+        b2bPrice: 50000,
+        b2cPrice: 60000,
+    },
+];
+
+/** A catalogue row whose price columns were never filled in on the product master. */
+const unpricedProducts = [
+    {
+        id: 3,
+        name: 'Unpriced Feed',
+        sku: 'SKU-3',
+        price: '100000',
+        landingPrice: null,
+        b2bPrice: null,
+        b2cPrice: null,
+    },
 ];
 
 const customers = [
@@ -404,6 +433,87 @@ describe('SalesOrderFormDialog', () => {
         await waitFor(() =>
             expect(mocks.toast).toHaveBeenCalledWith(
                 expect.objectContaining({ title: 'Sales order updated' }),
+            ),
+        );
+    });
+
+    it('refuses a product with no Landing / B2B / B2C price and says what to fill in', async () => {
+        fetchMock.mockImplementation(async (url: string) => {
+            const path = String(url).split('?')[0];
+            if (path === '/api/products') return json(unpricedProducts);
+            if (path === '/api/customer-profiles') return json(customers);
+            if (path === '/api/vat-companies') return json({ companies: [] });
+            return json({});
+        });
+
+        const user = userEvent.setup();
+        renderDialog();
+        await waitFor(() => expect(screen.getAllByRole('combobox').length).toBeGreaterThan(1));
+
+        await user.type(screen.getByLabelText(/customer name/i), 'Pet Shop A');
+        await pick(user, 1, 'Unpriced Feed');
+        await user.type(screen.getByPlaceholderText('Qty'), '2');
+
+        // The panel appears as soon as the product is picked, before anything is submitted.
+        expect(
+            await screen.findByText('Prices are missing in the Product module'),
+        ).toBeInTheDocument();
+        expect(screen.getByText(/missing Landing Price, B2B Price, B2C Price/)).toBeInTheDocument();
+
+        await user.click(screen.getByRole('button', { name: /create sales order/i }));
+        submitForm();
+
+        await waitFor(() =>
+            expect(mocks.toast).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    title: 'Prices are missing in the Product module',
+                    variant: 'destructive',
+                }),
+            ),
+        );
+        expect(mocks.toast.mock.calls[0][0].description).toContain(
+            'SKU-3 (Unpriced Feed): Landing Price, B2B Price, B2C Price',
+        );
+        // Nothing reached the API: the order was never created.
+        expect(fetchMock).not.toHaveBeenCalledWith(
+            '/api/sales-orders',
+            expect.objectContaining({ method: 'POST' }),
+        );
+    });
+
+    it('keeps an existing order editable even when its product has no prices', async () => {
+        fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+            const path = String(url).split('?')[0];
+            if (path === '/api/products') return json(unpricedProducts);
+            if (path === '/api/customer-profiles') return json(customers);
+            if (init?.method === 'PUT') return json({ orderNumber: 'SO-20261115-0001' });
+            return json({});
+        });
+
+        const user = userEvent.setup();
+        renderDialog({
+            order: {
+                id: 7,
+                orderNumber: 'SO-20261115-0001',
+                customerName: 'Pet Shop A',
+                orderDate: '2026-11-15T05:00:00.000Z',
+                items: [{ productId: 3, quantity: 2, unitPrice: '100000' }],
+            },
+        });
+
+        expect(await screen.findByText('Edit Sales Order SO-20261115-0001')).toBeInTheDocument();
+        // The warning is a new-order rule: an old order must not be locked by it.
+        expect(
+            screen.queryByText('Prices are missing in the Product module'),
+        ).not.toBeInTheDocument();
+
+        await user.click(screen.getByRole('button', { name: /save changes/i }));
+        submitForm();
+
+        await waitFor(() =>
+            expect(fetchMock).toHaveBeenCalledWith(
+                '/api/sales-orders/7',
+                expect.objectContaining({ method: 'PUT' }),
             ),
         );
     });

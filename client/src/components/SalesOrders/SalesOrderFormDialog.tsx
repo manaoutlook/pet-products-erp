@@ -15,6 +15,13 @@ import { useVatCompanies } from "@/hooks/use-vat-companies";
 import { Loader2, Check, Plus, Trash2 } from "lucide-react";
 import { formatCurrency, formatPercent } from "@/utils/format";
 import { computeSaleTotals, toVatRate } from "@shared/tax";
+import {
+  SALES_ORDER_PRICING_HINT,
+  describeMissingSalesOrderPrices,
+  findMissingSalesOrderPrices,
+  type MissingSalesOrderPrices,
+  type SalesOrderPricedProduct,
+} from "@shared/sales-order-prices";
 
 /** A line as the form edits it - `unitPrice` may be omitted to keep the catalogue price. */
 export interface SalesOrderFormLine {
@@ -62,6 +69,10 @@ interface CatalogueProduct {
   name: string;
   sku: string;
   price: number | string;
+  /** The three prices an order line needs - null when the product master has a blank. */
+  landingPrice?: number | string | null;
+  b2bPrice?: number | string | null;
+  b2cPrice?: number | string | null;
 }
 
 const salesOrderSchema = z.object({
@@ -126,6 +137,40 @@ export function toDateInputValue(value: string | Date | null | undefined): strin
 
 function emptyLine(): SalesOrderFormValues["items"][number] {
   return { productId: "", quantity: "", unitPrice: "" };
+}
+
+/**
+ * The products picked on the form that are still missing a price in the product master.
+ *
+ * The server refuses the order either way (`buildSalesOrderLines`), but catching it here means
+ * the user is told *which* product and *which* field on the click that triggers the check,
+ * instead of after a round trip. A product repeated on two lines is reported once.
+ */
+function missingPricesForLines(
+  lines: SalesOrderFormValues["items"] | undefined,
+  products: CatalogueProduct[]
+): MissingSalesOrderPrices[] {
+  const seen = new Set<number>();
+  const selected: SalesOrderPricedProduct[] = [];
+
+  for (const line of lines ?? []) {
+    const productId = Number(line?.productId);
+    if (!Number.isInteger(productId) || productId <= 0 || seen.has(productId)) continue;
+
+    const product = products.find((entry) => entry.id === productId);
+    if (!product) continue;
+
+    seen.add(productId);
+    selected.push({
+      productCode: product.sku,
+      productName: product.name,
+      landingPrice: product.landingPrice,
+      b2bPrice: product.b2bPrice,
+      b2cPrice: product.b2cPrice,
+    });
+  }
+
+  return findMissingSalesOrderPrices(selected);
 }
 
 function formDefaults(order?: SalesOrderFormOrder | null): SalesOrderFormValues {
@@ -244,6 +289,12 @@ export function SalesOrderFormDialog({
     0
   );
 
+  // Prices live in the product master, so a half-filled product can only be fixed there. The
+  // panel below lists what is missing while the user is still in the dialog, and a click on
+  // "Create Sales Order" refuses before anything is sent to the API. Edits are exempt - the
+  // server keeps an order raised before this rule editable, and so does this form.
+  const missingPrices = isEdit ? [] : missingPricesForLines(watchedItems, products);
+
   const saveOrder = useMutation({
     mutationFn: async (values: SalesOrderFormValues) => {
       const payload = {
@@ -280,7 +331,10 @@ export function SalesOrderFormDialog({
 
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
-        throw new Error(error.message || "Failed to save the sales order");
+        // The API answers with a `suggestion` whenever it knows what the user should do next
+        // (fill the product prices, remove a line, ...), so it travels with the message.
+        const detail = [error.message, error.suggestion].filter(Boolean).join(" ");
+        throw new Error(detail || "Failed to save the sales order");
       }
 
       return response.json();
@@ -334,7 +388,23 @@ export function SalesOrderFormDialog({
     }
   };
 
-  const onSubmit = (values: SalesOrderFormValues) => saveOrder.mutate(values);
+  const onSubmit = (values: SalesOrderFormValues) => {
+    // Re-check against the submitted values: a line can be added and submitted in the same tick.
+    // Only a new order is gated; an existing one stays editable (`buildSalesOrderLines` is
+    // called with `requirePrices: false` when the order is updated).
+    const problems = isEdit ? [] : missingPricesForLines(values.items, products);
+
+    if (problems.length > 0) {
+      toast({
+        title: "Prices are missing in the Product module",
+        description: `${describeMissingSalesOrderPrices(problems)} ${SALES_ORDER_PRICING_HINT}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    saveOrder.mutate(values);
+  };
   const saving = saveOrder.isPending;
 
   return (
@@ -648,6 +718,22 @@ export function SalesOrderFormDialog({
                   </div>
                 );
               })}
+
+              {missingPrices.length > 0 ? (
+                <div className="rounded-md bg-warning-subtle px-3 py-2 text-sm text-warning-subtle-foreground">
+                  <p className="font-medium">Prices are missing in the Product module</p>
+                  <ul className="mt-1 list-disc space-y-1 pl-5">
+                    {missingPrices.map((entry) => (
+                      <li key={entry.productCode}>
+                        <span className="font-mono">{entry.productCode}</span>{" "}
+                        {entry.productName ? `(${entry.productName}) - ` : "- "}
+                        missing {entry.labels.join(", ")}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2">{SALES_ORDER_PRICING_HINT}</p>
+                </div>
+              ) : null}
 
               {form.formState.errors.items?.message ? (
                 <p className="text-sm font-medium text-destructive">

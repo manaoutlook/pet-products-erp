@@ -6,6 +6,11 @@ import {
   salesOrderItems,
   salesOrders,
 } from "@db/schema";
+import {
+  SALES_ORDER_PRICING_HINT,
+  describeMissingSalesOrderPrices,
+  findMissingSalesOrderPrices,
+} from "../shared/sales-order-prices";
 import type { DbClient } from "./db-types";
 import { generateDeliveryNoteNumber } from "./numbering";
 
@@ -493,17 +498,55 @@ export interface ResolvedOrderLine {
  * AI Agent Note: product code/description/price are read from the catalogue here, and the line
  * total is always recomputed. Trusting the client's `totalPrice` would let a stale tab (or a
  * hand-crafted request) store an order that does not add up to its own unit prices.
+ *
+ * `requirePrices` (default on) refuses a product whose Landing / B2B / B2C price is still blank
+ * in the product master. It is relaxed for edits so an order raised before this rule existed
+ * stays editable - fixing it means filling the product in, not losing the order.
  */
 export async function buildSalesOrderLines(
   executor: DbClient,
-  lines: SalesOrderLineInput[]
+  lines: SalesOrderLineInput[],
+  options: { requirePrices?: boolean } = {}
 ): Promise<{ lines: ResolvedOrderLine[]; total: number }> {
+  const requirePrices = options.requirePrices ?? true;
   const productIds = Array.from(new Set(lines.map((line) => line.productId)));
 
   const catalogue = await executor
-    .select({ id: products.id, name: products.name, sku: products.sku, price: products.price })
+    .select({
+      id: products.id,
+      name: products.name,
+      sku: products.sku,
+      price: products.price,
+      landingPrice: products.landingPrice,
+      b2bPrice: products.b2bPrice,
+      b2cPrice: products.b2cPrice,
+    })
     .from(products)
     .where(inArray(products.id, productIds));
+
+  // A product that cannot be priced cannot be sold. Refusing here (rather than letting the
+  // line through at 0) keeps every later document honest: the delivery note and the VAT
+  // invoice print these numbers, and the VAT margin statement needs landing + B2B prices
+  // to work out the split at all.
+  if (requirePrices) {
+    const missingPrices = findMissingSalesOrderPrices(
+      catalogue.map((product) => ({
+        productCode: product.sku,
+        productName: product.name,
+        landingPrice: product.landingPrice,
+        b2bPrice: product.b2bPrice,
+        b2cPrice: product.b2cPrice,
+      }))
+    );
+
+    if (missingPrices.length > 0) {
+      throw new SalesOrderError(
+        describeMissingSalesOrderPrices(missingPrices),
+        400,
+        SALES_ORDER_PRICING_HINT
+      );
+    }
+  }
 
   const byId = new Map(catalogue.map((product) => [product.id, product]));
 

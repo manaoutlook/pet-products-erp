@@ -228,11 +228,17 @@ export async function seedTestData() {
     }).returning();
 
     // Create test products
+    // AI Agent Note: the three prices are filled in on purpose - a sales order refuses a
+    // product whose Landing / B2B / B2C price is blank (see shared/sales-order-prices.ts),
+    // so a priced seed product is what the order and delivery suites need.
     const [product] = await db.insert(products).values({
         name: 'Test Product',
         description: 'Test product description',
         sku: 'TEST-001',
         price: '100.00',
+        landingPrice: '80.00',
+        b2bPrice: '100.00',
+        b2cPrice: '120.00',
         categoryId: category.id,
         brandId: brand.id,
         minStock: 10,
