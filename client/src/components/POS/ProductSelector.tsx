@@ -4,6 +4,7 @@ import { SearchInput } from "@/components/ui/search-input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, Minus, Package } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -161,11 +162,17 @@ export function ProductSelector({ onAddToCart, cartItems, storeId }: ProductSele
   };
 
   return (
-    <Card className="h-full">
-      <CardHeader>
+    <Card className="flex h-full min-h-0 flex-col">
+      <CardHeader className="shrink-0 pb-3">
         <CardTitle className="flex items-center gap-2">
           <Package className="h-5 w-5" />
           Product Selection
+          {/* The list always runs past the bottom of the panel, so say how many are in it. */}
+          {!isLoading && (
+            <Badge variant="secondary" className="ml-auto text-xs font-normal">
+              {filteredProducts.length} {filteredProducts.length === 1 ? "product" : "products"}
+            </Badge>
+          )}
         </CardTitle>
         <SearchInput
           placeholder="Search products..."
@@ -173,91 +180,93 @@ export function ProductSelector({ onAddToCart, cartItems, storeId }: ProductSele
           onValueChange={setSearch}
         />
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="flex min-h-0 flex-1 flex-col p-0">
         {isLoading ? (
-          <div className="text-center py-8 text-muted-foreground">
+          <div className="py-8 text-center text-muted-foreground">
             Loading products...
           </div>
         ) : filteredProducts.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
+          <div className="py-8 text-center text-muted-foreground">
             No products found
           </div>
         ) : (
-          <div className="space-y-3 max-h-96 overflow-y-auto">
-            {filteredProducts.map((product) => {
-              const availableStock = getAvailableStock(product);
-              const cartQuantity = getCartQuantity(product.id);
-              const selectedQuantity = selectedQuantities[product.id] || 0;
-              const isOutOfStock = availableStock - cartQuantity <= 0;
-
-              return (
-                <Card key={product.id} className="p-3">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-medium truncate">{product.name}</h4>
-                      <p className="text-sm text-muted-foreground">SKU: {product.sku}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Badge variant="secondary">{product.category.name}</Badge>
-                        {product.brand && (
-                          <Badge variant="outline">{product.brand.name}</Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center justify-between mt-2">
-                        <span className="font-semibold text-lg">${Number(product.price).toFixed(2)}</span>
-                        <div className="flex items-center gap-1 text-sm">
-                          <span className={isOutOfStock ? "text-red-600" : "text-green-600"}>
-                            Stock: {availableStock - cartQuantity}
-                          </span>
+          <ScrollArea className="min-h-0 flex-1 px-6 pb-6">
+            <div className="space-y-3">
+              {filteredProducts.map((product) => {
+                const availableStock = getAvailableStock(product);
+                const cartQuantity = getCartQuantity(product.id);
+                const selectedQuantity = selectedQuantities[product.id] || 0;
+                const isOutOfStock = availableStock - cartQuantity <= 0;
+  
+                return (
+                  <Card key={product.id} className="p-3">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-medium truncate">{product.name}</h4>
+                        <p className="text-sm text-muted-foreground">SKU: {product.sku}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant="secondary">{product.category.name}</Badge>
+                          {product.brand && (
+                            <Badge variant="outline">{product.brand.name}</Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between mt-2">
+                          <span className="font-semibold text-lg">${Number(product.price).toFixed(2)}</span>
+                          <div className="flex items-center gap-1 text-sm">
+                            <span className={isOutOfStock ? "text-red-600" : "text-green-600"}>
+                              Stock: {availableStock - cartQuantity}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-
-                  {!isOutOfStock && (
-                    <div className="flex items-center gap-2 mt-3">
-                      <div className="flex items-center border rounded">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0"
-                          onClick={() => handleQuantityChange(product.id, selectedQuantity - 1)}
+  
+                    {!isOutOfStock && (
+                      <div className="flex items-center gap-2 mt-3">
+                        <div className="flex items-center border rounded">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => handleQuantityChange(product.id, selectedQuantity - 1)}
+                            disabled={selectedQuantity <= 0}
+                          >
+                            <Minus className="h-3 w-3" />
+                          </Button>
+                          <span className="px-3 py-1 text-sm min-w-[3rem] text-center">
+                            {selectedQuantity}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => handleQuantityChange(product.id, selectedQuantity + 1)}
+                          >
+                            <Plus className="h-3 w-3" />
+                          </Button>
+                        </div>
+                        <Button variant="create"
+                          onClick={() => handleAddToCart(product)}
                           disabled={selectedQuantity <= 0}
+                          className="flex-1"
                         >
-                          <Minus className="h-3 w-3" />
-                        </Button>
-                        <span className="px-3 py-1 text-sm min-w-[3rem] text-center">
-                          {selectedQuantity}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0"
-                          onClick={() => handleQuantityChange(product.id, selectedQuantity + 1)}
-                        >
-                          <Plus className="h-3 w-3" />
+                          Add to Cart
                         </Button>
                       </div>
-                      <Button variant="create"
-                        onClick={() => handleAddToCart(product)}
-                        disabled={selectedQuantity <= 0}
-                        className="flex-1"
-                      >
-                        Add to Cart
-                      </Button>
-                    </div>
-                  )}
-
-                  {isOutOfStock && (
-                    <div className="mt-3">
-                      <Badge variant="destructive" className="w-full justify-center">
-                        Out of Stock
-                      </Badge>
-                    </div>
-                  )}
-                </Card>
-              );
-            })}
-          </div>
+                    )}
+  
+                    {isOutOfStock && (
+                      <div className="mt-3">
+                        <Badge variant="destructive" className="w-full justify-center">
+                          Out of Stock
+                        </Badge>
+                      </div>
+                    )}
+                  </Card>
+                );
+              })}
+            </div>
+          </ScrollArea>
         )}
       </CardContent>
     </Card>

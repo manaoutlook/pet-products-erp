@@ -518,9 +518,12 @@ function POSPage() {
       />
 
       {/* Main POS Interface */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-200px)]">
+      {/* One fixed-height row on wide screens: each panel keeps its own scrollbar instead of
+          stretching the page, so the product list shows several cards and the cart totals stay
+          in view while you scroll through them. */}
+      <div className="grid grid-cols-1 gap-6 lg:h-[calc(100vh-200px)] lg:min-h-[32rem] lg:grid-cols-2 lg:grid-rows-1">
         {/* Product Selection */}
-        <div className="space-y-6">
+        <div className="flex min-h-0 flex-col">
           <ProductSelector
             onAddToCart={handleAddToCart}
             cartItems={cartItems}
@@ -529,7 +532,7 @@ function POSPage() {
         </div>
 
         {/* Cart Management */}
-        <div className="space-y-6">
+        <div className="flex min-h-0 flex-col">
           <CartManager
             cartItems={cartItems}
             onUpdateQuantity={handleUpdateQuantity}
