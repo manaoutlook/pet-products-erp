@@ -39,6 +39,7 @@ const LedgerPage = lazy(() => import("./pages/LedgerPage"));
 const RegionPage = lazy(() => import("./pages/RegionPage"));
 const CompanyProfilePage = lazy(() => import("./pages/CompanyProfilePage"));
 const VatCompaniesPage = lazy(() => import("./pages/VatCompaniesPage"));
+const VatMarginCalculatorPage = lazy(() => import("./pages/VatMarginCalculatorPage"));
 
 function RouteFallback() {
   return (
@@ -132,6 +133,11 @@ function App() {
             */}
             <Route path="/vat-companies">
               <RequirePermission module="masterData" action="read"><VatCompaniesPage /></RequirePermission>
+            </Route>
+            {/* VAT Margin Calculator: the profit split agreed with the company that issued the
+                VAT invoice. Reads the order's lines and prices them from the Product module. */}
+            <Route path="/vat-margin">
+              <RequirePermission module="orders" action="read"><VatMarginCalculatorPage /></RequirePermission>
             </Route>
             <Route path="/customers">
               <RequirePermission module="customerProfiles" action="read"><CustomerProfilesPage /></RequirePermission>

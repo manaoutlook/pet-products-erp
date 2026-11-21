@@ -1499,6 +1499,28 @@ export const company = pgTable("company", {
 }));
 
 /**
+ * Global key/value settings - one row per setting, read and written by the screens that need
+ * a default that is not attached to a single record.
+ *
+ * The first user is the VAT Margin Calculator: the income-tax rate is the same for every
+ * statement, so it lives here rather than being re-typed for each document. The keys are
+ * namespaced (`vat_margin.income_tax_rate`, ...) so an unrelated screen can add its own
+ * without a second table; `server/vat-margin-settings.ts` owns the vocabulary and the defaults.
+ *
+ * AI Agent Note: values are TEXT on purpose - a setting is a serialised scalar, and the code
+ * that owns the key decides how to read it. Storing a typed column per setting would mean a
+ * schema change every time a screen wants a default, which is exactly what this table avoids.
+ * `updatedByUserId` is nullable because a setting may be seeded by a migration or a boot task
+ * with no signed-in user behind it.
+ */
+export const appSettings = pgTable("app_settings", {
+  key: varchar("key", { length: 120 }).primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  updatedByUserId: integer("updated_by_user_id").references(() => users.id),
+});
+
+/**
  * Append-only ledger of every stock change.
  *
  * AI Agent Note: `inventory.quantity` is a mutable running total - it says what is on the

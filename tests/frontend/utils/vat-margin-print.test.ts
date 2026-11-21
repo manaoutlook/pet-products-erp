@@ -1,0 +1,116 @@
+import { describe, expect, it } from "vitest";
+import { buildVatMarginPrintDocument } from "@/utils/vat-margin-print";
+import type { VatMarginStatement } from "@/hooks/use-vat-margin";
+
+/**
+ * The printed VAT margin statement.
+ *
+ * The sheet is what leaves the building for a tax company, so two things are pinned here: the
+ * Vietnamese descriptions must survive (the reason the page prints instead of using jsPDF with its
+ * Latin-only fonts), and nothing from the database may be able to inject markup into the document.
+ */
+
+function statement(overrides: Partial<VatMarginStatement> = {}): VatMarginStatement {
+  return {
+    document: {
+      id: 1,
+      type: "sales_order",
+      typeLabel: "Sales Order",
+      reference: "SO-20260101-0001",
+      orderNumber: "SO-20260101-0001",
+      invoiceNumber: "CI-20260101-0001",
+      customerName: "Nguyễn Văn A",
+      companyName: "Cửa hàng Thú cưng",
+      contactPerson: "Anh A",
+      orderDate: "2026-01-01T00:00:00.000Z",
+      vatCompanyName: "CÔNG TY TNHH CONQUEROR",
+      vatCompanyTaxId: "0312345678",
+      vatCompanyAddress: "12 Lê Lợi, Quận 1",
+    },
+    lines: [
+      {
+        productCode: "SP-001",
+        description: "Thức ăn cho mèo <lớn>",
+        landingPrice: 100_000,
+        b2bPrice: 150_000,
+        quantity: 2,
+        marginAmount: 48_500,
+        smartLifePrice: 148_500,
+        conquerorProfitUnit: 1_500,
+        conquerorProfitTotal: 3_000,
+        incomeTax: 600,
+        serviceFee: 0,
+        paybackToSmartLife: 299_400,
+        salesValue: 300_000,
+        vatAmount: 24_000,
+        invoiceTotal: 324_000,
+        hasError: false,
+      },
+    ],
+    totals: {
+      quantity: 2,
+      conquerorProfitTotal: 3_000,
+      incomeTax: 600,
+      serviceFee: 0,
+      paybackToSmartLife: 299_400,
+      salesValue: 300_000,
+      vatAmount: 24_000,
+      invoiceTotal: 324_000,
+    },
+    params: {
+      profitMarginRate: 0.97,
+      incomeTaxRate: 0.2,
+      serviceFeeRate: 0,
+      vatRate: 0.08,
+    },
+    errors: [],
+    ...overrides,
+  };
+}
+
+describe("VAT margin print document", () => {
+  it("lays the statement out on an A4 landscape sheet", () => {
+    const html = buildVatMarginPrintDocument(statement());
+
+    expect(html).toContain("size: A4 landscape");
+    expect(html).toContain("VAT margin statement");
+    expect(html).toContain("SO-20260101-0001");
+    expect(html).toContain("CI-20260101-0001");
+    expect(html).toContain("CÔNG TY TNHH CONQUEROR");
+  });
+
+  it("keeps Vietnamese diacritics and escapes markup from product descriptions", () => {
+    const html = buildVatMarginPrintDocument(statement());
+
+    expect(html).toContain("Thức ăn cho mèo");
+    // `<lớn>` was typed into a description - it must print as text, never as a tag.
+    expect(html).not.toContain("<lớn>");
+    expect(html).toContain("&lt;lớn&gt;");
+  });
+
+  it("prints the totals row and the rates the statement was calculated with", () => {
+    const html = buildVatMarginPrintDocument(statement());
+
+    expect(html).toContain(">Total<");
+    expect(html).toContain("Profit margin:");
+    expect(html).toContain("Income tax:");
+    expect(html).toContain("VAT invoice service fee:");
+  });
+
+  it("carries the missing-price warnings onto the sheet", () => {
+    const html = buildVatMarginPrintDocument(
+      statement({
+        errors: [
+          {
+            productCode: "SP-002",
+            field: "landingPrice",
+            message: "Landing Price is not updated in the Product module for SP-002",
+          },
+        ],
+      })
+    );
+
+    expect(html).toContain("Cannot be sent - update the Product module");
+    expect(html).toContain("Landing Price is not updated in the Product module for SP-002");
+  });
+});

@@ -10,6 +10,7 @@ import { registerVatCompanyRoutes } from "./routes/vat-companies";
 import { registerSalesOrderRoutes, registerSalesOrderWriteRoutes } from "./routes/sales-orders";
 import { registerDeliveryNoteRoutes } from "./routes/delivery-notes";
 import { registerFinanceRoutes } from "./routes/finance";
+import { registerVatMarginRoutes } from "./routes/vat-margin";
 import { db } from "@db";
 import {
   buildProductDeletionError,
@@ -390,6 +391,11 @@ export function registerRoutes(app: Express): Server {
   // report that adds it to the invoice receipts owned by Receivables. Registered after the order
   // documents because `GET /api/finance/outstanding` reads the same invoices they issue.
   registerFinanceRoutes(app);
+
+  // VAT Margin Calculator: the profit split the two partners agree on for an issued VAT
+  // invoice. Registered after the order documents because it prices their lines from the
+  // Product module and never writes any of them.
+  registerVatMarginRoutes(app);
 
   // Purchase Orders endpoints
   app.get("/api/purchase-orders", requireAuth, async (req, res) => {

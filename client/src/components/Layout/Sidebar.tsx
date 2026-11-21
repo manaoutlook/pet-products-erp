@@ -22,6 +22,7 @@ import {
   ChevronDown,
   ClipboardList,
   ClipboardCheck,
+  Calculator,
   UserCircle,
   ScanBarcode,
   ShoppingBag,
@@ -173,6 +174,9 @@ const navigationSections: NavSection[] = [
     items: [
       { name: "Company Profile", href: "/company-profile", icon: Landmark, module: 'masterData', action: 'read' },
       { name: "VAT Companies", href: "/vat-companies", icon: ReceiptText, module: 'masterData', action: 'read' },
+      // The profit split agreed with the VAT company that issued an invoice - an orders screen,
+      // because it reads the order's lines and the products behind them.
+      { name: "VAT Margin Calculator", href: "/vat-margin", icon: Calculator, module: 'orders', action: 'read' },
       { name: "Users", href: "/users", icon: Users, module: 'users', action: 'read' },
       { name: "Roles", href: "/roles", icon: ShieldCheck, adminOnly: true },
       { name: "Permissions", href: "/role-permissions", icon: Lock, adminOnly: true },
