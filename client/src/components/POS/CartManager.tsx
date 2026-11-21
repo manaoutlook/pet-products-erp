@@ -4,10 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Trash2, Plus, Minus, ShoppingCart, CreditCard } from "lucide-react";
+import { Trash2, ShoppingCart, CreditCard } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/utils/format";
 import { sumLineTotals } from "@shared/tax";
+import { PosQtyStepper } from "./PosQtyStepper";
 
 interface Product {
   id: number;
@@ -107,7 +108,11 @@ export function CartManager({
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <ShoppingCart className="h-5 w-5" />
-            Cart ({totalItems} items)
+            Shopping Cart
+            {/* Same header shape as the product panel: title plus a count badge. */}
+            <Badge variant="secondary" className="ml-auto mr-2 text-xs font-normal">
+              {totalItems} {totalItems === 1 ? "item" : "items"}
+            </Badge>
           </CardTitle>
           <Button
             variant="outline"
@@ -122,66 +127,61 @@ export function CartManager({
       </CardHeader>
 
       <CardContent className="flex-1 flex flex-col p-0">
-        <ScrollArea className="flex-1 px-6">
-          <div className="space-y-3 pb-4">
+        <ScrollArea className="flex-1 px-6 pb-4">
+          <div className="space-y-2">
             {cartItems.map((item) => (
-              <Card key={item.productId} className="p-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1 min-w-0">
-                    <h4 className="font-medium truncate">{item.product.name}</h4>
-                    <p className="text-sm text-muted-foreground">SKU: {item.product.sku}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Badge variant="secondary" className="text-xs">
-                        {item.product.category.name}
-                      </Badge>
-                      {item.product.brand && (
-                        <Badge variant="outline" className="text-xs">
-                          {item.product.brand.name}
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
+              <Card key={item.productId} className="px-3 py-2">
+                {/* Line 1 - same shape as the product list: name, SKU, category, brand */}
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                  <h4
+                    className="min-w-[8rem] flex-1 truncate text-sm font-medium"
+                    title={item.product.name}
+                  >
+                    {item.product.name}
+                  </h4>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    SKU: {item.product.sku}
+                  </span>
+                  <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-[11px]">
+                    {item.product.category.name}
+                  </Badge>
+                  {item.product.brand && (
+                    <Badge variant="outline" className="shrink-0 px-1.5 py-0 text-[11px]">
+                      {item.product.brand.name}
+                    </Badge>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"
+                    className="h-6 w-6 shrink-0 p-0 text-destructive hover:text-destructive"
                     onClick={() => onRemoveItem(item.productId)}
                     disabled={isProcessing}
-                    className="text-destructive hover:text-destructive"
+                    aria-label={`Remove ${item.product.name}`}
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </div>
 
-                <div className="flex items-center justify-between mt-3">
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 w-8 p-0"
-                      onClick={() => onUpdateQuantity(item.productId, item.quantity - 1)}
-                      disabled={item.quantity <= 1 || isProcessing}
-                    >
-                      <Minus className="h-3 w-3" />
-                    </Button>
-                    <span className="px-3 py-1 text-sm min-w-[3rem] text-center border rounded">
-                      {item.quantity}
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 w-8 p-0"
-                      onClick={() => onUpdateQuantity(item.productId, item.quantity + 1)}
-                      disabled={isProcessing}
-                    >
-                      <Plus className="h-3 w-3" />
-                    </Button>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-semibold">${Number(item.totalPrice).toFixed(2)}</p>
-                    <p className="text-sm text-muted-foreground">
-                      ${Number(item.unitPrice).toFixed(2)} each
-                    </p>
-                  </div>
+                {/* Line 2 - the product list says where the stock sits; the cart does not need it */}
+
+                {/* Line 3 - unit price, quantity, line total */}
+                <div className="mt-1.5 flex items-center gap-2">
+                  <span className="min-w-[6rem] shrink-0 text-sm font-semibold tabular-nums">
+                    {formatCurrency(item.unitPrice)}
+                  </span>
+                  <span className="shrink-0 text-[11px] text-muted-foreground">each</span>
+
+                  <PosQtyStepper
+                    quantity={item.quantity}
+                    onChange={(quantity) => onUpdateQuantity(item.productId, quantity)}
+                    min={1}
+                    disabled={isProcessing}
+                    itemName={item.product.name}
+                  />
+
+                  <span className="ml-auto shrink-0 text-sm font-semibold tabular-nums">
+                    {formatCurrency(item.totalPrice)}
+                  </span>
                 </div>
               </Card>
             ))}

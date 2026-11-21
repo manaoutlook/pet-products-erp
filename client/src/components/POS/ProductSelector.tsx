@@ -5,8 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Minus, Package } from "lucide-react";
+import { Package } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { formatCurrency } from "@/utils/format";
+import { PosQtyStepper } from "./PosQtyStepper";
 
 interface Product {
   id: number;
@@ -294,34 +296,17 @@ export function ProductSelector({ onAddToCart, cartItems, storeId }: ProductSele
 
                     {/* Line 3 - price, quantity, add */}
                     <div className="mt-1.5 flex items-center gap-2">
-                      <span className="shrink-0 text-sm font-semibold tabular-nums">
-                        ${Number(product.price).toFixed(2)}
+                      <span className="min-w-[6rem] shrink-0 text-sm font-semibold tabular-nums">
+                        {formatCurrency(product.price)}
                       </span>
 
                       {!isOutOfStock && (
                         <>
-                          <div className="flex shrink-0 items-center rounded border">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 w-7 p-0"
-                              onClick={() => handleQuantityChange(product.id, selectedQuantity - 1)}
-                              disabled={selectedQuantity <= 0}
-                            >
-                              <Minus className="h-3 w-3" />
-                            </Button>
-                            <span className="min-w-[2rem] text-center text-sm tabular-nums">
-                              {selectedQuantity}
-                            </span>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 w-7 p-0"
-                              onClick={() => handleQuantityChange(product.id, selectedQuantity + 1)}
-                            >
-                              <Plus className="h-3 w-3" />
-                            </Button>
-                          </div>
+                          <PosQtyStepper
+                            quantity={selectedQuantity}
+                            onChange={(quantity) => handleQuantityChange(product.id, quantity)}
+                            itemName={product.name}
+                          />
                           <Button
                             variant="create"
                             size="sm"
