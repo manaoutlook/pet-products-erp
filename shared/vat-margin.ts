@@ -14,13 +14,22 @@
  *   K  Conqueror profit total    J x G
  *   L  income tax                incomeTaxRate x K
  *   M  VAT invoice service fee   serviceFeeRate x O
- *   N  pay back to SmartLife     O - L - M
+ *   N  pay back to SmartLife     O - K - L - M
  *   O  sales value               F x G
  *   P  VAT                       vatRate x O
  *   Q  invoice total             O + P
  *
  * The unit figures (H, I, J) are per unit; K, L, M, N, O, P and Q are whole-line amounts. A
  * totals row sums K..Q and the quantity, exactly like the worksheet's third row.
+ *
+ * The sales value splits into three piles that add back up to it:
+ *
+ *   VAT company profit (K) + income tax (L)   what the VAT company keeps from the invoice
+ *   service fee (M)                           the VAT company's invoice-issuing fee
+ *   payback to SmartLife (N)                  everything else - O - K - L - M
+ *
+ * So N is SmartLife's price for the goods (I x G) less the tax and fee it covers, and the two
+ * summary lines under the table (N, and K + L) are the amounts actually transferred.
  *
  * AI Agent Note: this module never reads the database. The route joins the order lines to the
  * products and passes numbers in, so the same arithmetic can be unit-tested without Postgres and
@@ -149,7 +158,9 @@ function computeLine(source: VatMarginSourceLine, params: VatMarginParams): VatM
   const salesValue = roundVnd(b2bPrice * quantity);
   const incomeTax = roundVnd(params.incomeTaxRate * conquerorProfitTotal);
   const serviceFee = roundVnd(params.serviceFeeRate * salesValue);
-  const paybackToSmartLife = roundVnd(salesValue - incomeTax - serviceFee);
+  // N: SmartLife gets the sales value less what the VAT company keeps (its profit), the income
+  // tax SmartLife covers out of its share, and the invoice-issuing fee. Identity: N + K + L + M = O.
+  const paybackToSmartLife = roundVnd(salesValue - conquerorProfitTotal - incomeTax - serviceFee);
   const vatAmount = roundVnd(params.vatRate * salesValue);
   const invoiceTotal = roundVnd(salesValue + vatAmount);
 
@@ -238,5 +249,13 @@ export function computeVatMarginStatement(
 /** The VAT company's profit after income tax - the other half of "their earning". */
 export function conquerorProfitAfterTax(totals: VatMarginTotals): number {
   return roundVnd(totals.conquerorProfitTotal - totals.incomeTax);
+}
+
+/**
+ * What the VAT company keeps from the invoice: its profit plus the income tax withheld on it.
+ * Shown as the second summary line - "Profit and Income Tax for VAT company".
+ */
+export function vatCompanyProfitAndTax(totals: VatMarginTotals): number {
+  return roundVnd(totals.conquerorProfitTotal + totals.incomeTax);
 }
 

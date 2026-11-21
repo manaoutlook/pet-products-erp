@@ -16,6 +16,7 @@ import {
 import {
   computeVatMarginStatement,
   normaliseProfitMarginRate,
+  vatCompanyProfitAndTax,
   type VatMarginSourceLine,
 } from '../../../shared/vat-margin';
 import { readVatMarginSettings, saveVatMarginSettings } from '../../../server/vat-margin-settings';
@@ -64,12 +65,12 @@ describe('VAT margin arithmetic', () => {
     expect(row.marginAmount).toBe(48_500);
     expect(row.smartLifePrice).toBe(148_500);
     expect(row.conquerorProfitUnit).toBe(1_500);
-    // K = J x G; O = F x G; L = 20% x K; N = O - L - M
+    // K = J x G; O = F x G; L = 20% x K; N = O - K - L - M
     expect(row.conquerorProfitTotal).toBe(3_000);
     expect(row.salesValue).toBe(300_000);
     expect(row.incomeTax).toBe(600);
     expect(row.serviceFee).toBe(0);
-    expect(row.paybackToSmartLife).toBe(299_400);
+    expect(row.paybackToSmartLife).toBe(296_400);
     // P = 10% x O; Q = O + P
     expect(row.vatAmount).toBe(30_000);
     expect(row.invoiceTotal).toBe(330_000);
@@ -82,7 +83,27 @@ describe('VAT margin arithmetic', () => {
 
     // 5% x O (300,000), not 5% x K (3,000).
     expect(row.serviceFee).toBe(15_000);
-    expect(row.paybackToSmartLife).toBe(284_400);
+    // N = O - K - L - M = 300,000 - 3,000 - 600 - 15,000.
+    expect(row.paybackToSmartLife).toBe(281_400);
+  });
+
+  it('leaves the sales value fully accounted for: N + K + L + M = O', () => {
+    const statement = computeVatMarginStatement([line()], { ...params, serviceFeeRate: 0.05 });
+    const { totals } = statement;
+
+    expect(
+      totals.paybackToSmartLife +
+        totals.conquerorProfitTotal +
+        totals.incomeTax +
+        totals.serviceFee
+    ).toBe(totals.salesValue);
+  });
+
+  it('adds the income tax to the VAT company profit for the summary line', () => {
+    const statement = computeVatMarginStatement([line()], params);
+
+    // The VAT company keeps its profit and holds the income tax withheld on it: K + L.
+    expect(vatCompanyProfitAndTax(statement.totals)).toBe(3_600);
   });
 
   it('clamps the profit margin into 95%-99%', () => {

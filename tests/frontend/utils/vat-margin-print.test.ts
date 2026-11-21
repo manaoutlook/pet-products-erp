@@ -40,7 +40,7 @@ function statement(overrides: Partial<VatMarginStatement> = {}): VatMarginStatem
         conquerorProfitTotal: 3_000,
         incomeTax: 600,
         serviceFee: 0,
-        paybackToSmartLife: 299_400,
+        paybackToSmartLife: 296_400,
         salesValue: 300_000,
         vatAmount: 24_000,
         invoiceTotal: 324_000,
@@ -52,7 +52,7 @@ function statement(overrides: Partial<VatMarginStatement> = {}): VatMarginStatem
       conquerorProfitTotal: 3_000,
       incomeTax: 600,
       serviceFee: 0,
-      paybackToSmartLife: 299_400,
+      paybackToSmartLife: 296_400,
       salesValue: 300_000,
       vatAmount: 24_000,
       invoiceTotal: 324_000,
@@ -95,6 +95,20 @@ describe("VAT margin print document", () => {
     expect(html).toContain("Profit margin:");
     expect(html).toContain("Income tax:");
     expect(html).toContain("VAT invoice service fee:");
+  });
+
+  it("summarises the payback and what the VAT company keeps below the table", () => {
+    const html = buildVatMarginPrintDocument(statement());
+
+    // N = O - K - L - M = 300,000 - 3,000 - 600 - 0
+    expect(html).toContain("Payback to SmartLife (N)");
+    expect(html).toContain("296.400");
+    // K + L = 3,000 + 600, the profit and the income tax it holds.
+    expect(html).toContain("Profit and Income Tax for VAT company (K + L)");
+    expect(html).toContain("3.600");
+    // The sales value closes the split, so the reader can add the lines up themselves.
+    expect(html).toContain("Sales value (O)");
+    expect(html).toContain("300.000");
   });
 
   it("carries the missing-price warnings onto the sheet", () => {

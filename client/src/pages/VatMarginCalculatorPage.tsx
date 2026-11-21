@@ -36,6 +36,7 @@ import {
   DEFAULT_SERVICE_FEE_RATE,
   normaliseProfitMarginRate,
   normaliseRate,
+  vatCompanyProfitAndTax,
 } from "@shared/vat-margin";
 
 /**
@@ -147,6 +148,7 @@ function VatMarginCalculatorPage() {
       toast({
         title: "Defaults saved",
         description: "The calculator now opens with these rates.",
+        variant: "success",
       });
     } catch (error) {
       toast({
@@ -390,7 +392,7 @@ function VatMarginCalculatorPage() {
                     <TableHead className="text-right">VAT co. profit (K)</TableHead>
                     <TableHead className="text-right">Income tax (L)</TableHead>
                     <TableHead className="text-right">Service fee (M)</TableHead>
-                    <TableHead className="text-right">Pay back (N)</TableHead>
+                    <TableHead className="text-right">Payback (N)</TableHead>
                     <TableHead className="text-right">Sales value (O)</TableHead>
                     <TableHead className="text-right">VAT (P)</TableHead>
                     <TableHead className="text-right">Invoice total (Q)</TableHead>
@@ -481,6 +483,43 @@ function VatMarginCalculatorPage() {
                 </TableFooter>
               </Table>
 
+              {/* The two amounts that actually move: what SmartLife is paid back, and what the
+                  VAT company keeps (its profit plus the income tax on it). They add up with the
+                  service fee to the sales value - that is the whole point of the split. */}
+              <div className="mt-4 space-y-2 rounded-lg border bg-muted/30 px-4 py-3">
+                <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
+                  <span className="font-medium">Payback to SmartLife</span>
+                  <span className="font-semibold tabular-nums">
+                    {money(statement.totals.paybackToSmartLife)}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
+                  <span className="font-medium">
+                    Profit and Income Tax for VAT company
+                    <span className="ml-2 text-caption font-normal text-muted-foreground">
+                      {money(statement.totals.conquerorProfitTotal)} +{" "}
+                      {money(statement.totals.incomeTax)}
+                    </span>
+                  </span>
+                  <span className="font-semibold tabular-nums">
+                    {money(vatCompanyProfitAndTax(statement.totals))}
+                  </span>
+                </div>
+                {statement.totals.serviceFee > 0 && (
+                  <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
+                    <span className="font-medium">VAT invoice service fee</span>
+                    <span className="font-semibold tabular-nums">
+                      {money(statement.totals.serviceFee)}
+                    </span>
+                  </div>
+                )}
+                <p className="border-t pt-2 text-caption text-muted-foreground">
+                  Payback + Profit and Income Tax
+                  {statement.totals.serviceFee > 0 ? " + Service fee" : ""} = Sales value{" "}
+                  {money(statement.totals.salesValue)}. VAT {money(statement.totals.vatAmount)} is
+                  paid to the tax office and is not part of the split.
+                </p>
+              </div>
             </CardContent>
           </Card>
         </>

@@ -1,6 +1,7 @@
 import { escapeHtml, openPrintDocument, printValue } from "./print-document";
 import { formatCurrency, formatDate, formatPercent, formatQuantity } from "./format";
 import type { VatMarginStatement } from "@/hooks/use-vat-margin";
+import { vatCompanyProfitAndTax } from "@shared/vat-margin";
 
 /**
  * The printable VAT margin statement.
@@ -45,6 +46,10 @@ const STATEMENT_STYLES = `
   .errors { border: 1px solid #000; padding: 5px 7px; margin-bottom: 8px; font-size: 8.5px; }
   .errors .title { font-weight: bold; text-transform: uppercase; }
   .errors ul { margin: 3px 0 0; padding-left: 16px; }
+  .summary { margin-top: 8px; border: 1px solid #000; padding: 4px 7px; font-size: 9px; }
+  .summary .row { display: flex; justify-content: space-between; gap: 12px; padding: 1px 0; }
+  .summary .row.total { border-top: 1px solid #999; margin-top: 3px; padding-top: 3px; font-weight: bold; }
+  .summary .hint { font-size: 8px; font-weight: normal; }
   .signatures { display: flex; gap: 40px; margin-top: 22px; }
   .signature { flex: 1; text-align: center; }
   .signature .role { font-weight: bold; }
@@ -72,7 +77,7 @@ function headerRow(): string {
     <th class="num">VAT co. profit (K)</th>
     <th class="num">Income tax (L)</th>
     <th class="num">Service fee (M)</th>
-    <th class="num">Pay back (N)</th>
+    <th class="num">Payback (N)</th>
     <th class="num">Sales value (O)</th>
     <th class="num">VAT (P)</th>
     <th class="num">Invoice total (Q)</th>
@@ -140,6 +145,29 @@ export function buildVatMarginPrintDocument(statement: VatMarginStatement): stri
     <td class="num">${NUM(totals.invoiceTotal)}</td>
   </tr>`;
 
+  const summary = `<div class="summary">
+    <div class="row">
+      <span>Payback to SmartLife (N)</span>
+      <span>${NUM(totals.paybackToSmartLife)}</span>
+    </div>
+    <div class="row">
+      <span>Profit and Income Tax for VAT company (K + L) <span class="hint">${NUM(totals.conquerorProfitTotal)} + ${NUM(totals.incomeTax)}</span></span>
+      <span>${NUM(vatCompanyProfitAndTax(totals))}</span>
+    </div>
+    ${
+      totals.serviceFee > 0
+        ? `<div class="row">
+      <span>VAT invoice service fee (M)</span>
+      <span>${NUM(totals.serviceFee)}</span>
+    </div>`
+        : ""
+    }
+    <div class="row total">
+      <span>Sales value (O) - payback + profit and income tax${totals.serviceFee > 0 ? " + service fee" : ""}</span>
+      <span>${NUM(totals.salesValue)}</span>
+    </div>
+  </div>`;
+
   const body = `
     ${letterhead}
     <h1>VAT margin statement</h1>
@@ -171,6 +199,8 @@ export function buildVatMarginPrintDocument(statement: VatMarginStatement): stri
       <tfoot>${footer}</tfoot>
     </table>
 
+    ${summary}
+
     <div class="signatures">
       <div class="signature">
         <div class="role">Prepared by</div>
@@ -186,6 +216,7 @@ export function buildVatMarginPrintDocument(statement: VatMarginStatement): stri
 
     <div class="footer">
       Unit columns (H, I, J) are per unit; K-Q are whole-line amounts, rounded to the dong.
+      N = O - K - L - M, so N + K + L + M = O. VAT (P) goes to the tax office and is outside the split.
     </div>`;
 
   return `<!doctype html>
