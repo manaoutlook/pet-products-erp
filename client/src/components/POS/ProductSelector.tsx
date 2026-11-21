@@ -190,78 +190,93 @@ export function ProductSelector({ onAddToCart, cartItems, storeId }: ProductSele
             No products found
           </div>
         ) : (
-          <ScrollArea className="min-h-0 flex-1 px-6 pb-6">
-            <div className="space-y-3">
+          <ScrollArea className="min-h-0 flex-1 px-6 pb-4">
+            <div className="space-y-2">
               {filteredProducts.map((product) => {
                 const availableStock = getAvailableStock(product);
                 const cartQuantity = getCartQuantity(product.id);
                 const selectedQuantity = selectedQuantities[product.id] || 0;
                 const isOutOfStock = availableStock - cartQuantity <= 0;
-  
+
                 return (
-                  <Card key={product.id} className="p-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-medium truncate">{product.name}</h4>
-                        <p className="text-sm text-muted-foreground">SKU: {product.sku}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Badge variant="secondary">{product.category.name}</Badge>
-                          {product.brand && (
-                            <Badge variant="outline">{product.brand.name}</Badge>
-                          )}
-                        </div>
-                        <div className="flex items-center justify-between mt-2">
-                          <span className="font-semibold text-lg">${Number(product.price).toFixed(2)}</span>
-                          <div className="flex items-center gap-1 text-sm">
-                            <span className={isOutOfStock ? "text-red-600" : "text-green-600"}>
-                              Stock: {availableStock - cartQuantity}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
+                  <Card key={product.id} className="px-3 py-2">
+                    {/* Line 1 - what the product is */}
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                      <h4
+                        className="min-w-[8rem] flex-1 truncate text-sm font-medium"
+                        title={product.name}
+                      >
+                        {product.name}
+                      </h4>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        SKU: {product.sku}
+                      </span>
+                      <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-[11px]">
+                        {product.category.name}
+                      </Badge>
+                      {product.brand && (
+                        <Badge variant="outline" className="shrink-0 px-1.5 py-0 text-[11px]">
+                          {product.brand.name}
+                        </Badge>
+                      )}
                     </div>
-  
-                    {!isOutOfStock && (
-                      <div className="flex items-center gap-2 mt-3">
-                        <div className="flex items-center border rounded">
+
+                    {/* Line 2 - price, quantity, add, stock */}
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <span className="shrink-0 text-sm font-semibold tabular-nums">
+                        ${Number(product.price).toFixed(2)}
+                      </span>
+
+                      {!isOutOfStock && (
+                        <>
+                          <div className="flex shrink-0 items-center rounded border">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0"
+                              onClick={() => handleQuantityChange(product.id, selectedQuantity - 1)}
+                              disabled={selectedQuantity <= 0}
+                            >
+                              <Minus className="h-3 w-3" />
+                            </Button>
+                            <span className="min-w-[2rem] text-center text-sm tabular-nums">
+                              {selectedQuantity}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0"
+                              onClick={() => handleQuantityChange(product.id, selectedQuantity + 1)}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                          </div>
                           <Button
-                            variant="ghost"
+                            variant="create"
                             size="sm"
-                            className="h-8 w-8 p-0"
-                            onClick={() => handleQuantityChange(product.id, selectedQuantity - 1)}
+                            className="h-7 px-3 text-xs"
+                            onClick={() => handleAddToCart(product)}
                             disabled={selectedQuantity <= 0}
                           >
-                            <Minus className="h-3 w-3" />
+                            Add to Cart
                           </Button>
-                          <span className="px-3 py-1 text-sm min-w-[3rem] text-center">
-                            {selectedQuantity}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0"
-                            onClick={() => handleQuantityChange(product.id, selectedQuantity + 1)}
-                          >
-                            <Plus className="h-3 w-3" />
-                          </Button>
-                        </div>
-                        <Button variant="create"
-                          onClick={() => handleAddToCart(product)}
-                          disabled={selectedQuantity <= 0}
-                          className="flex-1"
-                        >
-                          Add to Cart
-                        </Button>
-                      </div>
-                    )}
-  
-                    {isOutOfStock && (
-                      <div className="mt-3">
-                        <Badge variant="destructive" className="w-full justify-center">
+                        </>
+                      )}
+
+                      {isOutOfStock && (
+                        <Badge variant="destructive" className="shrink-0 px-1.5 py-0 text-[11px]">
                           Out of Stock
                         </Badge>
-                      </div>
-                    )}
+                      )}
+
+                      <span
+                        className={`ml-auto shrink-0 text-xs tabular-nums ${
+                          isOutOfStock ? "text-red-600" : "text-green-600"
+                        }`}
+                      >
+                        Stock: {availableStock - cartQuantity}
+                      </span>
+                    </div>
                   </Card>
                 );
               })}

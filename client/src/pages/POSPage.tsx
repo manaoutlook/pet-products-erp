@@ -408,7 +408,7 @@ function POSPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-4 p-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -520,8 +520,9 @@ function POSPage() {
       {/* Main POS Interface */}
       {/* One fixed-height row on wide screens: each panel keeps its own scrollbar instead of
           stretching the page, so the product list shows several cards and the cart totals stay
-          in view while you scroll through them. */}
-      <div className="grid grid-cols-1 gap-6 lg:h-[calc(100vh-200px)] lg:min-h-[32rem] lg:grid-cols-2 lg:grid-rows-1">
+          in view while you scroll through them. The page chrome above and below the row takes
+          about 168px, so the row claims the rest of the viewport. */}
+      <div className="grid grid-cols-1 gap-4 lg:h-[calc(100dvh-168px)] lg:min-h-[32rem] lg:grid-cols-2 lg:grid-rows-1">
         {/* Product Selection */}
         <div className="flex min-h-0 flex-col">
           <ProductSelector
