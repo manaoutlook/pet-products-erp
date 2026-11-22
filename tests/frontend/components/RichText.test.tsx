@@ -76,6 +76,19 @@ describe('RichText', () => {
         expect(screen.getByText('Safe')).toBeTruthy();
     });
 
+    it('renders escaped line breaks as real line breaks, never as a literal "\n"', () => {
+        const { container } = render(
+            <RichText value={'Line one\\nLine two\\r\\nLine three'} />
+        );
+
+        const text = (container.textContent ?? '');
+        expect(text).not.toContain('\\n');
+        expect(text).not.toContain('\\r');
+        expect(text).toContain('Line one');
+        expect(text).toContain('Line three');
+        expect(container.querySelector('.whitespace-pre-line')).toBeTruthy();
+    });
+
     it('renders the fallback when the value is empty', () => {
         render(<RichText value={null} fallback={<span>Not set</span>} />);
         expect(screen.getByText('Not set')).toBeTruthy();

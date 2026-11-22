@@ -1,6 +1,7 @@
 import { db } from "@db";
 import { products, categories, brands, suppliers, inventory } from "@db/schema";
 import { eq } from "drizzle-orm";
+import { normalizeDescriptionNewlines } from "@shared/product-description";
 
 /**
  * Bulk product import used by `POST /api/products/import` (Products page).
@@ -342,7 +343,7 @@ export async function importProducts(
         continue;
       }
 
-      const description = toText(raw.description);
+      const description = normalizeDescriptionNewlines(toText(raw.description));
       // The legacy `price` column is NOT NULL and mirrors the retail price.
       const price = String(b2cPrice);
 

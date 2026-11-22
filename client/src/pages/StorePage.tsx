@@ -22,6 +22,8 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { SearchInput } from "@/components/ui/search-input";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
 import { useTableControls } from "@/hooks/use-table-controls";
 import { Button } from "@/components/ui/button";
@@ -33,7 +35,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { SelectStore } from "@db/schema";
@@ -50,6 +52,11 @@ import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
 import { readApiError } from "@/lib/apiError";
 import { Loader2, Plus, Pencil, Trash2, Warehouse, Store, AlertCircle } from "lucide-react";
+import { useRestBulkDelete } from "@/hooks/use-bulk-delete";
+import {
+  MasterDataBulkDeleteDialog,
+  MasterDataBulkDeleteToolbar,
+} from "@/components/master-data/MasterDataBulkDelete";
 
 // AI Agent Note: The base insert schema allows regionId to be null, which is
 // exactly how stores ended up with NULL region_id. The form requires a region
@@ -96,6 +103,18 @@ function StorePage() {
       return response.json();
     }
   });
+
+  // Searchable so a growing list of regions does not require scrolling.
+  const regionOptions = useMemo(
+    () =>
+      [...(regions ?? [])]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((region) => ({
+          value: String(region.id),
+          label: region.name,
+        })),
+    [regions]
+  );
 
   const form = useForm<StoreFormValues>({
     resolver: zodResolver(storeFormSchema),
@@ -254,6 +273,19 @@ function StorePage() {
   // Rows currently visible (search + column filters + sorting).
   const filteredStores: SelectStore[] = storesTable.rows;
 
+  const canDeleteStores = hasPermission('stores', 'delete');
+
+  const bulkDelete = useRestBulkDelete({
+    endpoint: '/api/stores',
+    singular: 'store',
+    plural: 'stores',
+    getLabel: (id) => stores?.find((store) => store.id === id)?.name,
+    onDeleted: () => refetch(),
+  });
+
+  const visibleStoreIds = (filteredStores ?? []).map((store) => store.id);
+  const visibleSelection = bulkDelete.selectionState(visibleStoreIds);
+
   // If user doesn't have read permission, show access denied
   if (!hasPermission('stores', 'read')) {
     return (
@@ -337,23 +369,19 @@ function StorePage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Region</FormLabel>
-                      <Select
-                        onValueChange={(value) => field.onChange(Number(value))}
-                        value={field.value != null ? String(field.value) : undefined}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select a region" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {regions?.map((region) => (
-                            <SelectItem key={region.id} value={String(region.id)}>
-                              {region.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <FormControl>
+                        <SearchableSelect
+                          value={field.value != null ? String(field.value) : null}
+                          onChange={(value) =>
+                            field.onChange(value === null ? undefined : Number(value))
+                          }
+                          onBlur={field.onBlur}
+                          options={regionOptions}
+                          placeholder="Select a region"
+                          searchPlaceholder="Search regions..."
+                          emptyMessage="No region found."
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -427,9 +455,33 @@ function StorePage() {
           ) : (
             <>
             <TableControlsBar controls={storesTable} noun="stores" />
-            <Table className="table-actions-sticky min-w-[1000px]">
+            {canDeleteStores && (
+              <MasterDataBulkDeleteToolbar
+                count={bulkDelete.selectedCount}
+                plural="stores"
+                onClear={bulkDelete.clearSelection}
+                onRequestDelete={() => bulkDelete.setIsDeleteDialogOpen(true)}
+                isPending={bulkDelete.isPending}
+              />
+            )}
+            <Table className="table-actions-sticky min-w-[1040px]">
               <TableHeader>
                 <TableRow>
+                  {canDeleteStores && (
+                    <TableHead className="w-10 align-top">
+                      <Checkbox
+                        aria-label="Select all stores"
+                        checked={
+                          visibleSelection.allSelected
+                            ? true
+                            : visibleSelection.someSelected
+                              ? "indeterminate"
+                              : false
+                        }
+                        onCheckedChange={() => bulkDelete.toggleSelectAll(visibleStoreIds)}
+                      />
+                    </TableHead>
+                  )}
                   <ColumnHeader controls={storesTable} columnKey="name" label="Store Name" filterPlaceholder="Filter store" />
                   <ColumnHeader controls={storesTable} columnKey="type" label="Type" filterPlaceholder="Filter type" />
                   <ColumnHeader controls={storesTable} columnKey="region" label="Region" filterPlaceholder="Filter region" />
@@ -440,7 +492,16 @@ function StorePage() {
               </TableHeader>
               <TableBody>
                 {filteredStores?.map((store: SelectStore) => (
-                  <TableRow key={store.id}>
+                  <TableRow key={store.id} data-state={bulkDelete.isSelected(store.id) ? "selected" : undefined}>
+                    {canDeleteStores && (
+                      <TableCell>
+                        <Checkbox
+                          aria-label={`Select ${store.name}`}
+                          checked={bulkDelete.isSelected(store.id)}
+                          onCheckedChange={() => bulkDelete.toggleSelection(store.id)}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         {store.type === 'WAREHOUSE' ? <Warehouse className="h-4 w-4 text-blue-500" /> : <Store className="h-4 w-4 text-green-500" />}
@@ -486,6 +547,16 @@ function StorePage() {
           )}
         </CardContent>
       </Card>
+
+      <MasterDataBulkDeleteDialog
+        open={bulkDelete.isDeleteDialogOpen}
+        onOpenChange={bulkDelete.setIsDeleteDialogOpen}
+        count={bulkDelete.selectedCount}
+        singular="store"
+        plural="stores"
+        isPending={bulkDelete.isPending}
+        onConfirm={bulkDelete.confirmDelete}
+      />
     </div>
   );
 }

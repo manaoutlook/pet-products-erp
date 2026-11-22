@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import DOMPurify from "dompurify";
 import { cn } from "@/lib/utils";
 import { isHtml } from "@/utils/rich-text";
+import { normalizeDescriptionNewlines } from "@shared/product-description";
 
 interface RichTextProps {
   /** Raw value from the API - plain text or an HTML fragment. */
@@ -20,7 +21,10 @@ interface RichTextProps {
  * rendered as text (never parsed as markup).
  */
 export function RichText({ value, className, fallback = null }: RichTextProps) {
-  const raw = (value ?? "").trim();
+  // Supplier catalogues come with escaped line breaks ("\n" as two characters).
+  // Normalise them before rendering so the dialog never shows a stray "\n".
+  const raw = normalizeDescriptionNewlines(value).trim();
+
   const html = useMemo(
     () => (isHtml(raw) ? DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } }) : ""),
     [raw]

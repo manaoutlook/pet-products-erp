@@ -16,13 +16,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useState } from "react";
 
 interface Permission {
@@ -181,41 +175,38 @@ function RolePermissionsPage() {
           <CardTitle>Filters</CardTitle>
         </CardHeader>
         <CardContent className="flex gap-4">
-          <div className="w-[200px]">
-            <Select
+          <div className="w-[220px]">
+            <SearchableSelect
               value={selectedRole}
-              onValueChange={setSelectedRole}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select Role" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Roles</SelectItem>
-                {roles?.map((role: Role) => (
-                  <SelectItem key={role.id} value={role.id.toString()}>
-                    {role.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              onChange={(value) => setSelectedRole(value ?? "all")}
+              options={[
+                { value: "all", label: "All Roles" },
+                ...(roles ?? []).map((role: Role) => ({
+                  value: role.id.toString(),
+                  label: role.name,
+                  description: role.description,
+                })),
+              ]}
+              placeholder="Select Role"
+              searchPlaceholder="Search roles..."
+              emptyMessage="No role found."
+            />
           </div>
-          <div className="w-[200px]">
-            <Select
+          <div className="w-[260px]">
+            <SearchableSelect
               value={selectedModule}
-              onValueChange={setSelectedModule}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select Module" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Modules</SelectItem>
-                {modules.map((module) => (
-                  <SelectItem key={module.key} value={module.key}>
-                    {module.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              onChange={(value) => setSelectedModule(value ?? "all")}
+              options={[
+                { value: "all", label: "All Modules" },
+                ...modules.map((module) => ({
+                  value: module.key,
+                  label: module.label,
+                })),
+              ]}
+              placeholder="Select Module"
+              searchPlaceholder="Search modules..."
+              emptyMessage="No module found."
+            />
           </div>
         </CardContent>
       </Card>

@@ -1,12 +1,16 @@
 import type { Express, Response } from "express";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@db";
 import { deliveryNotes, salesOrderItems, salesOrders, vatCompanies } from "@db/schema";
 import { requireAuth, requirePermission } from "../middleware";
 import { validateBody, validateParams, idParamSchema } from "../validate";
 import { generateSalesOrderNumber } from "../numbering";
-import { SalesOrderError, buildSalesOrderLines } from "../sales-orders";
+import { SalesOrderError, buildSalesOrderLines, resolveCustomerTaxId } from "../sales-orders";
+import {
+  SalesOrderStockError,
+  assertStockAvailable,
+} from "../sales-order-stock";
 import {
   SalesOrderInvoiceError,
   getSalesOrderInvoice,
@@ -22,8 +26,11 @@ import { vatCompanyMissingFields } from "../../shared/vat-company";
  * manager who can raise purchase orders can raise sales orders, and the role screen keeps one
  * checkbox pair ("Orders") for both directions.
  *
- * There is no store scope here on purpose: the customer's delivery address is the scope, and
- * the same order can be shipped from whichever warehouse has stock.
+ * There is no store scope on the permission here on purpose: the customer's delivery address is
+ * the scope. Which *warehouse* the units leave from is a property of the order
+ * (`sales_orders.store_id`, default the DC); saving an order checks that location can cover it,
+ * and each delivery note copies it and takes the units off that inventory row - see
+ * server/sales-order-stock.ts.
  */
 
 /** Trimmed text that collapses "" to null, so empty inputs do not store empty strings. */
@@ -61,6 +68,17 @@ const salesOrderSchema = z.object({
   customerTaxId: optionalText(50, "Tax code is too long"),
   phone: optionalText(20, "Phone number is too long"),
   deliveryAddress: optionalText(500, "Delivery address is too long"),
+  /**
+   * Which location the goods leave from: a store id, or null for the Distribution Centre.
+   * Saving the order checks that location can cover the lines; a delivery note copies it and
+   * takes the units off that location's inventory.
+   */
+  storeId: z
+    .number()
+    .int()
+    .positive('Pick a valid "Deliver from" location')
+    .optional()
+    .nullable(),
   orderDate: z.string().datetime("Valid order date is required").optional(),
   specialInstructions: optionalText(2000, "Special instructions are too long"),
   /**
@@ -74,7 +92,11 @@ const salesOrderSchema = z.object({
 });
 
 function handleSalesOrderError(res: Response, error: unknown, fallback: string) {
-  if (error instanceof SalesOrderError || error instanceof SalesOrderInvoiceError) {
+  if (
+    error instanceof SalesOrderError ||
+    error instanceof SalesOrderInvoiceError ||
+    error instanceof SalesOrderStockError
+  ) {
     return res.status(error.status).json({
       message: error.message,
       suggestion: error.suggestion,
@@ -186,15 +208,20 @@ export function registerSalesOrderRoutes(app: Express) {
             },
           },
           // Light summary only: the list needs to know whether a shipment already went out.
+          // `status` lets the client tell a live shipment from a cancelled one - only active
+          // notes block cancelling the order.
           deliveryNotes: {
             columns: {
               id: true,
               deliveryNoteNumber: true,
               deliveryDate: true,
               signedDocumentUrl: true,
+              status: true,
             },
           },
           preparedByUser: { columns: { id: true, username: true } },
+          // Which warehouse/shop the units leave from. Null = the Distribution Centre.
+          store: { columns: { id: true, name: true, type: true } },
         },
         orderBy: [desc(salesOrders.updatedAt)],
       });
@@ -226,6 +253,7 @@ export function registerSalesOrderRoutes(app: Express) {
             },
             preparedByUser: { columns: { id: true, username: true } },
             customerProfile: true,
+            store: { columns: { id: true, name: true, type: true } },
           },
         });
 
@@ -316,6 +344,11 @@ export function registerSalesOrderWriteRoutes(app: Express) {
         const created = await db.transaction(async (tx) => {
           const { lines, total } = await buildSalesOrderLines(tx, body.items);
           const vatCompany = await resolveVatCompanySnapshot(tx, body.vatCompanyId);
+          const customerTaxId = await resolveCustomerTaxId(
+            tx,
+            body.customerProfileId,
+            body.customerTaxId
+          );
 
           const [order] = await tx
             .insert(salesOrders)
@@ -325,9 +358,11 @@ export function registerSalesOrderWriteRoutes(app: Express) {
               customerName: body.customerName,
               companyName: body.companyName,
               contactPerson: body.contactPerson,
-              customerTaxId: body.customerTaxId,
+              customerTaxId,
               phone: body.phone,
               deliveryAddress: body.deliveryAddress,
+              // Null = the Distribution Centre (same convention as a purchase order).
+              storeId: body.storeId ?? null,
               ...vatCompany,
               orderDate: body.orderDate ? new Date(body.orderDate) : new Date(),
               totalAmount: total.toFixed(2),
@@ -338,6 +373,14 @@ export function registerSalesOrderWriteRoutes(app: Express) {
             .returning();
 
           await insertSalesOrderLines(tx, order.id, lines);
+
+          // The order is a promise, not a goods issue: check the location can cover it (so the
+          // shop cannot sell what it does not have) but leave the shelf alone. The units leave
+          // the ledger when a delivery note is issued - see server/sales-order-stock.ts.
+          await assertStockAvailable(tx, {
+            storeId: order.storeId,
+            lines,
+          });
 
           return order;
         });
@@ -409,6 +452,11 @@ export function registerSalesOrderWriteRoutes(app: Express) {
             requirePrices: false,
           });
           const vatCompany = await resolveVatCompanySnapshot(tx, body.vatCompanyId);
+          const customerTaxId = await resolveCustomerTaxId(
+            tx,
+            body.customerProfileId,
+            body.customerTaxId
+          );
 
           await tx.delete(salesOrderItems).where(eq(salesOrderItems.salesOrderId, salesOrderId));
 
@@ -419,9 +467,12 @@ export function registerSalesOrderWriteRoutes(app: Express) {
               customerName: body.customerName,
               companyName: body.companyName,
               contactPerson: body.contactPerson,
-              customerTaxId: body.customerTaxId,
+              customerTaxId,
               phone: body.phone,
               deliveryAddress: body.deliveryAddress,
+              // The shipping location; moved freely until goods actually leave (the delivery
+              // note snapshots whichever location it ships from).
+              storeId: body.storeId ?? null,
               // Re-snapshot the VAT company on every save: the order has not shipped yet,
               // so correcting its letterhead is allowed while the document is still a draft.
               ...vatCompany,
@@ -434,6 +485,11 @@ export function registerSalesOrderWriteRoutes(app: Express) {
             .returning();
 
           await insertSalesOrderLines(tx, salesOrderId, lines);
+
+          await assertStockAvailable(tx, {
+            storeId: row.storeId,
+            lines,
+          });
 
           return row;
         });
@@ -477,16 +533,22 @@ export function registerSalesOrderWriteRoutes(app: Express) {
             );
           }
 
+          // Only a *live* shipment blocks cancelling: once every note is cancelled its units have
+          // already gone back on the shelf, so the order is just a promise again.
           const notes = await tx.query.deliveryNotes.findMany({
-            where: eq(deliveryNotes.salesOrderId, salesOrderId),
-            columns: { id: true },
+            where: and(
+              eq(deliveryNotes.salesOrderId, salesOrderId),
+              ne(deliveryNotes.status, "cancelled")
+            ),
+            columns: { id: true, deliveryNoteNumber: true },
           });
 
           if (notes.length > 0) {
+            const numbers = notes.map((note) => note.deliveryNoteNumber).join(", ");
             throw new SalesOrderError(
-              `Sales order ${order.orderNumber} already has ${notes.length} delivery note(s)`,
+              `Sales order ${order.orderNumber} has ${notes.length} active delivery note(s) (${numbers})`,
               409,
-              "Delivered orders cannot be cancelled - raise a return order instead."
+              "Cancel those delivery notes first - that returns their units to stock - then cancel the order."
             );
           }
 

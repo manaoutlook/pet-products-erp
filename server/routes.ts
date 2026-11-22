@@ -35,6 +35,7 @@ import { sql } from "drizzle-orm";
 import { eq, and, or, desc, gte, lt, isNull, gt } from "drizzle-orm";
 import { requireRole, requireAuth, requirePermission } from "./middleware";
 import { checkHierarchicalPermission } from "../shared/permissions";
+import { normalizeDescriptionNewlines } from "@shared/product-description";
 import { importProducts } from "./product-import";
 import { importInventory } from "./inventory-import";
 import {
@@ -2478,7 +2479,7 @@ export function registerRoutes(app: Express): Server {
           landingPrice: toDecimalOrNull(landingPrice),
           b2bPrice: toDecimalOrNull(b2bPrice),
           b2cPrice: toDecimalOrNull(b2cPrice),
-          description: description ?? null,
+          description: description == null ? null : normalizeDescriptionNewlines(description),
           categoryId,
           minStock: minStock ?? 0,
           brandId: brandId ?? null,
@@ -2633,7 +2634,8 @@ export function registerRoutes(app: Express): Server {
       }
 
       if (description !== undefined) {
-        updateValues.description = description;
+        updateValues.description =
+          description === null ? null : normalizeDescriptionNewlines(description);
       }
 
       if (minStock !== undefined) {

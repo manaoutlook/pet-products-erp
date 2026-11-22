@@ -19,13 +19,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
 import { RichText } from "@/components/RichText";
@@ -272,26 +265,23 @@ export function ProductFormDialog({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel required>Category</FormLabel>
-                      <Select
-                        value={field.value ? field.value.toString() : ""}
-                        onValueChange={(value) => field.onChange(parseInt(value, 10))}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select a category" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {categories?.map((category) => (
-                            <SelectItem
-                              key={category.id}
-                              value={category.id.toString()}
-                            >
-                              {category.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <FormControl>
+                        <SearchableSelect
+                          value={field.value ? field.value.toString() : null}
+                          onChange={(value) =>
+                            field.onChange(value === null ? undefined : parseInt(value, 10))
+                          }
+                          onBlur={field.onBlur}
+                          options={(categories ?? []).map((category) => ({
+                            value: category.id.toString(),
+                            label: category.name,
+                          }))}
+                          placeholder="Select a category"
+                          searchPlaceholder="Search categories..."
+                          emptyMessage="No category found."
+                          disabled={isBusy}
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -303,29 +293,25 @@ export function ProductFormDialog({
                     <FormItem>
                       <FormLabel>Brand</FormLabel>
                       <div className="flex gap-2">
-                        <Select
-                          value={field.value != null ? field.value.toString() : NO_BRAND_VALUE}
-                          onValueChange={(value) =>
-                            field.onChange(value === NO_BRAND_VALUE ? null : parseInt(value, 10))
-                          }
-                        >
-                          <FormControl>
-                            <SelectTrigger className="flex-1">
-                              <SelectValue placeholder="Select a brand" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value={NO_BRAND_VALUE}>No brand</SelectItem>
-                            {brands?.map((brand) => (
-                              <SelectItem
-                                key={brand.id}
-                                value={brand.id.toString()}
-                              >
-                                {brand.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <FormControl>
+                          <SearchableSelect
+                            className="flex-1"
+                            value={field.value != null ? field.value.toString() : null}
+                            onChange={(value) =>
+                              field.onChange(value === null ? null : parseInt(value, 10))
+                            }
+                            onBlur={field.onBlur}
+                            options={(brands ?? []).map((brand) => ({
+                              value: brand.id.toString(),
+                              label: brand.name,
+                            }))}
+                            placeholder="No brand"
+                            searchPlaceholder="Search brands..."
+                            emptyMessage="No brand found."
+                            clearLabel="No brand"
+                            disabled={isBusy}
+                          />
+                        </FormControl>
                         <BrandQuickAddModal
                           onSuccess={(brand) => {
                             // Set the newly created brand as the selected brand

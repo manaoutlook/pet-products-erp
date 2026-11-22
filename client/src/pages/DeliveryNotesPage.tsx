@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDate, formatQuantity } from "@/utils/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -14,9 +14,21 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SearchInput } from "@/components/ui/search-input";
 import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useTableControls } from "@/hooks/use-table-controls";
 import { usePermissions } from "@/hooks/use-permissions";
-import { CheckCircle2, FileCheck2, Plus, Printer, Upload } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { Ban, CheckCircle2, FileCheck2, Plus, Printer, Upload } from "lucide-react";
 import { DeliveryNoteFormDialog } from "@/components/SalesOrders/DeliveryNoteFormDialog";
 import { DeliveryNotePrintDialog } from "@/components/SalesOrders/DeliveryNotePrint";
 import { SignedDocumentDialog } from "@/components/SalesOrders/SignedDocumentDialog";
@@ -39,6 +51,8 @@ interface DeliveryNoteRow {
   contactPerson?: string | null;
   phone?: string | null;
   deliveryAddress?: string | null;
+  /** Snapshot of the location the units were taken off; null = the Distribution Centre. */
+  store?: { id: number; name: string } | null;
   customerConfirmed: boolean;
   /** The VAT company copied from the order when this note was issued; null = no VAT. */
   vatCompanyId?: number | null;
@@ -51,6 +65,10 @@ interface DeliveryNoteRow {
   signedDocumentUploadedAt?: string | null;
   remarks?: string | null;
   status: string;
+  /** Set when the note was cancelled; the units went back to `store`. */
+  cancelledAt?: string | null;
+  cancelReason?: string | null;
+  cancelledByUser?: { id: number; username: string } | null;
   salesOrder?: {
     id: number;
     orderNumber: string;
@@ -70,22 +88,67 @@ function unitsOnNote(note: DeliveryNoteRow): number {
  * Delivery Notes - the goods-out paper trail (PDF page 2).
  *
  * Notes are issued from a sales order, never typed from scratch: once issued the document is
- * history, so this screen only lists, filters and reprints them. The one write it accepts is the
- * customer's signature - the signed sheet comes back as a picture and is filed from the row
- * ("Upload signed document"), which flips the note from "Awaiting signature" to "Signed/Completed".
+ * history, so this screen only lists, filters and reprints them. Two writes are accepted:
+ *
+ * - the customer's signature - the signed sheet comes back as a picture and is filed from the
+ *   row ("Upload signed document"), which flips the note to "Signed/Completed";
+ * - cancelling a note that has not been signed - the units it took off go back to the shelf it
+ *   shipped from, the order line tallies are reduced and the note stays on file as "Cancelled".
+ *
  * The "New" button opens the same dialog the Sales Orders screen uses, so there is one issue path.
  */
 function DeliveryNotesPage() {
   const { hasPermission } = usePermissions();
   const canIssue = hasPermission("orders", "update");
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   // A reprint must look like the copy the customer signed - same letterhead, same source.
   const { company } = useCompanyInfo();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [issueOpen, setIssueOpen] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<DeliveryNoteRow | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
 
   const { data: notes = [], isLoading } = useQuery<DeliveryNoteRow[]>({
     queryKey: ["/api/delivery-notes"],
+  });
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/delivery-notes"] });
+    // Cancelling moves stock and rewrites the order's line tallies + derived status.
+    queryClient.invalidateQueries({ queryKey: ["/api/sales-orders"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/inventory-transactions"] });
+  };
+
+  const cancelNote = useMutation({
+    mutationFn: async ({ note, reason }: { note: DeliveryNoteRow; reason: string }) => {
+      const response = await fetch(`/api/delivery-notes/${note.id}/cancel`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: reason.trim() || null }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || "Failed to cancel the delivery note");
+      }
+
+      return (await response.json()) as { message?: string };
+    },
+    onSuccess: (data, { note }) => {
+      invalidate();
+      toast({
+        title: `Delivery note ${note.deliveryNoteNumber} cancelled`,
+        description: data.message ?? "Its units went back into stock.",
+        variant: "success",
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
   });
 
   const notesTable = useTableControls(
@@ -195,6 +258,9 @@ function DeliveryNotesPage() {
                         </TableCell>
                         <TableCell>
                           <div>{note.salesOrder?.orderNumber ?? "-"}</div>
+                          <div className="text-caption text-muted-foreground">
+                            From {note.store?.name ?? "Distribution Centre"}
+                          </div>
                           {note.salesOrder?.status === "partially_delivered" && (
                             <div className="text-caption text-muted-foreground">
                               Partially delivered
@@ -207,7 +273,25 @@ function DeliveryNotesPage() {
                           {formatQuantity(unitsOnNote(note))}
                         </TableCell>
                         <TableCell>
-                          {note.signedDocumentUrl ? (
+                          {note.status === "cancelled" ? (
+                            <div>
+                              <Badge variant="destructive">
+                                <Ban className="mr-1 h-3 w-3" />
+                                Cancelled
+                              </Badge>
+                              <div className="mt-1 text-caption text-muted-foreground">
+                                {note.cancelledAt ? formatDate(note.cancelledAt) : "Units returned"}
+                                {note.cancelledByUser?.username
+                                  ? ` · ${note.cancelledByUser.username}`
+                                  : ""}
+                              </div>
+                              {note.cancelReason && (
+                                <div className="text-caption text-muted-foreground">
+                                  {note.cancelReason}
+                                </div>
+                              )}
+                            </div>
+                          ) : note.signedDocumentUrl ? (
                             <Badge variant="success">
                               <CheckCircle2 className="mr-1 h-3 w-3" />
                               Signed/Completed
@@ -218,28 +302,32 @@ function DeliveryNotesPage() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
-                            <SignedDocumentDialog note={note} canUpdate={canIssue}>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                title={
-                                  note.signedDocumentUrl
-                                    ? "View signed document"
-                                    : "Upload signed document"
-                                }
-                              >
-                                {note.signedDocumentUrl ? (
-                                  <FileCheck2 className="h-4 w-4" />
-                                ) : (
-                                  <Upload className="h-4 w-4" />
-                                )}
-                                <span className="sr-only">
-                                  {note.signedDocumentUrl
-                                    ? `View the signed document for ${note.deliveryNoteNumber}`
-                                    : `Upload the signed document for ${note.deliveryNoteNumber}`}
-                                </span>
-                              </Button>
-                            </SignedDocumentDialog>
+                            {/* A cancelled note cannot be signed off, so the upload is hidden
+                                rather than left to fail on the server's 409. */}
+                            {note.status !== "cancelled" && (
+                              <SignedDocumentDialog note={note} canUpdate={canIssue}>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  title={
+                                    note.signedDocumentUrl
+                                      ? "View signed document"
+                                      : "Upload signed document"
+                                  }
+                                >
+                                  {note.signedDocumentUrl ? (
+                                    <FileCheck2 className="h-4 w-4" />
+                                  ) : (
+                                    <Upload className="h-4 w-4" />
+                                  )}
+                                  <span className="sr-only">
+                                    {note.signedDocumentUrl
+                                      ? `View the signed document for ${note.deliveryNoteNumber}`
+                                      : `Upload the signed document for ${note.deliveryNoteNumber}`}
+                                  </span>
+                                </Button>
+                              </SignedDocumentDialog>
+                            )}
                             <DeliveryNotePrintDialog note={note} company={company}>
                               <Button variant="ghost" size="sm" title="Print delivery note">
                                 <Printer className="h-4 w-4" />
@@ -248,6 +336,27 @@ function DeliveryNotesPage() {
                                 </span>
                               </Button>
                             </DeliveryNotePrintDialog>
+                            {canIssue && note.status !== "cancelled" && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title={
+                                  note.signedDocumentUrl || note.customerConfirmed
+                                    ? "A signed delivery note cannot be cancelled - record a return"
+                                    : "Cancel delivery note and return its units to stock"
+                                }
+                                disabled={Boolean(note.signedDocumentUrl || note.customerConfirmed)}
+                                onClick={() => {
+                                  setCancelReason("");
+                                  setCancelTarget(note);
+                                }}
+                              >
+                                <Ban className="h-4 w-4" />
+                                <span className="sr-only">
+                                  Cancel {note.deliveryNoteNumber}
+                                </span>
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -259,6 +368,57 @@ function DeliveryNotesPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Cancelling is a stock change, so it is confirmed with the numbers on screen: how many
+          units go back and to which shelf, and that the document stays on file. */}
+      <AlertDialog
+        open={cancelTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setCancelTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel this delivery note?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {cancelTarget
+                ? `${cancelTarget.deliveryNoteNumber} for ${cancelTarget.customerName} will be marked cancelled. Its ${formatQuantity(
+                    unitsOnNote(cancelTarget)
+                  )} unit(s) go back into stock at ${
+                    cancelTarget.store?.name ?? "the Distribution Centre"
+                  }, and the sales order's delivered quantities are reduced. The note itself stays on file.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <label
+              htmlFor="cancel-note-reason"
+              className="text-sm font-medium text-foreground"
+            >
+              Reason (optional)
+            </label>
+            <Textarea
+              id="cancel-note-reason"
+              value={cancelReason}
+              maxLength={500}
+              placeholder="e.g. Loaded onto the wrong truck - goods came back undelivered"
+              onChange={(event) => setCancelReason(event.target.value)}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!cancelTarget) return;
+                cancelNote.mutate({ note: cancelTarget, reason: cancelReason });
+                setCancelTarget(null);
+              }}
+            >
+              Cancel note &amp; return stock
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <DeliveryNoteFormDialog open={issueOpen} onOpenChange={setIssueOpen} company={company} />
     </div>

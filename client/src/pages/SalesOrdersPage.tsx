@@ -54,6 +54,8 @@ interface DeliveryNoteSummary {
   deliveryDate: string;
   /** Null until the customer's signed copy is filed - the note then holds the order back. */
   signedDocumentUrl?: string | null;
+  /** 'issued' | 'cancelled'. A cancelled note's units already went back to stock. */
+  status?: string;
 }
 
 interface SalesOrderRow {
@@ -65,6 +67,9 @@ interface SalesOrderRow {
   customerTaxId?: string | null;
   phone?: string | null;
   deliveryAddress?: string | null;
+  /** Where the goods leave from; null = the Distribution Centre. */
+  storeId?: number | null;
+  store?: { id: number; name: string; type?: string } | null;
   orderDate: string;
   totalAmount: string;
   specialInstructions?: string | null;
@@ -375,13 +380,24 @@ function SalesOrdersPage() {
                       const canDeliver =
                         order.status === "open" || order.status === "partially_delivered";
                       const noteCount = order.deliveryNotes?.length ?? 0;
+                      // Only a live shipment blocks cancelling: a cancelled note has already put
+                      // its units back, so it must not keep the order pinned forever.
+                      const activeNoteCount =
+                        order.deliveryNotes?.filter((note) => note.status !== "cancelled")
+                          .length ?? 0;
+                      const cancelledNoteCount = noteCount - activeNoteCount;
                       const unsignedNotes =
-                        order.deliveryNotes?.filter((note) => !note.signedDocumentUrl).length ?? 0;
+                        order.deliveryNotes?.filter(
+                          (note) => note.status !== "cancelled" && !note.signedDocumentUrl
+                        ).length ?? 0;
 
                       return (
                         <TableRow key={order.id}>
                           <TableCell className="font-medium">
                             <div>{order.orderNumber}</div>
+                            <div className="text-caption text-muted-foreground">
+                              From {order.store?.name ?? "Distribution Centre"}
+                            </div>
                             {order.vatCompanyCode && (
                               <div className="mt-1">
                                 <Badge variant="info">
@@ -419,6 +435,9 @@ function SalesOrdersPage() {
                                 {noteCount} delivery note{noteCount === 1 ? "" : "s"}
                                 {unsignedNotes > 0
                                   ? ` · ${unsignedNotes} awaiting signature`
+                                  : ""}
+                                {cancelledNoteCount > 0
+                                  ? ` · ${cancelledNoteCount} cancelled`
                                   : ""}
                               </div>
                             )}
@@ -472,12 +491,14 @@ function SalesOrdersPage() {
                                 variant="ghost"
                                 size="sm"
                                 title={
-                                  noteCount > 0
-                                    ? "An order with delivery notes cannot be cancelled"
-                                    : "Cancel sales order"
+                                  activeNoteCount > 0
+                                    ? "An order with an active delivery note cannot be cancelled - cancel the note first"
+                                    : "Cancel sales order (no stock changes)"
                                 }
                                 disabled={
-                                  !canUpdate || order.status === "cancelled" || noteCount > 0
+                                  !canUpdate ||
+                                  order.status === "cancelled" ||
+                                  activeNoteCount > 0
                                 }
                                 onClick={() => setConfirmTarget({ action: "cancel", order })}
                               >
@@ -551,7 +572,7 @@ function SalesOrdersPage() {
             <AlertDialogDescription>
               {confirmTarget?.action === "delete"
                 ? `${confirmTarget?.order.orderNumber} for ${confirmTarget?.order.customerName} will be removed for good. This cannot be undone.`
-                : `${confirmTarget?.order.orderNumber} will be marked cancelled and can no longer be delivered or edited.`}
+                : `${confirmTarget?.order.orderNumber} will be marked cancelled and can no longer be delivered or edited. No stock moves - an order never takes units off the shelf.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

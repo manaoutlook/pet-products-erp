@@ -20,13 +20,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { SearchInput } from "@/components/ui/search-input";
 import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
@@ -48,6 +43,11 @@ import { insertUserSchema } from "@db/schema";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Plus, Pencil, Trash2 } from "lucide-react";
 import { FC } from 'react';
+import { useRestBulkDelete } from "@/hooks/use-bulk-delete";
+import {
+  MasterDataBulkDeleteDialog,
+  MasterDataBulkDeleteToolbar,
+} from "@/components/master-data/MasterDataBulkDelete";
 
 interface UserWithRole extends Omit<SelectUser, 'roleId'> {
   role: SelectRole;
@@ -176,6 +176,22 @@ function UsersPage() {
   // Rows currently visible (search + role filter + column filters + sorting).
   const filteredUsers: UserWithRole[] = usersTable.rows;
 
+  // The admin role is protected by the API (last-admin guard), so those rows
+  // cannot be selected. Everything else can be deleted in one request per row.
+  const bulkDelete = useRestBulkDelete({
+    endpoint: '/api/users',
+    singular: 'user',
+    plural: 'users',
+    getLabel: (id) => users?.find((user) => user.id === id)?.username,
+    onDeleted: () => refetch(),
+  });
+
+  const deletableVisibleUsers = (filteredUsers ?? []).filter(
+    (user) => user.role.name !== 'admin'
+  );
+  const visibleUserIds = deletableVisibleUsers.map((user) => user.id);
+  const visibleSelection = bulkDelete.selectionState(visibleUserIds);
+
   const onSubmit = async (data: InsertUser) => {
     try {
       if (editingUser) {
@@ -261,23 +277,23 @@ function UsersPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Role</FormLabel>
-                      <Select
-                        onValueChange={(value) => field.onChange(parseInt(value))}
-                        value={field.value?.toString()}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select role" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {roles?.map((role: SelectRole) => (
-                            <SelectItem key={role.id} value={role.id.toString()}>
-                              {role.name} {role.isSystemAdmin ? '(Admin)' : ''}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <FormControl>
+                        <SearchableSelect
+                          value={field.value != null ? String(field.value) : null}
+                          onChange={(value) =>
+                            field.onChange(value === null ? undefined : parseInt(value, 10))
+                          }
+                          onBlur={field.onBlur}
+                          options={(roles ?? []).map((role: SelectRole) => ({
+                            value: role.id.toString(),
+                            label: role.name,
+                            description: role.isSystemAdmin ? 'Administrator' : null,
+                          }))}
+                          placeholder="Select role"
+                          searchPlaceholder="Search roles..."
+                          emptyMessage="No role found."
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -308,19 +324,22 @@ function UsersPage() {
               value={search}
               onValueChange={setSearch}
             />
-            <Select value={roleFilter} onValueChange={setRoleFilter}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Filter by role" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Roles</SelectItem>
-                {roles?.map((role: SelectRole) => (
-                  <SelectItem key={role.id} value={role.id.toString()}>
-                    {role.name} {role.isSystemAdmin ? '(Admin)' : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              className="w-52"
+              value={roleFilter}
+              onChange={(value) => setRoleFilter(value ?? "all")}
+              options={[
+                { value: "all", label: "All Roles" },
+                ...(roles ?? []).map((role: SelectRole) => ({
+                  value: role.id.toString(),
+                  label: role.name,
+                  description: role.isSystemAdmin ? "Administrator" : null,
+                })),
+              ]}
+              placeholder="Filter by role"
+              searchPlaceholder="Search roles..."
+              emptyMessage="No role found."
+            />
           </div>
         </CardHeader>
         <CardContent>
@@ -331,9 +350,29 @@ function UsersPage() {
           ) : (
             <>
             <TableControlsBar controls={usersTable} noun="users" />
-            <Table className="table-actions-sticky min-w-[800px]">
+            <MasterDataBulkDeleteToolbar
+              count={bulkDelete.selectedCount}
+              plural="users"
+              onClear={bulkDelete.clearSelection}
+              onRequestDelete={() => bulkDelete.setIsDeleteDialogOpen(true)}
+              isPending={bulkDelete.isPending}
+            />
+            <Table className="table-actions-sticky min-w-[840px]">
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10 align-top">
+                    <Checkbox
+                      aria-label="Select all users"
+                      checked={
+                        visibleSelection.allSelected
+                          ? true
+                          : visibleSelection.someSelected
+                            ? "indeterminate"
+                            : false
+                      }
+                      onCheckedChange={() => bulkDelete.toggleSelectAll(visibleUserIds)}
+                    />
+                  </TableHead>
                   <ColumnHeader controls={usersTable} columnKey="username" label="Username" filterPlaceholder="Filter username" />
                   <ColumnHeader controls={usersTable} columnKey="role" label="Role" filterPlaceholder="Filter role" />
                   <TableHead className="align-top">Actions</TableHead>
@@ -341,7 +380,20 @@ function UsersPage() {
               </TableHeader>
               <TableBody>
                 {filteredUsers?.map((user: UserWithRole) => (
-                  <TableRow key={user.id}>
+                  <TableRow key={user.id} data-state={bulkDelete.isSelected(user.id) ? "selected" : undefined}>
+                    <TableCell>
+                      <Checkbox
+                        aria-label={`Select ${user.username}`}
+                        checked={bulkDelete.isSelected(user.id)}
+                        disabled={user.role.name === 'admin'}
+                        title={
+                          user.role.name === 'admin'
+                            ? 'The admin account cannot be deleted'
+                            : undefined
+                        }
+                        onCheckedChange={() => bulkDelete.toggleSelection(user.id)}
+                      />
+                    </TableCell>
                     <TableCell>{user.username}</TableCell>
                     <TableCell>
                       {user.role.name} {user.role.isSystemAdmin ? '(Admin)' : ''}
@@ -378,6 +430,16 @@ function UsersPage() {
           )}
         </CardContent>
       </Card>
+
+      <MasterDataBulkDeleteDialog
+        open={bulkDelete.isDeleteDialogOpen}
+        onOpenChange={bulkDelete.setIsDeleteDialogOpen}
+        count={bulkDelete.selectedCount}
+        singular="user"
+        plural="users"
+        isPending={bulkDelete.isPending}
+        onConfirm={bulkDelete.confirmDelete}
+      />
     </div>
   );
 }

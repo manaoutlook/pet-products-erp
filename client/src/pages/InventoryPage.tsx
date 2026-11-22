@@ -482,149 +482,160 @@ function InventoryPage() {
                   Add Inventory
                 </Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent className="flex max-h-[90vh] max-w-3xl flex-col overflow-hidden">
                 <DialogHeader>
                   <DialogTitle>
                     {selectedItem ? 'Edit Inventory Item' : 'Add Inventory Item'}
                   </DialogTitle>
                 </DialogHeader>
                 <Form {...form}>
-                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                    <FormField
-                      control={form.control}
-                      name="inventoryType"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Inventory Type</FormLabel>
-                          <Select
-                            value={field.value}
-                            onValueChange={field.onChange}
-                            defaultValue={field.value}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select inventory type" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="DC">Distribution Center</SelectItem>
-                              <SelectItem value="STORE">Store</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                  <form
+                    onSubmit={form.handleSubmit(onSubmit)}
+                    className="flex min-h-0 flex-1 flex-col gap-4"
+                  >
+                    {/* Two columns on wide screens. The field area scrolls on its own, so
+                        the dialog never outgrows the viewport and the submit button stays
+                        visible. */}
+                    <div className="grid max-h-[calc(90vh-12rem)] min-h-0 flex-1 gap-4 overflow-y-auto pr-1 sm:grid-cols-2">
+                      <FormField
+                        control={form.control}
+                        name="inventoryType"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Inventory Type</FormLabel>
+                            <Select
+                              value={field.value}
+                              onValueChange={field.onChange}
+                              defaultValue={field.value}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select inventory type" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="DC">Distribution Center</SelectItem>
+                                <SelectItem value="STORE">Store</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
-                    <FormField
-                      control={form.control}
-                      name="productId"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Product</FormLabel>
-                          <Select
-                            value={field.value}
-                            onValueChange={field.onChange}
-                            defaultValue={field.value}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select a product" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {products?.map((product) => (
-                                <SelectItem key={product.id} value={product.id.toString()}>
-                                  {product.name} ({product.sku})
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                      <FormField
+                        control={form.control}
+                        name="productId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Product</FormLabel>
+                            <Select
+                              value={field.value}
+                              onValueChange={field.onChange}
+                              defaultValue={field.value}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select a product" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {products?.map((product) => (
+                                  <SelectItem key={product.id} value={product.id.toString()}>
+                                    {product.name} ({product.sku})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
-                    <FormField
-                      control={form.control}
-                      name="storeId"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{form.watch('inventoryType') === 'DC' ? 'Distribution Center (Warehouse)' : 'Store'}</FormLabel>
-                          <Select
-                            value={field.value}
-                            onValueChange={field.onChange}
-                            defaultValue={field.value}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder={`Select a ${form.watch('inventoryType') === 'DC' ? 'DC' : 'store'}`} />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {/* AI Agent Note: Filter stores based on the selected inventory type (DC/Warehouse vs Retail Store) */}
-                              {stores?.filter(s => (form.watch('inventoryType') === 'DC' ? (s as any).type === 'WAREHOUSE' : (s as any).type === 'RETAIL')).map((store) => (
-                                <SelectItem key={store.id} value={store.id.toString()}>
-                                  {store.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                      <FormField
+                        control={form.control}
+                        name="storeId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{form.watch('inventoryType') === 'DC' ? 'Distribution Center (Warehouse)' : 'Store'}</FormLabel>
+                            <Select
+                              value={field.value}
+                              onValueChange={field.onChange}
+                              defaultValue={field.value}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder={`Select a ${form.watch('inventoryType') === 'DC' ? 'DC' : 'store'}`} />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {/* AI Agent Note: Filter stores based on the selected inventory type (DC/Warehouse vs Retail Store) */}
+                                {stores?.filter(s => (form.watch('inventoryType') === 'DC' ? (s as any).type === 'WAREHOUSE' : (s as any).type === 'RETAIL')).map((store) => (
+                                  <SelectItem key={store.id} value={store.id.toString()}>
+                                    {store.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
-                    <div className="space-y-2">
-                      <FormLabel>Supplier</FormLabel>
-                      <div className="flex h-9 items-center rounded-md border bg-muted px-3 text-sm">
-                        {selectedProduct
-                          ? selectedProduct.supplier?.name ?? "No supplier on this product"
-                          : "Chosen from the product"}
+                      <FormField
+                        control={form.control}
+                        name="quantity"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Quantity</FormLabel>
+                            <FormControl>
+                              <Input type="number" min="0" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <div className="space-y-2 sm:col-span-2">
+                        <FormLabel>Supplier</FormLabel>
+                        <div className="flex h-9 items-center rounded-md border bg-muted px-3 text-sm">
+                          {selectedProduct
+                            ? selectedProduct.supplier?.name ?? "No supplier on this product"
+                            : "Chosen from the product"}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          The supplier belongs to the product. Change it on the Products page.
+                        </p>
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        The supplier belongs to the product. Change it on the Products page.
-                      </p>
+
+                      <FormField
+                        control={form.control}
+                        name="location"
+                        render={({ field }) => (
+                          <FormItem className="sm:col-span-2">
+                            <FormLabel>Location (Physical Rack #, Shelf #, ..)</FormLabel>
+                            <FormControl>
+                              <Input {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
                     </div>
 
-                    <FormField
-                      control={form.control}
-                      name="quantity"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Quantity</FormLabel>
-                          <FormControl>
-                            <Input type="number" min="0" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="location"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Location (Physical Rack #, Shelf #, ..)</FormLabel>
-                          <FormControl>
-                            <Input {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <Button variant={selectedItem ? 'update' : 'create'}
-                      type="submit"
-                      className="w-full"
-                      disabled={isPending}
-                    >
-                      {isPending && (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      )}
-                      {selectedItem ? 'Update' : 'Create'} Inventory Item
-                    </Button>
+                    <div className="border-t pt-4">
+                      <Button
+                        variant={selectedItem ? 'update' : 'create'}
+                        type="submit"
+                        className="w-full"
+                        disabled={isPending}
+                      >
+                        {isPending && (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        )}
+                        {selectedItem ? 'Update' : 'Create'} Inventory Item
+                      </Button>
+                    </div>
                   </form>
                 </Form>
               </DialogContent>

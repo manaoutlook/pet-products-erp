@@ -5,7 +5,13 @@ import { db } from "@db";
 import { deliveryNoteItems, deliveryNotes } from "@db/schema";
 import { requireAuth, requirePermission } from "../middleware";
 import { validateBody, validateParams, idParamSchema } from "../validate";
-import { SalesOrderError, attachSignedDocument, issueDeliveryNote } from "../sales-orders";
+import {
+  SalesOrderError,
+  attachSignedDocument,
+  cancelDeliveryNote,
+  issueDeliveryNote,
+} from "../sales-orders";
+import { SalesOrderStockError } from "../sales-order-stock";
 import {
   DeliveryNoteDocumentError,
   saveSignedDeliveryNoteDocument,
@@ -63,8 +69,25 @@ const signedDocumentSchema = z.object({
   image: z.string().min(1, "Upload a picture of the signed delivery note"),
 });
 
+// Optional explanation, kept on the note and copied into the stock movement.
+const cancelDeliveryNoteSchema = z.object({
+  reason: z
+    .union([z.string(), z.null(), z.undefined()])
+    .transform((value) => {
+      const trimmed = typeof value === "string" ? value.trim() : "";
+      return trimmed.length > 0 ? trimmed : null;
+    })
+    .superRefine((value, ctx) => {
+      if (value !== null && value.length > 500) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Reason is too long" });
+      }
+    }),
+});
+
 function handleDeliveryNoteError(res: Response, error: unknown, fallback: string) {
-  if (error instanceof SalesOrderError) {
+  // The goods issue can refuse a note the shelf cannot cover; that is the operator's problem to
+  // fix (receive stock, ship less, choose another location), not a server fault.
+  if (error instanceof SalesOrderError || error instanceof SalesOrderStockError) {
     return res.status(error.status).json({
       message: error.message,
       suggestion: error.suggestion,
@@ -99,6 +122,9 @@ export function registerDeliveryNoteRoutes(app: Express) {
               columns: { id: true, orderNumber: true, customerName: true, status: true },
             },
             deliveredByUser: { columns: { id: true, username: true } },
+            cancelledByUser: { columns: { id: true, username: true } },
+            // Where the goods left from; null = the Distribution Centre.
+            store: { columns: { id: true, name: true, type: true } },
             items: {
               columns: {
                 id: true,
@@ -140,6 +166,7 @@ export function registerDeliveryNoteRoutes(app: Express) {
               },
             },
             deliveredByUser: { columns: { id: true, username: true } },
+            store: { columns: { id: true, name: true, type: true } },
             items: { orderBy: [deliveryNoteItems.id] },
           },
         });
@@ -182,12 +209,86 @@ export function registerDeliveryNoteRoutes(app: Express) {
           })
         );
 
+        // Re-read the row with its "Deliver from" location so the first print (offered straight
+        // away) names the same warehouse as a later reprint from the Delivery Notes screen.
+        const saved = await db.query.deliveryNotes.findFirst({
+          where: eq(deliveryNotes.id, result.deliveryNote.id),
+          with: { store: { columns: { id: true, name: true } } },
+        });
+
         res.status(201).json({
           message: `Delivery note ${result.deliveryNote.deliveryNoteNumber} issued`,
           ...result,
+          deliveryNote: saved ?? result.deliveryNote,
         });
       } catch (error) {
         return handleDeliveryNoteError(res, error, "Failed to create the delivery note");
+      }
+    }
+  );
+
+  /**
+   * Cancel a delivery note and return its units to stock.
+   *
+   * The reverse of issuing: nothing is deleted, the note is stamped `cancelled` with who/why and
+   * its units are written back onto the inventory row it shipped from through a `cancel` /
+   * `RETURN` stock movement. The sales order's line tallies are decremented and its status
+   * re-derived, so a fully cancelled shipment can be delivered (or cancelled) again.
+   *
+   * Refused for a note the customer already signed and for an order with a VAT invoice - those
+   * are returns / credit notes, not cancellations. Repeating the request is harmless: an already
+   * cancelled note returns without touching stock a second time.
+   */
+  app.post(
+    "/api/delivery-notes/:id/cancel",
+    requireAuth,
+    requirePermission("orders", "update"),
+    validateParams(idParamSchema),
+    validateBody(cancelDeliveryNoteSchema, "Check the reason and try again"),
+    async (req, res) => {
+      const body = req.body as z.infer<typeof cancelDeliveryNoteSchema>;
+
+      try {
+        const result = await db.transaction((tx) =>
+          cancelDeliveryNote(tx, {
+            deliveryNoteId: Number(req.params.id),
+            userId: req.user!.id,
+            reason: body.reason,
+          })
+        );
+
+        // Re-read with the same shape the list uses, so the row updates in place.
+        const saved = await db.query.deliveryNotes.findFirst({
+          where: eq(deliveryNotes.id, result.deliveryNote.id),
+          with: {
+            salesOrder: {
+              columns: { id: true, orderNumber: true, customerName: true, status: true },
+            },
+            deliveredByUser: { columns: { id: true, username: true } },
+            cancelledByUser: { columns: { id: true, username: true } },
+            store: { columns: { id: true, name: true, type: true } },
+            items: {
+              columns: {
+                id: true,
+                productCode: true,
+                description: true,
+                orderedQuantity: true,
+                deliveredQuantity: true,
+              },
+            },
+          },
+        });
+
+        res.json({
+          message:
+            result.restoredUnits > 0
+              ? `Delivery note ${result.deliveryNote.deliveryNoteNumber} cancelled - ${result.restoredUnits} unit(s) returned to stock`
+              : `Delivery note ${result.deliveryNote.deliveryNoteNumber} was already cancelled`,
+          ...result,
+          deliveryNote: saved ?? result.deliveryNote,
+        });
+      } catch (error) {
+        return handleDeliveryNoteError(res, error, "Failed to cancel the delivery note");
       }
     }
   );

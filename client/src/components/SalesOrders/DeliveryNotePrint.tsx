@@ -31,6 +31,8 @@ export interface DeliveryNotePrintData {
   contactPerson?: string | null;
   phone?: string | null;
   deliveryAddress?: string | null;
+  /** Where the units were taken off; null/absent = the Distribution Centre. */
+  store?: { name: string } | null;
   /** The VAT company snapshot copied from the order when this note was issued. */
   vatCompanyCode?: string | null;
   vatCompanyName?: string | null;
@@ -38,11 +40,37 @@ export interface DeliveryNotePrintData {
   vatCompanyAddress?: string | null;
   customerConfirmed?: boolean | null;
   remarks?: string | null;
+  /** 'issued' | 'cancelled'. A cancelled note reprints with a CANCELLED stamp. */
+  status?: string | null;
+  cancelledAt?: string | Date | null;
   /** The order the goods belong to - printed as "Related Order No". */
   salesOrder?: { orderNumber: string } | null;
   deliveredByUser?: { username: string } | null;
   items?: DeliveryNotePrintLine[] | null;
 }
+
+/**
+ * Extra sheet CSS. A cancelled note is still printable - the customer may hold the paper - but
+ * it must not look like a live delivery document, so it carries the same stamp the POS invoices
+ * use for a cancelled sale.
+ */
+const DELIVERY_NOTE_STYLES = `
+  .stamp {
+    position: fixed;
+    top: 42%;
+    left: 12%;
+    right: 12%;
+    text-align: center;
+    font-size: 64px;
+    font-weight: bold;
+    letter-spacing: 8px;
+    color: rgba(200, 0, 0, 0.28);
+    border: 6px solid rgba(200, 0, 0, 0.28);
+    padding: 10px 0;
+    transform: rotate(-18deg);
+    pointer-events: none;
+  }
+`;
 
 /**
  * The letterhead this note prints under.
@@ -97,6 +125,7 @@ export function buildDeliveryNotePrintDocument(
     .join('');
 
   const body = `
+    ${note.status === "cancelled" ? '<div class="stamp">CANCELLED</div>' : ''}
     ${buildDocumentCompanyHeader(deliveryNoteLetterhead(note, company))}
 
     <div class="header">
@@ -115,6 +144,7 @@ export function buildDeliveryNotePrintDocument(
       <div><span class="label">Contact Person:</span> ${printValue(note.contactPerson)}</div>
       <div><span class="label">Phone:</span> ${printValue(note.phone)}</div>
       <div class="wide"><span class="label">Delivery Address:</span> ${printValue(note.deliveryAddress)}</div>
+      <div><span class="label">Deliver From:</span> ${printValue(note.store?.name ?? "Distribution Centre")}</div>
     </div>
 
     <table>
@@ -155,7 +185,10 @@ export function buildDeliveryNotePrintDocument(
       ${printValue(note.deliveredByUser?.username)}
     </div>`;
 
-  return buildPrintDocument(`Delivery Note ${note.deliveryNoteNumber}`, body);
+  return buildPrintDocument(`Delivery Note ${note.deliveryNoteNumber}`, body).replace(
+    "</style>",
+    `${DELIVERY_NOTE_STYLES}</style>`
+  );
 }
 
 /** Print the note, reporting a blocked pop-up instead of failing silently. */

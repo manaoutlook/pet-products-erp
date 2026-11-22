@@ -8,6 +8,8 @@
  * text so newlines are preserved and angle brackets are never interpreted.
  */
 
+import { normalizeDescriptionNewlines } from "@shared/product-description";
+
 // A value is treated as HTML when it contains something that looks like a tag,
 // e.g. `<p ...>`, `<br>`, `<span class="s1">`. Plain sentences that merely
 // mention "<" (like "less than 5 < 10") do not match.
@@ -47,7 +49,9 @@ function decodeEntities(value: string): string {
 export function toPlainText(value: string | null | undefined): string {
   if (!value) return "";
 
-  let text = value;
+  // Old/imported rows may carry escaped line breaks ("\n" as two characters).
+  let text = normalizeDescriptionNewlines(value);
+
   if (isHtml(text)) {
     text = text
       // Drop non-visible blocks together with their content first.

@@ -9,12 +9,20 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { useVatCompanies } from "@/hooks/use-vat-companies";
 import { Loader2, Check, Plus, Trash2 } from "lucide-react";
 import { formatCurrency, formatPercent } from "@/utils/format";
 import { computeSaleTotals, toVatRate } from "@shared/tax";
+import { normalizeTaxCode } from "@shared/tax-code";
 import {
   SALES_ORDER_PRICING_HINT,
   describeMissingSalesOrderPrices,
@@ -43,6 +51,8 @@ export interface SalesOrderFormOrder {
   customerTaxId?: string | null;
   phone?: string | null;
   deliveryAddress?: string | null;
+  /** Which location the units leave from; null/undefined = the Distribution Centre. */
+  storeId?: number | null;
   orderDate?: string | null;
   specialInstructions?: string | null;
   /** The licensed company that issues this order's paperwork, or null for "No VAT". */
@@ -59,9 +69,13 @@ interface CustomerProfile {
   companyName?: string | null;
   contactPerson: string;
   mobileNumber: string;
+  email: string;
   address: string;
+  photo?: string | null;
+  landLineNumber?: string | null;
   /** The business's tax code - printed against the buyer on a VAT invoice. */
   taxId?: string | null;
+  customerType: "B2B" | "B2C";
 }
 
 interface CatalogueProduct {
@@ -73,6 +87,13 @@ interface CatalogueProduct {
   landingPrice?: number | string | null;
   b2bPrice?: number | string | null;
   b2cPrice?: number | string | null;
+}
+
+/** A warehouse/shop the order can ship from (`GET /api/stores`). */
+interface StockLocation {
+  id: number;
+  name: string;
+  type: string;
 }
 
 const salesOrderSchema = z.object({
@@ -87,6 +108,8 @@ const salesOrderSchema = z.object({
   customerTaxId: z.string().optional(),
   phone: z.string().optional(),
   deliveryAddress: z.string().optional(),
+  // "" = the Distribution Centre; otherwise the store the units come off.
+  storeId: z.string().optional(),
   orderDate: z.string().min(1, "Order date is required"),
   specialInstructions: z.string().optional(),
   // "No VAT" / "With VAT" - mirroring the two buttons in the form. The company id is a string
@@ -182,6 +205,7 @@ function formDefaults(order?: SalesOrderFormOrder | null): SalesOrderFormValues 
     customerTaxId: order?.customerTaxId ?? "",
     phone: order?.phone ?? "",
     deliveryAddress: order?.deliveryAddress ?? "",
+    storeId: order?.storeId ? String(order.storeId) : "",
     orderDate: toDateInputValue(order?.orderDate),
     specialInstructions: order?.specialInstructions ?? "",
     withVat: Boolean(order?.vatCompanyId),
@@ -246,10 +270,34 @@ export function SalesOrderFormDialog({
     queryKey: ["/api/customer-profiles"],
   });
 
+  // The locations this order can ship from. The list is a plain read: a store the user cannot
+  // see is not in the response, and the empty option is the Distribution Centre.
+  const { data: stores = [] } = useQuery<StockLocation[]>({
+    queryKey: ["/api/stores"],
+  });
+
   // The licensed companies (CI / HI) that may issue this order's VAT paperwork.
   const { activeCompanies: vatCompanies, isLoading: vatCompaniesLoading } = useVatCompanies();
   const withVat = form.watch("withVat");
   const selectedVatCompanyId = form.watch("vatCompanyId");
+  const selectedCustomerId = form.watch("customerProfileId");
+
+  // The saved customer whose master record the buyer tax code belongs to.
+  const selectedCustomer = useMemo(
+    () => customers.find((customer) => String(customer.id) === selectedCustomerId) ?? null,
+    [customers, selectedCustomerId]
+  );
+
+  // The buyer tax code is Customer Master data: this screen only displays it and copies it
+  // onto the order. Re-sync whenever the selected profile arrives (an edit may open before the
+  // customer list has loaded) so the field always reflects the current master record.
+  useEffect(() => {
+    if (!selectedCustomer) return;
+    form.setValue("customerTaxId", normalizeTaxCode(selectedCustomer.taxId), {
+      shouldDirty: false,
+      shouldValidate: false,
+    });
+  }, [selectedCustomer, form]);
 
   // The company that issues this order's paperwork, and the rate it charges. The server copies
   // that rate onto the order when it is saved, so the preview here matches the invoice printed
@@ -305,6 +353,8 @@ export function SalesOrderFormDialog({
         customerTaxId: values.customerTaxId?.trim() || null,
         phone: values.phone?.trim() || null,
         deliveryAddress: values.deliveryAddress?.trim() || null,
+        // Null keeps the DC convention the server already uses for purchase orders.
+        storeId: values.storeId ? Number(values.storeId) : null,
         // Noon local time: midnight would land on the previous day in some zones once the
         // timestamp is converted back for display.
         orderDate: new Date(`${values.orderDate}T12:00:00`).toISOString(),
@@ -363,7 +413,8 @@ export function SalesOrderFormDialog({
     const customer = customers.find((entry) => String(entry.id) === customerId);
     if (!customer) return;
 
-    // Prefill only what the profile knows; anything already typed wins.
+    // Contact details already typed win; the tax code follows the chosen profile because it is
+    // Customer Master data and is only displayed (never edited) on this screen.
     if (!form.getValues("customerName")) {
       form.setValue("customerName", customer.companyName || customer.contactPerson);
     }
@@ -373,9 +424,11 @@ export function SalesOrderFormDialog({
     if (!form.getValues("contactPerson")) form.setValue("contactPerson", customer.contactPerson);
     if (!form.getValues("phone")) form.setValue("phone", customer.mobileNumber);
     if (!form.getValues("deliveryAddress")) form.setValue("deliveryAddress", customer.address);
-    if (customer.taxId && !form.getValues("customerTaxId")) {
-      form.setValue("customerTaxId", customer.taxId);
-    }
+
+    form.setValue("customerTaxId", normalizeTaxCode(customer.taxId), {
+      shouldDirty: false,
+      shouldValidate: false,
+    });
   };
 
   const applyProduct = (index: number, productId: string | null) => {
@@ -408,8 +461,9 @@ export function SalesOrderFormDialog({
   const saving = saveOrder.isPending;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {isEdit ? `Edit Sales Order ${order?.orderNumber ?? ""}` : "New Sales Order"}
@@ -438,6 +492,7 @@ export function SalesOrderFormDialog({
                         searchPlaceholder="Search by name or phone..."
                         emptyMessage="No customer profiles found."
                         clearLabel="Not a saved customer - type the details"
+                        aria-label="Customer profile"
                       />
                     </FormControl>
                     <FormMessage />
@@ -510,6 +565,40 @@ export function SalesOrderFormDialog({
                     <FormControl>
                       <Textarea rows={2} placeholder="Where the goods are dropped off" {...field} />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="storeId"
+                render={({ field }) => (
+                  <FormItem className="md:col-span-2">
+                    <FormLabel>Deliver From</FormLabel>
+                    <Select
+                      value={field.value || "dc"}
+                      onValueChange={(value) => field.onChange(value === "dc" ? "" : value)}
+                    >
+                      <FormControl>
+                        <SelectTrigger aria-label="Deliver from">
+                          <SelectValue placeholder="Distribution Centre" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {/* "" is the DC: `inventory.store_id IS NULL`, the same convention the
+                            goods receipt uses for its destination. */}
+                        <SelectItem value="dc">Distribution Centre</SelectItem>
+                        {stores.map((store) => (
+                          <SelectItem key={store.id} value={String(store.id)}>
+                            {store.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-caption text-muted-foreground">
+                      The units come off this location's stock when the delivery note is issued.
+                    </p>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -614,9 +703,21 @@ export function SalesOrderFormDialog({
                       <FormItem>
                         <FormLabel>Buyer Tax Code (VAT invoice)</FormLabel>
                         <FormControl>
-                          <Input placeholder="Buyer's tax code" {...field} />
+                          <Input
+                            {...field}
+                            value={field.value ?? ""}
+                            placeholder="Taken from Customer Master"
+                            readOnly
+                            aria-readonly="true"
+                            className="cursor-default bg-muted text-muted-foreground"
+                          />
                         </FormControl>
                         <FormMessage />
+                        <p className="text-xs text-muted-foreground">
+                          {selectedCustomer
+                            ? "Copied from the selected customer's profile. To change it, edit the customer under Master Data -> Customers."
+                            : "Select a saved customer profile to pull its tax code from Customer Master."}
+                        </p>
                       </FormItem>
                     )}
                   />
@@ -666,6 +767,7 @@ export function SalesOrderFormDialog({
                               placeholder="Select product"
                               searchPlaceholder="Search by name or SKU..."
                               emptyMessage="No products found."
+                              aria-label={`Product ${index + 1}`}
                             />
                           </FormControl>
                           <FormMessage />
@@ -810,8 +912,9 @@ export function SalesOrderFormDialog({
             </div>
           </form>
         </Form>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

@@ -6,13 +6,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -60,6 +55,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { formatDate } from "@/utils/format";
+import { useRestBulkDelete } from "@/hooks/use-bulk-delete";
+import {
+  MasterDataBulkDeleteDialog,
+  MasterDataBulkDeleteToolbar,
+} from "@/components/master-data/MasterDataBulkDelete";
 
 const createRegionSchema = z.object({
   name: z.string().min(1, "Region name is required"),
@@ -275,6 +275,17 @@ function RegionPage() {
   // Rows currently visible (search + column filters + sorting).
   const filteredRegions = regionsTable.rows;
 
+  const bulkDelete = useRestBulkDelete({
+    endpoint: '/api/regions',
+    singular: 'region',
+    plural: 'regions',
+    getLabel: (id) => regions?.find((region) => region.id === id)?.name,
+    onDeleted: () => refetchRegions(),
+  });
+
+  const visibleRegionIds = (filteredRegions ?? []).map((region) => region.id);
+  const visibleSelection = bulkDelete.selectionState(visibleRegionIds);
+
   const isPending = createRegionMutation.isPending || updateRegionMutation.isPending;
 
   return (
@@ -343,24 +354,25 @@ function RegionPage() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Regional Manager (Optional)</FormLabel>
-                          <Select
-                            value={field.value}
-                            onValueChange={field.onChange}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select regional manager" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="none">No Manager</SelectItem>
-                              {regionalManagers?.map((user) => (
-                                <SelectItem key={user.id} value={user.id.toString()}>
-                                  {user.username}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <FormControl>
+                            <SearchableSelect
+                              value={
+                                field.value && field.value !== 'none'
+                                  ? field.value
+                                  : null
+                              }
+                              onChange={(value) => field.onChange(value ?? 'none')}
+                              onBlur={field.onBlur}
+                              options={(regionalManagers ?? []).map((user) => ({
+                                value: user.id.toString(),
+                                label: user.username,
+                              }))}
+                              placeholder="Select regional manager"
+                              searchPlaceholder="Search regional managers..."
+                              emptyMessage="No regional manager found."
+                              clearLabel="No Manager"
+                            />
+                          </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -407,9 +419,33 @@ function RegionPage() {
           ) : (
             <>
             <TableControlsBar controls={regionsTable} noun="regions" />
-            <Table className="table-actions-sticky min-w-[940px]">
+            {canDelete && (
+              <MasterDataBulkDeleteToolbar
+                count={bulkDelete.selectedCount}
+                plural="regions"
+                onClear={bulkDelete.clearSelection}
+                onRequestDelete={() => bulkDelete.setIsDeleteDialogOpen(true)}
+                isPending={bulkDelete.isPending}
+              />
+            )}
+            <Table className="table-actions-sticky min-w-[980px]">
               <TableHeader>
                 <TableRow>
+                  {canDelete && (
+                    <TableHead className="w-10 align-top">
+                      <Checkbox
+                        aria-label="Select all regions"
+                        checked={
+                          visibleSelection.allSelected
+                            ? true
+                            : visibleSelection.someSelected
+                              ? "indeterminate"
+                              : false
+                        }
+                        onCheckedChange={() => bulkDelete.toggleSelectAll(visibleRegionIds)}
+                      />
+                    </TableHead>
+                  )}
                   <ColumnHeader controls={regionsTable} columnKey="name" label="Region Name" filterPlaceholder="Filter region" />
                   <ColumnHeader controls={regionsTable} columnKey="description" label="Description" filterPlaceholder="Filter description" />
                   <ColumnHeader controls={regionsTable} columnKey="manager" label="Regional Manager" filterPlaceholder="Filter manager" />
@@ -419,7 +455,16 @@ function RegionPage() {
               </TableHeader>
               <TableBody>
                 {filteredRegions?.map((region) => (
-                  <TableRow key={region.id}>
+                  <TableRow key={region.id} data-state={bulkDelete.isSelected(region.id) ? "selected" : undefined}>
+                    {canDelete && (
+                      <TableCell>
+                        <Checkbox
+                          aria-label={`Select ${region.name}`}
+                          checked={bulkDelete.isSelected(region.id)}
+                          onCheckedChange={() => bulkDelete.toggleSelection(region.id)}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         <MapPin className="h-4 w-4 text-muted-foreground" />
@@ -493,6 +538,16 @@ function RegionPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <MasterDataBulkDeleteDialog
+        open={bulkDelete.isDeleteDialogOpen}
+        onOpenChange={bulkDelete.setIsDeleteDialogOpen}
+        count={bulkDelete.selectedCount}
+        singular="region"
+        plural="regions"
+        isPending={bulkDelete.isPending}
+        onConfirm={bulkDelete.confirmDelete}
+      />
     </div>
   );
 }

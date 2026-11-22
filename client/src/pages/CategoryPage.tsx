@@ -32,7 +32,7 @@ import { Input } from "@/components/ui/input";
 import { SearchInput } from "@/components/ui/search-input";
 import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
 import { useTableControls } from "@/hooks/use-table-controls";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -476,31 +476,21 @@ function CategoryPage() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Parent Category</FormLabel>
-                          <Select
-                            onValueChange={(value) =>
-                              field.onChange(value === "root" ? "" : value)
-                            }
-                            value={field.value || "root"}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select parent category" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="root">No parent (Root category)</SelectItem>
-                              {isLoading ? (
-                                <div className="h-20 w-full flex items-center justify-center">
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                </div>
-                              ) : categories?.map((category) => (
-                                <SelectItem
-                                  key={category.id}
-                                  value={category.id.toString()}
-                                >
-                                  {category.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <FormControl>
+                            <SearchableSelect
+                              value={field.value || null}
+                              onChange={(value) => field.onChange(value ?? "")}
+                              onBlur={field.onBlur}
+                              options={(categories ?? []).map((category) => ({
+                                value: category.id.toString(),
+                                label: category.name,
+                              }))}
+                              placeholder="No parent (Root category)"
+                              searchPlaceholder="Search categories..."
+                              emptyMessage="No category found."
+                              clearLabel="No parent (Root category)"
+                            />
+                          </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -708,31 +698,21 @@ function CategoryPage() {
                                     render={({ field }) => (
                                       <FormItem>
                                         <FormLabel>Parent Category</FormLabel>
-                                        <Select
-                                          onValueChange={(value) =>
-                                            field.onChange(value === "root" ? "" : value)
-                                          }
-                                          value={field.value || "root"}
-                                        >
-                                          <SelectTrigger>
-                                            <SelectValue placeholder="Select parent category" />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            <SelectItem value="root">No parent (Root category)</SelectItem>
-                                            {isLoading ? (
-                                              <div className="h-20 w-full flex items-center justify-center">
-                                                <Loader2 className="h-4 w-4 animate-spin" />
-                                              </div>
-                                            ) : categories?.map((category) => (
-                                              <SelectItem
-                                                key={category.id}
-                                                value={category.id.toString()}
-                                              >
-                                                {category.name}
-                                              </SelectItem>
-                                            ))}
-                                          </SelectContent>
-                                        </Select>
+                                        <FormControl>
+                                          <SearchableSelect
+                                            value={field.value || null}
+                                            onChange={(value) => field.onChange(value ?? "")}
+                                            onBlur={field.onBlur}
+                                            options={(categories ?? []).map((category) => ({
+                                              value: category.id.toString(),
+                                              label: category.name,
+                                            }))}
+                                            placeholder="No parent (Root category)"
+                                            searchPlaceholder="Search categories..."
+                                            emptyMessage="No category found."
+                                            clearLabel="No parent (Root category)"
+                                          />
+                                        </FormControl>
                                         <FormMessage />
                                       </FormItem>
                                     )}

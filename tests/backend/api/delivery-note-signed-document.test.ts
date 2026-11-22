@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import { db } from '../../../db';
-import { deliveryNotes, salesOrderItems, salesOrders } from '../../../db/schema';
+import { deliveryNotes, inventory, salesOrderItems, salesOrders } from '../../../db/schema';
 import { SalesOrderError, attachSignedDocument, issueDeliveryNote } from '../../../server/sales-orders';
 import {
     DeliveryNoteDocumentError,
@@ -102,6 +102,15 @@ describe('filing the signed document against a delivery note', () => {
         await cleanDatabase();
         await resetSequences();
         testData = await seedTestData();
+
+        // Every order in this suite ships from the Distribution Centre (`store_id IS NULL`), and
+        // issuing a delivery note is the goods issue: it needs a shelf to take the units off.
+        await db.insert(inventory).values({
+            productId: testData.products.product.id,
+            storeId: null,
+            quantity: 1000,
+            inventoryType: 'DC',
+        });
     });
 
     afterEach(async () => {

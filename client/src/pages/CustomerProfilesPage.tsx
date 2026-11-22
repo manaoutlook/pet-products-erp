@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { SearchInput } from "@/components/ui/search-input";
 import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
 import { useTableControls } from "@/hooks/use-table-controls";
@@ -33,6 +34,11 @@ import { EditCustomerProfileDialog } from "@/components/CustomerProfiles/EditCus
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Pencil, Trash2, Eye } from "lucide-react";
+import { useRestBulkDelete } from "@/hooks/use-bulk-delete";
+import {
+  MasterDataBulkDeleteDialog,
+  MasterDataBulkDeleteToolbar,
+} from "@/components/master-data/MasterDataBulkDelete";
 import {
   Dialog,
   DialogContent,
@@ -182,6 +188,22 @@ function CustomerProfilesPage() {
   // Rows currently visible (search + column filters + sorting).
   const filteredProfiles = profilesTable.rows;
 
+  const profileLabel = (id: number) => {
+    const profile = customerProfiles.find((item) => item.id === id);
+    return profile?.companyName || profile?.contactPerson || `#${id}`;
+  };
+
+  const bulkDelete = useRestBulkDelete({
+    endpoint: '/api/customer-profiles',
+    singular: 'customer profile',
+    plural: 'customer profiles',
+    getLabel: profileLabel,
+    onDeleted: () => refetch(),
+  });
+
+  const visibleProfileIds = (filteredProfiles ?? []).map((profile) => profile.id);
+  const visibleSelection = bulkDelete.selectionState(visibleProfileIds);
+
   const handleDelete = async (id: number) => {
     try {
       const response = await fetch(`/api/customer-profiles/${id}`, {
@@ -238,9 +260,33 @@ function CustomerProfilesPage() {
           ) : (
             <>
             <TableControlsBar controls={profilesTable} noun="customer profiles" />
-            <Table className="table-actions-sticky min-w-[1100px]">
+            {canDelete && (
+              <MasterDataBulkDeleteToolbar
+                count={bulkDelete.selectedCount}
+                plural="customer profiles"
+                onClear={bulkDelete.clearSelection}
+                onRequestDelete={() => bulkDelete.setIsDeleteDialogOpen(true)}
+                isPending={bulkDelete.isPending}
+              />
+            )}
+            <Table className="table-actions-sticky min-w-[1150px]">
               <TableHeader>
                 <TableRow>
+                  {canDelete && (
+                    <TableHead className="w-10 align-top">
+                      <Checkbox
+                        aria-label="Select all customer profiles"
+                        checked={
+                          visibleSelection.allSelected
+                            ? true
+                            : visibleSelection.someSelected
+                              ? "indeterminate"
+                              : false
+                        }
+                        onCheckedChange={() => bulkDelete.toggleSelectAll(visibleProfileIds)}
+                      />
+                    </TableHead>
+                  )}
                   <ColumnHeader controls={profilesTable} columnKey="companyName" label="Company Name" filterPlaceholder="Filter company" />
                   <ColumnHeader controls={profilesTable} columnKey="contactPerson" label="Customer/Contact" filterPlaceholder="Filter customer/contact" />
                   <ColumnHeader controls={profilesTable} columnKey="mobileNumber" label="Mobile Number" filterPlaceholder="Filter mobile" />
@@ -253,7 +299,16 @@ function CustomerProfilesPage() {
               </TableHeader>
               <TableBody>
                 {filteredProfiles.map((profile) => (
-                  <TableRow key={profile.id}>
+                  <TableRow key={profile.id} data-state={bulkDelete.isSelected(profile.id) ? "selected" : undefined}>
+                    {canDelete && (
+                      <TableCell>
+                        <Checkbox
+                          aria-label={`Select ${profile.companyName || profile.contactPerson}`}
+                          checked={bulkDelete.isSelected(profile.id)}
+                          onCheckedChange={() => bulkDelete.toggleSelection(profile.id)}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell>{profile.companyName || '-'}</TableCell>
                     <TableCell>{profile.contactPerson}</TableCell>
                     <TableCell>{profile.mobileNumber}</TableCell>
@@ -349,6 +404,16 @@ function CustomerProfilesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <MasterDataBulkDeleteDialog
+        open={bulkDelete.isDeleteDialogOpen}
+        onOpenChange={bulkDelete.setIsDeleteDialogOpen}
+        count={bulkDelete.selectedCount}
+        singular="customer profile"
+        plural="customer profiles"
+        isPending={bulkDelete.isPending}
+        onConfirm={bulkDelete.confirmDelete}
+      />
     </div>
   );
 }

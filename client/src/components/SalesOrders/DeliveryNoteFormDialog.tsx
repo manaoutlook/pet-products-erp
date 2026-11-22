@@ -35,6 +35,9 @@ interface SalesOrderListRow {
   contactPerson?: string | null;
   phone?: string | null;
   deliveryAddress?: string | null;
+  /** Where the units are taken off; null = the Distribution Centre. */
+  storeId?: number | null;
+  store?: { id: number; name: string } | null;
   /**
    * The VAT company chosen when the order was raised. Copied onto the note at issue, so the
    * printed sheet names the same issuer as the order and the invoice.
@@ -59,6 +62,8 @@ interface IssuedDeliveryNote {
   contactPerson?: string | null;
   phone?: string | null;
   deliveryAddress?: string | null;
+  /** The "Deliver from" location snapshot, read back from GET /api/delivery-notes. */
+  store?: { id: number; name: string } | null;
   vatCompanyCode?: string | null;
   vatCompanyName?: string | null;
   vatCompanyTaxId?: string | null;
@@ -260,6 +265,8 @@ export function DeliveryNoteFormDialog({
           contactPerson: issued?.contactPerson ?? selectedOrder.contactPerson ?? null,
           phone: issued?.phone ?? selectedOrder.phone ?? null,
           deliveryAddress: issued?.deliveryAddress ?? selectedOrder.deliveryAddress ?? null,
+          // The goods issue deducts this location; the sheet must say which one it was.
+          store: issued?.store ?? selectedOrder.store ?? null,
           vatCompanyCode: issued?.vatCompanyCode ?? selectedOrder.vatCompanyCode ?? null,
           vatCompanyName: issued?.vatCompanyName ?? selectedOrder.vatCompanyName ?? null,
           vatCompanyTaxId: issued?.vatCompanyTaxId ?? selectedOrder.vatCompanyTaxId ?? null,

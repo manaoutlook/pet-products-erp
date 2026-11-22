@@ -65,9 +65,17 @@ const customers = [
         companyName: 'Pet Shop A',
         contactPerson: 'Ms Lan',
         mobileNumber: '0900000000',
+        email: 'lan@petshopa.example',
         address: '99 Le Loi',
         taxId: '0319999999',
+        customerType: 'B2B',
     },
+];
+
+/** Locations the order can ship from. The Distribution Centre is the null/default option. */
+const stores = [
+    { id: 4, name: 'Test Store 1', type: 'STORE' },
+    { id: 5, name: 'Test Store 2', type: 'STORE' },
 ];
 
 const json = (data: unknown, ok = true, status = 200) => ({
@@ -104,11 +112,29 @@ function renderDialog(props: Partial<React.ComponentProps<typeof SalesOrderFormD
     return { ...utils, onOpenChange };
 }
 
-/** Opens a searchable select and clicks one of its options. */
-async function pick(user: ReturnType<typeof userEvent.setup>, comboboxIndex: number, optionLabel: string) {
-    const combos = screen.getAllByRole('combobox');
-    await user.click(combos[comboboxIndex]);
-    const option = await screen.findByText(optionLabel);
+/**
+ * Opens a labelled dropdown and clicks one of its options.
+ *
+ * The controls are addressed by their accessible name rather than their position: the form
+ * gained a "Deliver From" select, and index-based picking silently started opening the wrong
+ * dropdown (the product picker became index 2).
+ */
+async function pick(
+    user: ReturnType<typeof userEvent.setup>,
+    name: RegExp,
+    optionLabel: string,
+) {
+    await user.click(screen.getByRole('combobox', { name }));
+
+    // Radix Select keeps a hidden native <select> beside the list, so the same label appears
+    // twice. Click the visible option, never the hidden mirror.
+    const matches = await screen.findAllByText(optionLabel);
+    const option =
+        matches.find(
+            (element) =>
+                element.closest('[role="option"]') && !element.closest('[aria-hidden="true"]'),
+        ) ?? matches[0];
+
     await user.click(option);
 }
 
@@ -131,12 +157,18 @@ describe('SalesOrderFormDialog', () => {
         mocks.toast.mockClear();
         vatCompanies.activeCompanies = [];
         vatCompanies.isLoading = false;
+        // happy-dom has no pointer capture; Radix Select calls it when its trigger is clicked.
+        Element.prototype.hasPointerCapture = vi.fn(() => false) as any;
+        Element.prototype.setPointerCapture = vi.fn() as any;
+        Element.prototype.releasePointerCapture = vi.fn() as any;
+        Element.prototype.scrollIntoView = vi.fn() as any;
         vi.stubGlobal('fetch', fetchMock);
 
         fetchMock.mockImplementation(async (url: string) => {
             const path = String(url).split('?')[0];
             if (path === '/api/products') return json(products);
             if (path === '/api/customer-profiles') return json(customers);
+            if (path === '/api/stores') return json(stores);
             if (path === '/api/vat-companies') return json({ companies: [] });
             if (path === '/api/sales-orders') return json({ orderNumber: 'SO-20261119-0001' });
             return json({});
@@ -181,12 +213,110 @@ describe('SalesOrderFormDialog', () => {
             expect(fetchMock).toHaveBeenCalledWith('/api/customer-profiles', expect.anything()),
         );
 
-        await pick(user, 0, 'Pet Shop A — Ms Lan');
+        await pick(user, /customer profile/i, 'Pet Shop A — Ms Lan');
+        // The buyer tax box is part of the VAT invoice block.
+        await user.click(screen.getByRole('button', { name: /with vat/i }));
 
         expect(screen.getByLabelText(/customer name/i)).toHaveValue('Pet Shop A');
         expect(screen.getByLabelText(/^company name$/i)).toHaveValue('Pet Shop A');
         expect(screen.getByLabelText(/contact person/i)).toHaveValue('Ms Lan');
         expect(screen.getByLabelText(/^phone$/i)).toHaveValue('0900000000');
+        // The tax code is customer master data, so picking a profile fills it in - read-only.
+        const taxInput = screen.getByLabelText(/buyer tax code/i);
+        expect(taxInput).toHaveValue('0319999999');
+        expect(taxInput).toHaveAttribute('readonly');
+    });
+
+    it('saves the Customer Master tax code without ever updating the master record', async () => {
+        vatCompanies.activeCompanies = [
+            {
+                id: 3,
+                code: 'CI',
+                name: 'Conqueror International',
+                taxId: '0312362838',
+                address: '12 Nguyen Hue',
+                phone: null,
+                email: null,
+                bankAccount: null,
+                vatRate: 0.1,
+                isActive: true,
+                missingFields: [],
+            },
+        ];
+
+        const stubFetch = vi.fn(async (url: string, init?: RequestInit) => {
+            const path = String(url).split('?')[0];
+            if (path === '/api/products') return json(products);
+            if (path === '/api/customer-profiles') return json(customers);
+            if (path === '/api/stores') return json(stores);
+            if (path === '/api/vat-companies') return json({ companies: [] });
+            if (path === '/api/customer-profiles/9' && init?.method === 'PUT') {
+                return json({
+                    customerProfile: { ...customers[0], taxId: '0318888888' },
+                });
+            }
+            if (path === '/api/sales-orders' && init?.method === 'POST') {
+                return json({ orderNumber: 'SO-20261119-0002' });
+            }
+            return json({});
+        });
+        vi.stubGlobal('fetch', stubFetch);
+
+        const user = userEvent.setup();
+        renderDialog();
+        await waitFor(() => expect(screen.getAllByRole('combobox').length).toBeGreaterThan(1));
+
+        await pick(user, /customer profile/i, 'Pet Shop A — Ms Lan');
+        await pick(user, /product 1/i, 'Dog Food');
+        await user.type(screen.getByPlaceholderText('Qty'), '1');
+        await user.click(screen.getByRole('button', { name: /with vat/i }));
+        await user.click(screen.getByRole('button', { name: /conqueror international/i }));
+
+        // The code is displayed from the profile and cannot be typed over on this screen.
+        const taxInput = screen.getByLabelText(/buyer tax code/i);
+        expect(taxInput).toHaveValue('0319999999');
+        expect(taxInput).toHaveAttribute('readonly');
+
+        await user.click(screen.getByRole('button', { name: /create sales order/i }));
+        submitForm();
+
+        await waitFor(() =>
+            expect(stubFetch).toHaveBeenCalledWith(
+                '/api/sales-orders',
+                expect.objectContaining({ method: 'POST' }),
+            ),
+        );
+        const [, postInit] = stubFetch.mock.calls.find(
+            ([url, init]) =>
+                String(url) === '/api/sales-orders' && (init as RequestInit)?.method === 'POST',
+        )!;
+        expect(JSON.parse(String((postInit as RequestInit).body)).customerTaxId).toBe('0319999999');
+
+        // Customer Master is never written from sales-order processing.
+        expect(stubFetch).not.toHaveBeenCalledWith(
+            '/api/customer-profiles/9',
+            expect.objectContaining({ method: 'PUT' }),
+        );
+    });
+
+    it('shows the current Customer Master tax code when editing an order with an older snapshot', async () => {
+        renderDialog({
+            order: {
+                id: 7,
+                orderNumber: 'SO-20261115-0001',
+                customerProfileId: 9,
+                customerName: 'Pet Shop A',
+                customerTaxId: '0311111111',
+                vatCompanyId: 3,
+                items: [{ productId: 1, quantity: 1, unitPrice: '100000' }],
+            },
+        });
+
+        // The customer list loads after the dialog opens; once it does, the master value wins
+        // over the snapshot the old order was saved with.
+        await waitFor(() =>
+            expect(screen.getByLabelText(/buyer tax code/i)).toHaveValue('0319999999'),
+        );
     });
 
     it('saves a retail order with a null VAT company and the trimmed customer block', async () => {
@@ -197,7 +327,7 @@ describe('SalesOrderFormDialog', () => {
         await user.type(screen.getByLabelText(/customer name/i), '  Walk-in Buyer  ');
         await user.type(screen.getByLabelText(/delivery address/i), '12 Le Loi');
 
-        await pick(user, 1, 'Dog Food');
+        await pick(user, /product 1/i, 'Dog Food');
         await user.type(screen.getByPlaceholderText('Qty'), '3');
 
         // The line amount and the order total both show the same figure.
@@ -220,6 +350,8 @@ describe('SalesOrderFormDialog', () => {
 
         expect(body.customerName).toBe('Walk-in Buyer');
         expect(body.deliveryAddress).toBe('12 Le Loi');
+        // Nothing picked = NULL = the Distribution Centre (`inventory.store_id IS NULL`).
+        expect(body.storeId).toBeNull();
         // "No VAT" is null, never an empty string: the server snapshots the company block.
         expect(body.vatCompanyId).toBeNull();
         expect(body.companyName).toBeNull();
@@ -236,6 +368,63 @@ describe('SalesOrderFormDialog', () => {
             ),
         );
         expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+
+    it('ships from the chosen store and sends its id', async () => {
+        const user = userEvent.setup();
+        renderDialog();
+
+        await user.type(screen.getByLabelText(/customer name/i), 'Pet Shop A');
+        await pick(user, /deliver from/i, 'Test Store 1');
+        await pick(user, /product 1/i, 'Dog Food');
+        await user.type(screen.getByPlaceholderText('Qty'), '2');
+
+        await user.click(screen.getByRole('button', { name: /create sales order/i }));
+        submitForm();
+
+        await waitFor(() =>
+            expect(fetchMock).toHaveBeenCalledWith(
+                '/api/sales-orders',
+                expect.objectContaining({ method: 'POST' }),
+            ),
+        );
+
+        const [, init] = fetchMock.mock.calls.find(
+            ([url, options]) =>
+                String(url) === '/api/sales-orders' && (options as RequestInit)?.method === 'POST',
+        )!;
+        expect(JSON.parse(String((init as RequestInit).body)).storeId).toBe(4);
+    });
+
+    it('keeps the location when an order is edited', async () => {
+        const user = userEvent.setup();
+        renderDialog({
+            order: {
+                id: 7,
+                orderNumber: 'SO-20261115-0001',
+                customerName: 'Pet Shop A',
+                storeId: 5,
+                items: [{ productId: 1, quantity: 2, unitPrice: '100000' }],
+            },
+        });
+
+        expect(await screen.findByText('Edit Sales Order SO-20261115-0001')).toBeInTheDocument();
+
+        await user.click(screen.getByRole('button', { name: /save changes/i }));
+        submitForm();
+
+        await waitFor(() =>
+            expect(fetchMock).toHaveBeenCalledWith(
+                '/api/sales-orders/7',
+                expect.objectContaining({ method: 'PUT' }),
+            ),
+        );
+
+        const [, init] = fetchMock.mock.calls.find(
+            ([url, options]) =>
+                String(url) === '/api/sales-orders/7' && (options as RequestInit)?.method === 'PUT',
+        )!;
+        expect(JSON.parse(String((init as RequestInit).body)).storeId).toBe(5);
     });
 
     it('adds and removes lines, keeping at least one', async () => {
@@ -259,6 +448,7 @@ describe('SalesOrderFormDialog', () => {
             const path = String(url).split('?')[0];
             if (path === '/api/products') return json(products);
             if (path === '/api/customer-profiles') return json(customers);
+            if (path === '/api/stores') return json(stores);
             return json({ companies: [] });
         }));
         vatCompanies.activeCompanies = [
@@ -282,7 +472,7 @@ describe('SalesOrderFormDialog', () => {
         await waitFor(() => expect(screen.getAllByRole('combobox').length).toBeGreaterThan(1));
 
         await user.type(screen.getByLabelText(/customer name/i), 'Pet Shop A');
-        await pick(user, 1, 'Dog Food');
+        await pick(user, /product 1/i, 'Dog Food');
         await user.type(screen.getByPlaceholderText('Qty'), '3');
         await user.click(screen.getByRole('button', { name: /with vat/i }));
 
@@ -303,6 +493,7 @@ describe('SalesOrderFormDialog', () => {
             const path = String(url).split('?')[0];
             if (path === '/api/products') return json(products);
             if (path === '/api/customer-profiles') return json(customers);
+            if (path === '/api/stores') return json(stores);
             if (path === '/api/vat-companies') return json({ companies: [] });
             if (path === '/api/sales-orders' && init?.method === 'POST') return json({ orderNumber: 'SO-9' });
             return json({});
@@ -341,8 +532,8 @@ describe('SalesOrderFormDialog', () => {
         renderDialog();
         await waitFor(() => expect(screen.getAllByRole('combobox').length).toBeGreaterThan(1));
 
-        await user.type(screen.getByLabelText(/customer name/i), 'Pet Shop A');
-        await pick(user, 1, 'Dog Food');
+        await pick(user, /customer profile/i, 'Pet Shop A — Ms Lan');
+        await pick(user, /product 1/i, 'Dog Food');
         await user.type(screen.getByPlaceholderText('Qty'), '1');
         await user.click(screen.getByRole('button', { name: /with vat/i }));
 
@@ -352,7 +543,8 @@ describe('SalesOrderFormDialog', () => {
         expect(within(unusable).getByText(/Incomplete: Tax code, Address/)).toBeInTheDocument();
 
         await user.click(screen.getByRole('button', { name: /conqueror international/i }));
-        await user.type(screen.getByLabelText(/buyer tax code/i), '0319999999');
+        // The buyer tax code is copied from the selected customer profile, not typed here.
+        expect(screen.getByLabelText(/buyer tax code/i)).toHaveValue('0319999999');
         submitForm();
 
         await waitFor(() =>
@@ -374,6 +566,7 @@ describe('SalesOrderFormDialog', () => {
             const path = String(url).split('?')[0];
             if (path === '/api/products') return json(products);
             if (path === '/api/customer-profiles') return json(customers);
+            if (path === '/api/stores') return json(stores);
             if (path === '/api/vat-companies') return json({ companies: [] });
             if (path === '/api/sales-orders' && init?.method === 'POST')
                 return json({ message: 'Delivery notes exist' }, false, 409);
@@ -385,7 +578,7 @@ describe('SalesOrderFormDialog', () => {
         await waitFor(() => expect(screen.getAllByRole('combobox').length).toBeGreaterThan(1));
 
         await user.type(screen.getByLabelText(/customer name/i), 'Pet Shop A');
-        await pick(user, 1, 'Dog Food');
+        await pick(user, /product 1/i, 'Dog Food');
         await user.type(screen.getByPlaceholderText('Qty'), '1');
         submitForm();
 
@@ -401,6 +594,7 @@ describe('SalesOrderFormDialog', () => {
             const path = String(url).split('?')[0];
             if (path === '/api/products') return json(products);
             if (path === '/api/customer-profiles') return json(customers);
+            if (path === '/api/stores') return json(stores);
             if (init?.method === 'PUT') return json({ orderNumber: 'SO-20261115-0001' });
             return json({});
         });
@@ -442,6 +636,7 @@ describe('SalesOrderFormDialog', () => {
             const path = String(url).split('?')[0];
             if (path === '/api/products') return json(unpricedProducts);
             if (path === '/api/customer-profiles') return json(customers);
+            if (path === '/api/stores') return json(stores);
             if (path === '/api/vat-companies') return json({ companies: [] });
             return json({});
         });
@@ -451,7 +646,7 @@ describe('SalesOrderFormDialog', () => {
         await waitFor(() => expect(screen.getAllByRole('combobox').length).toBeGreaterThan(1));
 
         await user.type(screen.getByLabelText(/customer name/i), 'Pet Shop A');
-        await pick(user, 1, 'Unpriced Feed');
+        await pick(user, /product 1/i, 'Unpriced Feed');
         await user.type(screen.getByPlaceholderText('Qty'), '2');
 
         // The panel appears as soon as the product is picked, before anything is submitted.
@@ -486,6 +681,7 @@ describe('SalesOrderFormDialog', () => {
             const path = String(url).split('?')[0];
             if (path === '/api/products') return json(unpricedProducts);
             if (path === '/api/customer-profiles') return json(customers);
+            if (path === '/api/stores') return json(stores);
             if (init?.method === 'PUT') return json({ orderNumber: 'SO-20261115-0001' });
             return json({});
         });

@@ -229,6 +229,7 @@ describe('SalesOrdersPage', () => {
                         id: 1,
                         deliveryNoteNumber: 'DN-20261108-1234',
                         deliveryDate: '2026-11-08T00:00:00.000Z',
+                        status: 'issued',
                     },
                 ],
             }),
@@ -236,7 +237,34 @@ describe('SalesOrdersPage', () => {
 
         await waitFor(() => expect(screen.getByText('SO-20261108-1234')).toBeInTheDocument());
 
-        expect(screen.getByTitle('An order with delivery notes cannot be cancelled')).toBeDisabled();
+        expect(
+            screen.getByTitle(
+                'An order with an active delivery note cannot be cancelled - cancel the note first'
+            )
+        ).toBeDisabled();
+        expect(screen.getByTitle('An order with delivery notes cannot be deleted')).toBeDisabled();
+    });
+
+    it('lets an order be cancelled once every note is cancelled, but not deleted', async () => {
+        renderPage([
+            makeOrder({
+                status: 'open',
+                deliveryNotes: [
+                    {
+                        id: 1,
+                        deliveryNoteNumber: 'DN-20261108-1234',
+                        deliveryDate: '2026-11-08T00:00:00.000Z',
+                        status: 'cancelled',
+                    },
+                ],
+            }),
+        ]);
+
+        await waitFor(() => expect(screen.getByText('SO-20261108-1234')).toBeInTheDocument());
+
+        // A cancelled note already returned its units, so it must not pin the order.
+        expect(screen.getByTitle('Cancel sales order (no stock changes)')).toBeEnabled();
+        // The document itself is history, so delete stays blocked.
         expect(screen.getByTitle('An order with delivery notes cannot be deleted')).toBeDisabled();
     });
 
@@ -246,7 +274,7 @@ describe('SalesOrdersPage', () => {
         await waitFor(() => expect(screen.getByText('SO-20261108-1234')).toBeInTheDocument());
 
         const user = userEvent.setup();
-        await user.click(screen.getByTitle('Cancel sales order'));
+        await user.click(screen.getByTitle('Cancel sales order (no stock changes)'));
 
         const dialog = await screen.findByRole('alertdialog');
         expect(within(dialog).getByText('Cancel this sales order?')).toBeInTheDocument();

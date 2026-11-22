@@ -20,13 +20,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { SearchInput } from "@/components/ui/search-input";
 import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
@@ -47,6 +40,12 @@ import type { InsertRole, SelectRole } from "@db/schema";
 import { insertRoleSchema } from "@db/schema";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Plus, Pencil, Trash2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useRestBulkDelete } from "@/hooks/use-bulk-delete";
+import {
+  MasterDataBulkDeleteDialog,
+  MasterDataBulkDeleteToolbar,
+} from "@/components/master-data/MasterDataBulkDelete";
 
 function RolesPage() {
   const [search, setSearch] = useState("");
@@ -203,6 +202,23 @@ function RolesPage() {
 
   // Rows currently visible (search + column filters + sorting).
   const filteredRoles = rolesTable.rows;
+
+  // The admin role is protected by the API, so it cannot be selected. Roles
+  // that are still assigned to users are rejected by the server and stay
+  // selected after the request so the reason is visible.
+  const bulkDelete = useRestBulkDelete({
+    endpoint: '/api/roles',
+    singular: 'role',
+    plural: 'roles',
+    getLabel: (id) => roles?.find((role) => role.id === id)?.name,
+    onDeleted: () => refetch(),
+  });
+
+  const deletableVisibleRoles = (filteredRoles ?? []).filter(
+    (role) => role.name !== 'admin'
+  );
+  const visibleRoleIds = deletableVisibleRoles.map((role) => role.id);
+  const visibleSelection = bulkDelete.selectionState(visibleRoleIds);
 
   const onSubmit = async (data: any) => {
     try {
@@ -386,9 +402,29 @@ function RolesPage() {
           ) : (
             <>
             <TableControlsBar controls={rolesTable} noun="roles" />
-            <Table className="table-actions-sticky min-w-[880px]">
+            <MasterDataBulkDeleteToolbar
+              count={bulkDelete.selectedCount}
+              plural="roles"
+              onClear={bulkDelete.clearSelection}
+              onRequestDelete={() => bulkDelete.setIsDeleteDialogOpen(true)}
+              isPending={bulkDelete.isPending}
+            />
+            <Table className="table-actions-sticky min-w-[920px]">
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10 align-top">
+                    <Checkbox
+                      aria-label="Select all roles"
+                      checked={
+                        visibleSelection.allSelected
+                          ? true
+                          : visibleSelection.someSelected
+                            ? "indeterminate"
+                            : false
+                      }
+                      onCheckedChange={() => bulkDelete.toggleSelectAll(visibleRoleIds)}
+                    />
+                  </TableHead>
                   <ColumnHeader controls={rolesTable} columnKey="name" label="Name" filterPlaceholder="Filter name" />
                   <ColumnHeader controls={rolesTable} columnKey="description" label="Description" filterPlaceholder="Filter description" />
                   <ColumnHeader controls={rolesTable} columnKey="isSystemAdmin" label="System Admin" filterPlaceholder="Filter admin" />
@@ -397,7 +433,20 @@ function RolesPage() {
               </TableHeader>
               <TableBody>
                 {filteredRoles?.map((role) => (
-                  <TableRow key={role.id}>
+                  <TableRow key={role.id} data-state={bulkDelete.isSelected(role.id) ? "selected" : undefined}>
+                    <TableCell>
+                      <Checkbox
+                        aria-label={`Select ${role.name}`}
+                        checked={bulkDelete.isSelected(role.id)}
+                        disabled={role.name === 'admin'}
+                        title={
+                          role.name === 'admin'
+                            ? 'The admin role cannot be deleted'
+                            : undefined
+                        }
+                        onCheckedChange={() => bulkDelete.toggleSelection(role.id)}
+                      />
+                    </TableCell>
                     <TableCell className="font-medium">{role.name}</TableCell>
                     <TableCell>{role.description}</TableCell>
                     <TableCell>{role.isSystemAdmin ? 'Yes' : 'No'}</TableCell>
@@ -433,6 +482,16 @@ function RolesPage() {
           )}
         </CardContent>
       </Card>
+
+      <MasterDataBulkDeleteDialog
+        open={bulkDelete.isDeleteDialogOpen}
+        onOpenChange={bulkDelete.setIsDeleteDialogOpen}
+        count={bulkDelete.selectedCount}
+        singular="role"
+        plural="roles"
+        isPending={bulkDelete.isPending}
+        onConfirm={bulkDelete.confirmDelete}
+      />
     </div>
   );
 }

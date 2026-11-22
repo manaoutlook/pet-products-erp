@@ -74,6 +74,25 @@ describe('Product Import', () => {
             expect(product.supplierId).not.toBeNull();
         });
 
+        it('stores escaped line breaks as real newlines', async () => {
+            // Spreadsheet cells often hold the two characters "\" + "n" instead of a
+            // newline; the API must store real line breaks so the dialog does not
+            // render a literal "\n".
+            const escapedNewline = String.fromCharCode(92) + 'n';
+            const description = ['First line', 'Second line', 'Third line'].join(escapedNewline);
+
+            await importProducts([{ ...validRow, sku: 'IMP-NEWLINE', description }]);
+
+            const [product] = await db
+                .select()
+                .from(products)
+                .where(eq(products.sku, 'IMP-NEWLINE'));
+
+            expect(product.description).toBe(
+                ['First line', 'Second line', 'Third line'].join(String.fromCharCode(10))
+            );
+        });
+
         it('reuses existing master data instead of creating duplicates', async () => {
             const [category] = await db
                 .insert(categories)

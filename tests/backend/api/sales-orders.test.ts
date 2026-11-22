@@ -1,24 +1,30 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
 import { db } from '../../../db';
 import {
+    customerProfiles,
     deliveryNoteItems,
     deliveryNotes,
+    inventory,
     products,
     salesOrderItems,
     salesOrders,
+    stockMovements,
     vatCompanies,
 } from '../../../db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, isNull } from 'drizzle-orm';
 import {
     SalesOrderError,
     buildSalesOrderLines,
+    cancelDeliveryNote,
     issueDeliveryNote,
     orderLineTotals,
     orderTotal,
     recalculateSalesOrderStatus,
+    resolveCustomerTaxId,
     resyncUnsignedDeliveredOrders,
     summariseStatus,
 } from '../../../server/sales-orders';
+import { SalesOrderStockError, assertStockAvailable } from '../../../server/sales-order-stock';
 import { generateDeliveryNoteNumber, generateSalesOrderNumber } from '../../../server/numbering';
 import { cleanDatabase, resetSequences, seedTestData, resetTestDatabase } from '../../helpers/test-db';
 
@@ -41,6 +47,15 @@ describe('Sales Orders & Delivery Notes', () => {
         await cleanDatabase();
         await resetSequences();
         testData = await seedTestData();
+
+        // The goods issue needs a shelf to take units off. Orders in this suite ship from the
+        // Distribution Centre (`store_id IS NULL`); tests that ship from a shop add its own row.
+        await db.insert(inventory).values({
+            productId: testData.products.product.id,
+            storeId: null,
+            quantity: 1000,
+            inventoryType: 'DC',
+        });
     });
 
     afterEach(async () => {
@@ -680,5 +695,524 @@ describe('Sales Orders & Delivery Notes', () => {
             expect(stored.status).toBe('awaiting_signature');
         });
 
+    });
+
+    /**
+     * The stock side of the two documents.
+     *
+     * Ordered here on purpose: the order is a promise (checked, never deducted), the delivery
+     * note is the goods issue (deducts, and points at the signed sheet). Deducting on both would
+     * take the units out twice; deducting on neither is what let an order ship without moving
+     * inventory at all.
+     */
+    describe('stock movements', () => {
+        /** The Distribution Centre row (`inventory.store_id IS NULL`). */
+        async function dcStock() {
+            const [row] = await db
+                .select()
+                .from(inventory)
+                .where(isNull(inventory.storeId));
+            return row;
+        }
+
+        it('checks an order against stock without taking anything off the shelf', async () => {
+            const { order } = await seedSalesOrder([{ quantity: 4 }]);
+
+            await assertStockAvailable(db, {
+                storeId: order.storeId,
+                lines: [
+                    {
+                        productId: testData.products.product.id,
+                        productCode: testData.products.product.sku,
+                        quantity: 4,
+                    },
+                ],
+            });
+
+            expect((await dcStock()).quantity).toBe(1000);
+            expect(await db.select().from(stockMovements)).toHaveLength(0);
+        });
+
+        it('refuses an order the location cannot cover, naming the product', async () => {
+            await db.update(inventory).set({ quantity: 2 }).where(isNull(inventory.storeId));
+
+            await expect(
+                assertStockAvailable(db, {
+                    storeId: null,
+                    lines: [
+                        {
+                            productId: testData.products.product.id,
+                            productCode: testData.products.product.sku,
+                            quantity: 5,
+                        },
+                    ],
+                })
+            ).rejects.toThrow(/only 2 in stock at the Distribution Centre/);
+        });
+
+        it('takes the delivered units off the Distribution Centre and links the movement to the note', async () => {
+            const { order } = await seedSalesOrder([{ quantity: 4 }]);
+
+            const { deliveryNote } = await issueDeliveryNote(db, {
+                salesOrderId: order.id,
+                deliveryDate: new Date(),
+                userId: testData.users.admin.id,
+            });
+
+            // The note snapshots the order's location (null = DC), not a separate choice.
+            expect(deliveryNote.storeId).toBeNull();
+            expect((await dcStock()).quantity).toBe(996);
+
+            const movements = await db.select().from(stockMovements);
+            expect(movements).toHaveLength(1);
+            expect(movements[0]).toMatchObject({
+                delta: -4,
+                reason: 'sale',
+                transactionType: 'SALES_ORDER',
+                refType: 'delivery_note',
+                refId: deliveryNote.id,
+                quantityBefore: 1000,
+                quantityAfter: 996,
+                userId: testData.users.admin.id,
+            });
+            expect(movements[0].note).toContain(order.orderNumber);
+        });
+
+        it('deducts only what a partial note actually shipped', async () => {
+            const { order, items } = await seedSalesOrder([{ quantity: 10 }]);
+
+            const first = await issueDeliveryNote(db, {
+                salesOrderId: order.id,
+                deliveryDate: new Date(),
+                userId: testData.users.admin.id,
+                items: [{ salesOrderItemId: items[0].id, deliveredQuantity: 3 }],
+            });
+
+            expect((await dcStock()).quantity).toBe(997);
+            expect(first.outstandingQuantity).toBe(7);
+
+            await issueDeliveryNote(db, {
+                salesOrderId: order.id,
+                deliveryDate: new Date(),
+                userId: testData.users.admin.id,
+            });
+
+            // The balance (7) leaves the shelf on the second note; 10 in total.
+            expect((await dcStock()).quantity).toBe(990);
+        });
+
+        it('ships from the order store when one is chosen, leaving the DC alone', async () => {
+            const [storeStock] = await db
+                .insert(inventory)
+                .values({
+                    productId: testData.products.product.id,
+                    storeId: testData.stores.store1.id,
+                    quantity: 5,
+                    inventoryType: 'STORE',
+                })
+                .returning();
+
+            const { order } = await seedSalesOrder([{ quantity: 2 }], {
+                storeId: testData.stores.store1.id,
+            });
+
+            const { deliveryNote } = await issueDeliveryNote(db, {
+                salesOrderId: order.id,
+                deliveryDate: new Date(),
+                userId: testData.users.admin.id,
+            });
+
+            expect(deliveryNote.storeId).toBe(testData.stores.store1.id);
+            expect((await dcStock()).quantity).toBe(1000);
+
+            const [stored] = await db
+                .select()
+                .from(inventory)
+                .where(eq(inventory.id, storeStock.id));
+            expect(stored.quantity).toBe(3);
+
+            const [movement] = await db.select().from(stockMovements);
+            expect(movement).toMatchObject({
+                inventoryId: storeStock.id,
+                storeId: testData.stores.store1.id,
+                delta: -2,
+            });
+        });
+
+        it('refuses a note the shelf cannot cover and rolls the whole shipment back', async () => {
+            await db.update(inventory).set({ quantity: 1 }).where(isNull(inventory.storeId));
+            const { order, items } = await seedSalesOrder([{ quantity: 3 }]);
+
+            // The route issues a note inside one transaction, so a refused goods issue rolls the
+            // note, the tallies and the status back together.
+            await expect(
+                db.transaction((tx) =>
+                    issueDeliveryNote(tx, {
+                        salesOrderId: order.id,
+                        deliveryDate: new Date(),
+                        userId: testData.users.admin.id,
+                    })
+                )
+            ).rejects.toBeInstanceOf(SalesOrderStockError);
+
+            // No note, no line tally, no movement - the shipment never happened.
+            expect(await db.select().from(deliveryNotes)).toHaveLength(0);
+            const [line] = await db
+                .select()
+                .from(salesOrderItems)
+                .where(eq(salesOrderItems.id, items[0].id));
+            expect(line.deliveredQuantity).toBe(0);
+            expect(await db.select().from(stockMovements)).toHaveLength(0);
+            expect((await dcStock()).quantity).toBe(1);
+
+            const [storedOrder] = await db
+                .select()
+                .from(salesOrders)
+                .where(eq(salesOrders.id, order.id));
+            expect(storedOrder.status).toBe('open');
+        });
+
+        it('refuses a note when the location has no stock record at all', async () => {
+            await db.delete(inventory).where(isNull(inventory.storeId));
+            const { order } = await seedSalesOrder([{ quantity: 1 }]);
+
+            await expect(
+                issueDeliveryNote(db, {
+                    salesOrderId: order.id,
+                    deliveryDate: new Date(),
+                    userId: testData.users.admin.id,
+                })
+            ).rejects.toThrow(/has no stock record at the Distribution Centre/);
+        });
+    });
+
+    /**
+     * Cancelling a delivery note is the reverse of issuing it, never a delete.
+     *
+     * The note took the units off the shelf, so cancelling it must put exactly those units back
+     * on the same inventory row - and only for a note the customer has not signed and an order
+     * with no VAT invoice, because those are returns, not cancellations.
+     */
+    describe('cancelling delivery notes', () => {
+        async function dcStock() {
+            const [row] = await db
+                .select()
+                .from(inventory)
+                .where(isNull(inventory.storeId));
+            return row;
+        }
+
+        it('returns the units with a RETURN movement linked to the note', async () => {
+            const { order } = await seedSalesOrder([{ quantity: 4 }]);
+            const { deliveryNote } = await issueDeliveryNote(db, {
+                salesOrderId: order.id,
+                deliveryDate: new Date(),
+                userId: testData.users.admin.id,
+            });
+            expect((await dcStock()).quantity).toBe(996);
+
+            const result = await cancelDeliveryNote(db, {
+                deliveryNoteId: deliveryNote.id,
+                userId: testData.users.admin.id,
+                reason: 'wrong truck',
+            });
+
+            expect(result.restoredUnits).toBe(4);
+            expect(result.orderStatus).toBe('open');
+            expect(result.deliveryNote.status).toBe('cancelled');
+            expect(result.deliveryNote.cancelledByUserId).toBe(testData.users.admin.id);
+            expect(result.deliveryNote.cancelReason).toBe('wrong truck');
+            expect(result.deliveryNote.cancelledAt).toBeInstanceOf(Date);
+            expect((await dcStock()).quantity).toBe(1000);
+
+            const movements = await db.select().from(stockMovements);
+            expect(movements).toHaveLength(2);
+            const returned = movements.find((movement) => movement.reason === 'cancel');
+            expect(returned).toMatchObject({
+                delta: 4,
+                transactionType: 'RETURN',
+                refType: 'delivery_note',
+                refId: deliveryNote.id,
+                quantityBefore: 996,
+                quantityAfter: 1000,
+                userId: testData.users.admin.id,
+            });
+            expect(returned?.note).toContain(deliveryNote.deliveryNoteNumber);
+            expect(returned?.note).toContain(order.orderNumber);
+            expect(returned?.note).toContain('wrong truck');
+        });
+
+        it('reduces the line tally so the order can ship again', async () => {
+            const { order, items } = await seedSalesOrder([{ quantity: 4 }]);
+            const { deliveryNote } = await issueDeliveryNote(db, {
+                salesOrderId: order.id,
+                deliveryDate: new Date(),
+                userId: testData.users.admin.id,
+            });
+
+            await cancelDeliveryNote(db, {
+                deliveryNoteId: deliveryNote.id,
+                userId: testData.users.admin.id,
+            });
+
+            const [line] = await db
+                .select()
+                .from(salesOrderItems)
+                .where(eq(salesOrderItems.id, items[0].id));
+            expect(line.deliveredQuantity).toBe(0);
+
+            const again = await issueDeliveryNote(db, {
+                salesOrderId: order.id,
+                deliveryDate: new Date(),
+                userId: testData.users.admin.id,
+            });
+            expect(again.items[0].deliveredQuantity).toBe(4);
+            expect((await dcStock()).quantity).toBe(996);
+        });
+
+        it('restores only the cancelled note when another shipment stays out', async () => {
+            const { order, items } = await seedSalesOrder([{ quantity: 10 }]);
+
+            const first = await issueDeliveryNote(db, {
+                salesOrderId: order.id,
+                deliveryDate: new Date(),
+                userId: testData.users.admin.id,
+                items: [{ salesOrderItemId: items[0].id, deliveredQuantity: 3 }],
+            });
+            await issueDeliveryNote(db, {
+                salesOrderId: order.id,
+                deliveryDate: new Date(),
+                userId: testData.users.admin.id,
+                items: [{ salesOrderItemId: items[0].id, deliveredQuantity: 7 }],
+            });
+            expect((await dcStock()).quantity).toBe(990);
+
+            const result = await cancelDeliveryNote(db, {
+                deliveryNoteId: first.deliveryNote.id,
+                userId: testData.users.admin.id,
+            });
+
+            expect(result.restoredUnits).toBe(3);
+            expect(result.orderStatus).toBe('partially_delivered');
+            expect((await dcStock()).quantity).toBe(993);
+
+            const [line] = await db
+                .select()
+                .from(salesOrderItems)
+                .where(eq(salesOrderItems.id, items[0].id));
+            expect(line.deliveredQuantity).toBe(7);
+        });
+
+        it('is idempotent - a second cancel does not restock twice', async () => {
+            const { order } = await seedSalesOrder([{ quantity: 2 }]);
+            const { deliveryNote } = await issueDeliveryNote(db, {
+                salesOrderId: order.id,
+                deliveryDate: new Date(),
+                userId: testData.users.admin.id,
+            });
+
+            await cancelDeliveryNote(db, {
+                deliveryNoteId: deliveryNote.id,
+                userId: testData.users.admin.id,
+            });
+            const second = await cancelDeliveryNote(db, {
+                deliveryNoteId: deliveryNote.id,
+                userId: testData.users.admin.id,
+            });
+
+            expect(second.restoredUnits).toBe(0);
+            expect(second.deliveryNote.status).toBe('cancelled');
+            expect((await dcStock()).quantity).toBe(1000);
+            expect(await db.select().from(stockMovements)).toHaveLength(2);
+        });
+
+        it('refuses a note the customer already signed', async () => {
+            const { order } = await seedSalesOrder([{ quantity: 2 }]);
+            const { deliveryNote } = await issueDeliveryNote(db, {
+                salesOrderId: order.id,
+                deliveryDate: new Date(),
+                userId: testData.users.admin.id,
+                customerConfirmed: true,
+            });
+
+            await expect(
+                cancelDeliveryNote(db, {
+                    deliveryNoteId: deliveryNote.id,
+                    userId: testData.users.admin.id,
+                })
+            ).rejects.toThrow(/signed by the customer/);
+
+            const [stored] = await db
+                .select()
+                .from(deliveryNotes)
+                .where(eq(deliveryNotes.id, deliveryNote.id));
+            expect(stored.status).toBe('issued');
+            expect((await dcStock()).quantity).toBe(998);
+            expect(await db.select().from(stockMovements)).toHaveLength(1);
+        });
+
+        it('refuses a note whose order carries a VAT invoice', async () => {
+            const { order } = await seedSalesOrder([{ quantity: 2 }]);
+            const { deliveryNote } = await issueDeliveryNote(db, {
+                salesOrderId: order.id,
+                deliveryDate: new Date(),
+                userId: testData.users.admin.id,
+            });
+            // The invoice is raised after delivery, so the guard has to read the order live.
+            await db
+                .update(salesOrders)
+                .set({ vatInvoiceNumber: 'INV-0001' })
+                .where(eq(salesOrders.id, order.id));
+
+            await expect(
+                cancelDeliveryNote(db, {
+                    deliveryNoteId: deliveryNote.id,
+                    userId: testData.users.admin.id,
+                })
+            ).rejects.toThrow(/VAT invoice/);
+
+            expect((await dcStock()).quantity).toBe(998);
+        });
+
+        it('returns the units to the shop the goods actually left from', async () => {
+            const [storeStock] = await db
+                .insert(inventory)
+                .values({
+                    productId: testData.products.product.id,
+                    storeId: testData.stores.store1.id,
+                    quantity: 5,
+                    inventoryType: 'STORE',
+                })
+                .returning();
+
+            const { order } = await seedSalesOrder([{ quantity: 2 }], {
+                storeId: testData.stores.store1.id,
+            });
+            const { deliveryNote } = await issueDeliveryNote(db, {
+                salesOrderId: order.id,
+                deliveryDate: new Date(),
+                userId: testData.users.admin.id,
+            });
+
+            await cancelDeliveryNote(db, {
+                deliveryNoteId: deliveryNote.id,
+                userId: testData.users.admin.id,
+            });
+
+            const [stored] = await db
+                .select()
+                .from(inventory)
+                .where(eq(inventory.id, storeStock.id));
+            expect(stored.quantity).toBe(5);
+            // The DC never saw these units, so its row must not move either way.
+            expect((await dcStock()).quantity).toBe(1000);
+        });
+
+        it('merges duplicate products into one stock movement', async () => {
+            // Two order lines for the same product: the ledger must see one +5, not two rows.
+            const { order } = await seedSalesOrder([{ quantity: 2 }, { quantity: 3 }]);
+            const { deliveryNote } = await issueDeliveryNote(db, {
+                salesOrderId: order.id,
+                deliveryDate: new Date(),
+                userId: testData.users.admin.id,
+            });
+            expect((await dcStock()).quantity).toBe(995);
+
+            const result = await cancelDeliveryNote(db, {
+                deliveryNoteId: deliveryNote.id,
+                userId: testData.users.admin.id,
+            });
+
+            expect(result.restoredUnits).toBe(5);
+            const returns = (await db.select().from(stockMovements)).filter(
+                (movement) => movement.reason === 'cancel'
+            );
+            expect(returns).toHaveLength(1);
+            expect(returns[0]).toMatchObject({ delta: 5, quantityAfter: 1000 });
+        });
+
+        it('rolls the cancellation back when the shelf row has disappeared', async () => {
+            const { order, items } = await seedSalesOrder([{ quantity: 4 }]);
+            const { deliveryNote } = await issueDeliveryNote(db, {
+                salesOrderId: order.id,
+                deliveryDate: new Date(),
+                userId: testData.users.admin.id,
+            });
+            await db.delete(inventory).where(isNull(inventory.storeId));
+
+            // The route runs this inside one transaction: a refused restock must not leave the
+            // note cancelled with its units still missing from the shelf.
+            await expect(
+                db.transaction((tx) =>
+                    cancelDeliveryNote(tx, {
+                        deliveryNoteId: deliveryNote.id,
+                        userId: testData.users.admin.id,
+                    })
+                )
+            ).rejects.toBeInstanceOf(SalesOrderStockError);
+
+            const [stored] = await db
+                .select()
+                .from(deliveryNotes)
+                .where(eq(deliveryNotes.id, deliveryNote.id));
+            expect(stored.status).toBe('issued');
+            expect(stored.cancelledAt).toBeNull();
+
+            const [line] = await db
+                .select()
+                .from(salesOrderItems)
+                .where(eq(salesOrderItems.id, items[0].id));
+            expect(line.deliveredQuantity).toBe(4);
+        });
+
+        it('404s for a note that does not exist', async () => {
+            await expect(
+                cancelDeliveryNote(db, {
+                    deliveryNoteId: 999999,
+                    userId: testData.users.admin.id,
+                })
+            ).rejects.toBeInstanceOf(SalesOrderError);
+        });
+    });
+
+    /**
+     * The buyer tax code is Customer Master data. The route resolves it from the profile inside
+     * the order transaction, so a stale tab (or a hand-written request) cannot store a code the
+     * customer master does not have. Walk-in orders have no profile and keep what was typed.
+     */
+    describe('resolveCustomerTaxId', () => {
+        async function seedCustomer(taxId: string) {
+            const [profile] = await db
+                .insert(customerProfiles)
+                .values({
+                    mobileNumber: '0900000001',
+                    companyName: 'Pet Shop A',
+                    contactPerson: 'Ms Lan',
+                    email: 'lan@petshopa.example',
+                    address: '99 Le Loi',
+                    taxId,
+                    customerType: 'B2B',
+                })
+                .returning();
+            return profile;
+        }
+
+        it('uses the customer master code even when the request sends another', async () => {
+            const profile = await seedCustomer('0319999999');
+
+            await expect(resolveCustomerTaxId(db, profile.id, '0310000000')).resolves.toBe(
+                '0319999999'
+            );
+        });
+
+        it('keeps the submitted code for a walk-in with no profile', async () => {
+            await expect(resolveCustomerTaxId(db, null, '0310000000')).resolves.toBe('0310000000');
+        });
+
+        it('keeps the submitted code when the profile no longer exists', async () => {
+            await expect(resolveCustomerTaxId(db, 999999, '0310000000')).resolves.toBe(
+                '0310000000'
+            );
+        });
     });
 });

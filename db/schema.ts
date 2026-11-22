@@ -332,6 +332,17 @@ export const salesOrders = pgTable("sales_orders", {
   customerTaxId: varchar("customer_tax_id", { length: 50 }),
   phone: varchar("phone", { length: 20 }),
   deliveryAddress: text("delivery_address"),
+  // Which location the goods leave from - the inventory row its delivery notes are taken off.
+  //
+  // AI Agent Note: this is the sales-order counterpart of `purchase_orders.destination_store_id`
+  // and it uses the same convention: NULL = the Distribution Centre (`inventory.store_id IS NULL`,
+  // `inventory_type = 'DC'`), a value = that store's own row. Without it the order had no way to
+  // say which shelf the units came off, so its stock could never move (see
+  // server/sales-order-stock.ts). Saving the order only CHECKS that the location can cover it;
+  // the units leave the ledger when a delivery note is issued, because that is the document that
+  // says what actually left the warehouse (and it supports partial deliveries). Each delivery
+  // note copies this value onto `delivery_notes.store_id`.
+  storeId: integer("store_id").references(() => stores.id),
   // Which licensed company (CI / HI) issues this order's paperwork. NULL = no VAT.
   //
   // AI Agent Note: the company name / tax code / address are copied onto the order at save
@@ -403,6 +414,14 @@ export const deliveryNotes = pgTable("delivery_notes", {
   contactPerson: text("contact_person"),
   phone: varchar("phone", { length: 20 }),
   deliveryAddress: text("delivery_address"),
+  // Snapshot of `sales_orders.store_id` at the moment the note was issued: the location the
+  // units were taken off. NULL = the Distribution Centre.
+  //
+  // AI Agent Note: this is also the inventory row the note deducts (see
+  // server/sales-order-stock.ts). It is copied, not joined, for the same reason as every other
+  // snapshot on this document - moving the order to another warehouse later must not rewrite
+  // where a signed note says the goods came from.
+  storeId: integer("store_id").references(() => stores.id),
   // The VAT company block, copied from the order when the note is issued. A reprint must
   // keep the letterhead the customer signed, even if the order is later edited or the
   // company's details are corrected. NULL = the order had no VAT company.
@@ -427,6 +446,12 @@ export const deliveryNotes = pgTable("delivery_notes", {
   ),
   remarks: text("remarks"),
   status: varchar("status", { length: 20 }).notNull().default('issued'), // 'issued' | 'cancelled'
+  // Cancelling a note never deletes anything: the goods issue it recorded is stamped cancelled,
+  // its units are put back on the shelf by a RETURN stock movement, and the operator + reason
+  // are kept for the audit trail (same shape as `invoices`).
+  cancelledAt: timestamp("cancelled_at"),
+  cancelledByUserId: integer("cancelled_by_user_id").references(() => users.id),
+  cancelReason: text("cancel_reason"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -1207,6 +1232,11 @@ export const transferHistoryRelations = relations(transferHistory, ({ one }) => 
 export const salesOrdersRelations = relations(salesOrders, ({ many, one }) => ({
   items: many(salesOrderItems),
   deliveryNotes: many(deliveryNotes),
+  // The location the goods leave from; null = the Distribution Centre.
+  store: one(stores, {
+    fields: [salesOrders.storeId],
+    references: [stores.id],
+  }),
   customerProfile: one(customerProfiles, {
     fields: [salesOrders.customerProfileId],
     references: [customerProfiles.id],
@@ -1240,6 +1270,16 @@ export const deliveryNotesRelations = relations(deliveryNotes, ({ many, one }) =
   deliveredByUser: one(users, {
     fields: [deliveryNotes.deliveredByUserId],
     references: [users.id],
+  }),
+  // Who cancelled the note; null until a cancellation happens.
+  cancelledByUser: one(users, {
+    fields: [deliveryNotes.cancelledByUserId],
+    references: [users.id],
+  }),
+  // The location the goods left from; null = the Distribution Centre.
+  store: one(stores, {
+    fields: [deliveryNotes.storeId],
+    references: [stores.id],
   }),
 }));
 
@@ -1618,7 +1658,8 @@ export const stockMovements = pgTable("stock_movements", {
     .default("MANUAL_ADJUSTMENT"),
   // 'sale' | 'refund' | 'cancel' | 'transfer_in' | 'transfer_out' | 'po_receipt' | 'adjustment'
   reason: varchar("reason", { length: 24 }).notNull(),
-  // The document that caused it: ('sales_transaction', 42), ('purchase_order', 7), ...
+  // The document that caused it: ('sales_transaction', 42), ('purchase_order', 7),
+  // ('delivery_note', 9) for a sales-order shipment, ...
   refType: varchar("ref_type", { length: 40 }),
   refId: integer("ref_id"),
   // The retained upload behind a bulk import, when this movement came from one.

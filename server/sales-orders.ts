@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import {
+  customerProfiles,
   deliveryNoteItems,
   deliveryNotes,
   products,
@@ -13,6 +14,7 @@ import {
 } from "../shared/sales-order-prices";
 import type { DbClient } from "./db-types";
 import { generateDeliveryNoteNumber } from "./numbering";
+import { issueDeliveryNoteStock, restoreDeliveryNoteStock } from "./sales-order-stock";
 
 /**
  * Sales orders and the delivery notes that ship them.
@@ -318,6 +320,9 @@ export async function issueDeliveryNote(
       contactPerson: order.contactPerson,
       phone: order.phone,
       deliveryAddress: order.deliveryAddress,
+      // Snapshot of where the units come off. The note is the goods issue, so this is the
+      // inventory row deducted below - a later move of the order must not rewrite it.
+      storeId: order.storeId,
       // The order decided which company issues the paperwork; the note carries the same
       // snapshot so a reprint keeps the letterhead that was on the signed sheet.
       vatCompanyId: order.vatCompanyId,
@@ -356,6 +361,21 @@ export async function issueDeliveryNote(
       })
       .where(eq(salesOrderItems.id, line.item.id));
   }
+
+  // The goods issue: the units leave `delivery_notes.store_id`'s inventory row here, with a
+  // `SALES_ORDER` movement pointing at this note. It runs in the same transaction as everything
+  // above, so a note that cannot be covered by the shelf never reaches the customer.
+  await issueDeliveryNoteStock(executor, {
+    deliveryNoteId: deliveryNote.id,
+    salesOrderNumber: order.orderNumber,
+    storeId: deliveryNote.storeId,
+    lines: resolvedLines.map((line) => ({
+      productId: line.item.productId,
+      productCode: line.item.productCode,
+      quantity: line.deliveredQuantity,
+    })),
+    userId: input.userId,
+  });
 
   const status = await recalculateSalesOrderStatus(executor, order.id);
 
@@ -433,6 +453,190 @@ export async function attachSignedDocument(
   return updated;
 }
 
+export interface CancelDeliveryNoteInput {
+  deliveryNoteId: number;
+  /** Who cancelled it - kept on the note and on the stock movement. */
+  userId: number;
+  reason?: string | null;
+}
+
+export interface CancelDeliveryNoteResult {
+  deliveryNote: typeof deliveryNotes.$inferSelect;
+  orderStatus: SalesOrderStatus;
+  /** Units put back on the shelf; 0 when the note was already cancelled. */
+  restoredUnits: number;
+}
+
+/**
+ * Cancel a delivery note and put its units back on the shelf.
+ *
+ * Cancelling is the reverse of issuing, never a delete: the note keeps its number and lines
+ * (the customer may still hold the paper), its status becomes `cancelled`, and the units it
+ * took off come back through a `cancel` / `RETURN` stock movement on the location it shipped
+ * from. The order's line tallies are decremented and the status re-derived, so a fully
+ * cancelled shipment makes the order deliverable - and cancellable - again.
+ *
+ * Refused once the goods are real: a note the customer signed (`signedDocumentUrl` or
+ * `customerConfirmed`) or an order carrying a VAT invoice must be handled as a return /
+ * credit note instead, because neither the customer's proof of delivery nor the tax document
+ * can be undone by a status flip.
+ *
+ * Idempotent: a note that is already cancelled is returned untouched, so a double click never
+ * restocks twice. The status flip is conditional for the same reason.
+ */
+export async function cancelDeliveryNote(
+  executor: DbClient,
+  input: CancelDeliveryNoteInput
+): Promise<CancelDeliveryNoteResult> {
+  const note = await executor.query.deliveryNotes.findFirst({
+    where: eq(deliveryNotes.id, input.deliveryNoteId),
+  });
+
+  if (!note) {
+    throw new SalesOrderError(
+      `Delivery note ${input.deliveryNoteId} was not found`,
+      404,
+      "Refresh the list and try again."
+    );
+  }
+
+  const order = await executor.query.salesOrders.findFirst({
+    where: eq(salesOrders.id, note.salesOrderId),
+    columns: {
+      id: true,
+      orderNumber: true,
+      status: true,
+      vatInvoiceNumber: true,
+    },
+  });
+
+  if (!order) {
+    throw new SalesOrderError(
+      `Sales order ${note.salesOrderId} was not found`,
+      404,
+      "Refresh the list and try again."
+    );
+  }
+
+  if (note.status === "cancelled") {
+    return {
+      deliveryNote: note,
+      orderStatus: order.status as SalesOrderStatus,
+      restoredUnits: 0,
+    };
+  }
+
+  if (order.status === "cancelled") {
+    throw new SalesOrderError(
+      `Sales order ${order.orderNumber} is cancelled`,
+      409,
+      "Refresh the list - this note belongs to a cancelled order."
+    );
+  }
+
+  if (note.signedDocumentUrl || note.customerConfirmed) {
+    throw new SalesOrderError(
+      `Delivery note ${note.deliveryNoteNumber} is signed by the customer and cannot be cancelled`,
+      409,
+      "The goods were received. Record this as a return so the stock and the paperwork agree."
+    );
+  }
+
+  if (order.vatInvoiceNumber) {
+    throw new SalesOrderError(
+      `Sales order ${order.orderNumber} carries VAT invoice ${order.vatInvoiceNumber}`,
+      409,
+      "A tax invoice was already issued for these goods. Raise a return / credit note instead."
+    );
+  }
+
+  // The lines are joined back to the order for the product id: the note stores the code and
+  // description the customer saw, but the shelf is addressed by product.
+  const lines = await executor
+    .select({
+      salesOrderItemId: deliveryNoteItems.salesOrderItemId,
+      productId: salesOrderItems.productId,
+      productCode: salesOrderItems.productCode,
+      quantity: deliveryNoteItems.deliveredQuantity,
+    })
+    .from(deliveryNoteItems)
+    .innerJoin(salesOrderItems, eq(deliveryNoteItems.salesOrderItemId, salesOrderItems.id))
+    .where(eq(deliveryNoteItems.deliveryNoteId, note.id));
+
+  const reason = input.reason?.trim() ? input.reason.trim() : null;
+  const now = new Date();
+
+  // Conditional flip: two operators clicking Cancel at the same moment must not both restock.
+  const [cancelledNote] = await executor
+    .update(deliveryNotes)
+    .set({
+      status: "cancelled",
+      cancelledAt: now,
+      cancelledByUserId: input.userId,
+      cancelReason: reason,
+      updatedAt: now,
+    })
+    .where(and(eq(deliveryNotes.id, note.id), eq(deliveryNotes.status, "issued")))
+    .returning();
+
+  if (!cancelledNote) {
+    // Lost the race - the other cancellation already restored the stock.
+    const [current] = await executor
+      .select()
+      .from(deliveryNotes)
+      .where(eq(deliveryNotes.id, note.id));
+    const [currentOrder] = await executor
+      .select({ status: salesOrders.status })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, note.salesOrderId));
+
+    return {
+      deliveryNote: current ?? note,
+      orderStatus: (currentOrder?.status ?? order.status) as SalesOrderStatus,
+      restoredUnits: 0,
+    };
+  }
+
+  const restoredUnits = await restoreDeliveryNoteStock(executor, {
+    deliveryNoteId: note.id,
+    deliveryNoteNumber: note.deliveryNoteNumber,
+    salesOrderNumber: order.orderNumber,
+    storeId: note.storeId,
+    lines: lines.map((line) => ({
+      productId: line.productId,
+      productCode: line.productCode,
+      quantity: line.quantity,
+    })),
+    userId: input.userId,
+    reason,
+  });
+
+  for (const line of lines) {
+    await executor
+      .update(salesOrderItems)
+      .set({
+        // Clamped: the tally must never go negative if a note somehow carried more than the
+        // line still shows as delivered.
+        deliveredQuantity: sql`greatest(${salesOrderItems.deliveredQuantity} - ${line.quantity}, 0)`,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(salesOrderItems.id, line.salesOrderItemId),
+          eq(salesOrderItems.salesOrderId, note.salesOrderId)
+        )
+      );
+  }
+
+  const orderStatus = await recalculateSalesOrderStatus(executor, note.salesOrderId);
+
+  return {
+    deliveryNote: cancelledNote,
+    orderStatus,
+    restoredUnits,
+  };
+}
+
 /**
  * One-off repair for orders that were closed before signatures were required.
  *
@@ -490,6 +694,30 @@ export interface ResolvedOrderLine {
   quantity: number;
   unitPrice: string;
   totalPrice: string;
+}
+
+/**
+ * The buyer tax code belongs to Customer Master.
+ *
+ * When the order names a saved customer, the profile's current `tax_id` is the authority: a
+ * stale tab (or a hand-written request) must not be able to put a different code onto the
+ * order. Orders without a profile (walk-ins / legacy rows) keep the value the form sent. The
+ * code is still snapshotted onto the order so an issued document never changes afterwards.
+ */
+export async function resolveCustomerTaxId(
+  executor: DbClient,
+  customerProfileId: number | null | undefined,
+  submittedTaxId: string | null
+): Promise<string | null> {
+  if (!customerProfileId) return submittedTaxId;
+
+  const [profile] = await executor
+    .select({ taxId: customerProfiles.taxId })
+    .from(customerProfiles)
+    .where(eq(customerProfiles.id, customerProfileId))
+    .limit(1);
+
+  return profile ? profile.taxId ?? null : submittedTaxId;
 }
 
 /**
