@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@db";
 import { vatCompanies } from "@db/schema";
 import { asc, eq } from "drizzle-orm";
-import { requireAuth, requirePermission } from "../middleware";
+import { requireAnyPermission, requirePermission } from "../middleware";
 import { validateBody, validateParams, idParamSchema } from "../validate";
 import { initializeVatCompanyCounter } from "../invoice-counter";
 import { vatCompanyMissingFields } from "../invoice-documents";
@@ -27,8 +27,9 @@ import { MAX_VAT_RATE, VAT_RATE } from "../../shared/tax";
  * stores the rate on `sales_transactions.vat_rate`, and a sales order snapshots it onto
  * `sales_orders.vat_rate` when it is saved, so an issued invoice keeps the rate it was issued at.
  *
- * GET is open to any signed-in user because the sales-order form has to render the choice;
- * writes need `masterData` create/update, exactly like every other master-data screen.
+ * GET needs `vatCompanies.read` OR `orders.read`: this screen reads the list, and so does the
+ * sales-order form when it renders the choice of issuer. Writes need `vatCompanies` create/update -
+ * a role can be given Suppliers and Brands without the companies that issue VAT invoices.
  */
 
 export const vatCompanyBodySchema = z.object({
@@ -120,28 +121,36 @@ export async function ensureVatCompanySeeds(): Promise<void> {
 }
 
 export function registerVatCompanyRoutes(app: Express) {
-  app.get("/api/vat-companies", requireAuth, async (_req, res) => {
-    try {
-      const rows = await db.query.vatCompanies.findMany({
-        orderBy: [asc(vatCompanies.code)],
-      });
-      res.json({ companies: rows.map(serialise) });
-    } catch (error) {
-      if (isMissingTable(error)) {
-        console.error("vat_companies table is missing - run `npm run db:push`:", error);
-        return res.status(500).json({
-          message: MISSING_TABLE_MESSAGE,
-          suggestion: "Run npm run db:push against this database, then reload the page.",
+  app.get(
+    "/api/vat-companies",
+    // The list feeds two screens: this one (`vatCompanies`) and the sales-order form (`orders`).
+    requireAnyPermission(
+      { module: "vatCompanies", action: "read" },
+      { module: "orders", action: "read" }
+    ),
+    async (_req, res) => {
+      try {
+        const rows = await db.query.vatCompanies.findMany({
+          orderBy: [asc(vatCompanies.code)],
         });
+        res.json({ companies: rows.map(serialise) });
+      } catch (error) {
+        if (isMissingTable(error)) {
+          console.error("vat_companies table is missing - run `npm run db:push`:", error);
+          return res.status(500).json({
+            message: MISSING_TABLE_MESSAGE,
+            suggestion: "Run npm run db:push against this database, then reload the page.",
+          });
+        }
+        console.error("Error fetching VAT companies:", error);
+        res.status(500).json({ message: "Failed to fetch VAT companies" });
       }
-      console.error("Error fetching VAT companies:", error);
-      res.status(500).json({ message: "Failed to fetch VAT companies" });
     }
-  });
+  );
 
   app.post(
     "/api/vat-companies",
-    requirePermission("masterData", "create"),
+    requirePermission("vatCompanies", "create"),
     validateBody(vatCompanyBodySchema, "Provide the company code, name, tax code and address"),
     async (req, res) => {
       try {
@@ -186,7 +195,7 @@ export function registerVatCompanyRoutes(app: Express) {
 
   app.put(
     "/api/vat-companies/:id",
-    requirePermission("masterData", "update"),
+    requirePermission("vatCompanies", "update"),
     validateParams(idParamSchema),
     validateBody(vatCompanyUpdateSchema, "Provide the fields to update"),
     async (req, res) => {

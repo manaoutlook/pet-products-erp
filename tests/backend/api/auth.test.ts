@@ -87,6 +87,7 @@ describe('Authentication API Tests', () => {
             expect(role?.permissions).toHaveProperty('users');
             expect(role?.permissions).toHaveProperty('stores');
             expect(role?.permissions).toHaveProperty('masterData');
+            expect(role?.permissions).toHaveProperty('companyProfile');
             expect(role?.permissions).toHaveProperty('pos');
             expect(role?.permissions).toHaveProperty('receipts');
         });

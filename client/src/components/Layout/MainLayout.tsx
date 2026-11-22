@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import Sidebar from "./Sidebar";
 import { CompanyHeader } from "@/components/company/CompanyHeader";
 import { useCompanyInfo } from "@/hooks/use-company";
+import { usePermissions } from "@/hooks/use-permissions";
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -17,6 +18,7 @@ interface MainLayoutProps {
  */
 function MainLayout({ children }: MainLayoutProps) {
   const { company, isLoading, isError, error } = useCompanyInfo();
+  const { hasPermission } = usePermissions();
   const [location] = useLocation();
   // Query-string changes are filters on the same screen, not navigation, so only
   // the pathname should move the viewport back to the top.
@@ -40,7 +42,14 @@ function MainLayout({ children }: MainLayoutProps) {
     <div className="min-h-screen flex bg-background text-foreground">
       <Sidebar />
       <main ref={mainRef} className="flex-1 overflow-y-auto bg-background">
-        <CompanyHeader company={company} isLoading={isLoading} loadError={isError ? error : null} />
+        <CompanyHeader
+          company={company}
+          isLoading={isLoading}
+          loadError={isError ? error : null}
+          // The band is shown to everyone, but the "complete the profile" link only leads
+          // somewhere for a role that may actually open the Company Profile screen.
+          editable={hasPermission("companyProfile", "read")}
+        />
         {children}
       </main>
     </div>

@@ -61,10 +61,13 @@ import {
 type NavModule =
   | 'products'
   | 'orders'
+  | 'vatMargin'
   | 'inventory'
   | 'users'
   | 'stores'
   | 'masterData'
+  | 'vatCompanies'
+  | 'companyProfile'
   | 'pos'
   | 'receipts'
   | 'finance'
@@ -172,11 +175,15 @@ const navigationSections: NavSection[] = [
     collapsible: true,
     defaultExpanded: false,
     items: [
-      { name: "Company Profile", href: "/company-profile", icon: Landmark, module: 'masterData', action: 'read' },
-      { name: "VAT Companies", href: "/vat-companies", icon: ReceiptText, module: 'masterData', action: 'read' },
-      // The profit split agreed with the VAT company that issued an invoice - an orders screen,
-      // because it reads the order's lines and the products behind them.
-      { name: "VAT Margin Calculator", href: "/vat-margin", icon: Calculator, module: 'orders', action: 'read' },
+      // The letterhead every screen shows and every document prints. Readable by all, but
+      // editing it has its own grant - master data access no longer implies it.
+      { name: "Company Profile", href: "/company-profile", icon: Landmark, module: 'companyProfile', action: 'read' },
+      // The legal entities that print on a VAT invoice. Master data, but with its own grant:
+      // Suppliers and Brands can be handed out without the invoice issuers.
+      { name: "VAT Companies", href: "/vat-companies", icon: ReceiptText, module: 'vatCompanies', action: 'read' },
+      // The profit split agreed with the VAT company that issued an invoice. It reads the order's
+      // lines, but the split is partner-only information - hence its own `vatMargin` module.
+      { name: "VAT Margin Calculator", href: "/vat-margin", icon: Calculator, module: 'vatMargin', action: 'read' },
       { name: "Users", href: "/users", icon: Users, module: 'users', action: 'read' },
       { name: "Roles", href: "/roles", icon: ShieldCheck, adminOnly: true },
       { name: "Permissions", href: "/role-permissions", icon: Lock, adminOnly: true },

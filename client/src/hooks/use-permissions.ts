@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import {
+  isAdminRole,
   roleCan,
   type PermissionAction,
   type RolePermissions,
@@ -15,10 +16,16 @@ interface Permission {
 interface Permissions {
   products: Permission;
   orders: Permission;
+  /** The VAT Margin Calculator - granted separately from `orders` on purpose. */
+  vatMargin: Permission;
   inventory: Permission;
   users: Permission;
   stores: Permission;
   masterData: Permission;
+  /** The VAT Companies screen - master data, but granted independently of the rest. */
+  vatCompanies: Permission;
+  /** The Company Profile screen (the letterhead) - readable by all, editable by grant. */
+  companyProfile: Permission;
   pos: Permission;
   receipts: Permission;
   finance: Permission;
@@ -70,7 +77,7 @@ export function usePermissions() {
     hasPermission,
     getModulePermissions,
     getAllowedModules,
-    isAdmin: user?.role?.name === 'admin' || user?.role?.isSystemAdmin === true,
+    isAdmin: isAdminRole(user?.role),
     role: user?.role,
     /** True while the session/role is still being fetched. */
     isLoading,

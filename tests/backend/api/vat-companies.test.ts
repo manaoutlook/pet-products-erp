@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import type { Express } from 'express';
 import { db } from '../../../db';
 import { invoiceCounters, vatCompanies } from '../../../db/schema';
@@ -11,6 +11,7 @@ import {
 import { initializeVatCompanyCounter } from '../../../server/invoice-counter';
 import { VAT_COMPANY_SEEDS } from '../../../shared/invoice';
 import { cleanDatabase, resetSequences, resetTestDatabase } from '../../helpers/test-db';
+import { makeRes, recordRoutes as harnessRecordRoutes } from '../../helpers/route-harness';
 
 /**
  * VAT companies - the two legal entities a VAT invoice may be issued under.
@@ -196,5 +197,122 @@ describe('VAT company routes', () => {
       expect(registration?.handlers.length).toBeGreaterThanOrEqual(3);
       expect(typeof registration?.handlers[registration.handlers.length - 1]).toBe('function');
     }
+  });
+});
+
+describe('VAT company permissions', () => {
+  type Method = 'GET' | 'POST' | 'PUT';
+
+  /** The first handler express would run - the permission middleware. */
+  const permissionMiddleware = (method: Method, path: string) => {
+    const entry = harnessRecordRoutes(registerVatCompanyRoutes).find(
+      (candidate) => candidate.method === method && candidate.path === path,
+    );
+    if (!entry) throw new Error(`route not registered: ${method} ${path}`);
+    return entry.handlers[0] as unknown as (
+      req: unknown,
+      res: unknown,
+      next: (error?: unknown) => void,
+    ) => Promise<unknown>;
+  };
+
+  /** A signed-in staff user; staff roles get exactly what their permission JSON grants. */
+  const staffRequest = (permissions: Record<string, unknown>) =>
+    ({
+      isAuthenticated: () => true,
+      user: {
+        id: 1,
+        username: 'cashier',
+        role: { name: 'cashier', hierarchyLevel: 'staff', permissions },
+      },
+    }) as never;
+
+  const ordersOnly = { orders: { create: true, read: true, update: true, delete: false } };
+  const masterDataOnly = {
+    masterData: { create: true, read: true, update: true, delete: false },
+  };
+
+  it('lets a sales-order role read the list, because the order form renders the issuer', async () => {
+    const res = makeRes();
+    const next = vi.fn();
+
+    await permissionMiddleware('GET', '/api/vat-companies')(staffRequest(ordersOnly), res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('opens the list to a role granted vatCompanies.read', async () => {
+    const res = makeRes();
+    const next = vi.fn();
+
+    await permissionMiddleware('GET', '/api/vat-companies')(
+      staffRequest({ vatCompanies: { read: true } }),
+      res,
+      next,
+    );
+
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses the list to a role with neither VAT Companies nor Orders access', async () => {
+    const res = makeRes();
+    const next = vi.fn();
+
+    await permissionMiddleware('GET', '/api/vat-companies')(
+      staffRequest({ products: { read: true } }),
+      res,
+      next,
+    );
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
+    expect((res.body as { message: string }).message).toContain(
+      'vatCompanies read or orders read',
+    );
+  });
+
+  it('gates adding a company on vatCompanies.create, not masterData.create', async () => {
+    const deniedRes = makeRes();
+    const deniedNext = vi.fn();
+
+    await permissionMiddleware('POST', '/api/vat-companies')(staffRequest(masterDataOnly), deniedRes, deniedNext);
+
+    expect(deniedNext).not.toHaveBeenCalled();
+    expect(deniedRes.statusCode).toBe(403);
+    expect((deniedRes.body as { message: string }).message).toContain('vatCompanies create');
+
+    const allowedRes = makeRes();
+    const allowedNext = vi.fn();
+
+    await permissionMiddleware('POST', '/api/vat-companies')(
+      staffRequest({ vatCompanies: { create: true } }),
+      allowedRes,
+      allowedNext,
+    );
+
+    expect(allowedNext).toHaveBeenCalledTimes(1);
+  });
+
+  it('gates editing a company on vatCompanies.update, not masterData.update', async () => {
+    const deniedRes = makeRes();
+    const deniedNext = vi.fn();
+
+    await permissionMiddleware('PUT', '/api/vat-companies/:id')(staffRequest(masterDataOnly), deniedRes, deniedNext);
+
+    expect(deniedNext).not.toHaveBeenCalled();
+    expect(deniedRes.statusCode).toBe(403);
+    expect((deniedRes.body as { message: string }).message).toContain('vatCompanies update');
+
+    const allowedRes = makeRes();
+    const allowedNext = vi.fn();
+
+    await permissionMiddleware('PUT', '/api/vat-companies/:id')(
+      staffRequest({ vatCompanies: { update: true } }),
+      allowedRes,
+      allowedNext,
+    );
+
+    expect(allowedNext).toHaveBeenCalledTimes(1);
   });
 });

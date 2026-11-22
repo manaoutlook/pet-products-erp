@@ -15,6 +15,12 @@ import { CompanyError, getCompanyInfo, saveCompany } from "../company";
  * GET  /api/company  - the one row plus whether it is complete enough to print
  * PUT  /api/company  - create or update that row (never a second row)
  *
+ * The GET stays open to any signed-in user on purpose: the band it feeds is rendered at the top
+ * of every screen and every printed document, including the screens a role opens without the
+ * Company Profile module (a cashier's POS). It is the shop's own letterhead, not per-role data -
+ * what is gated is the screen and the write: PUT needs `companyProfile.update`, and the client
+ * only renders the form/route for `companyProfile.read`.
+ *
  * The GET reports incompleteness as data (`valid: false` + `missingFields`) rather than
  * as an error, because the screen header and the Company Profile form both have to
  * render on a database that has no letterhead yet. Only a document refuses to print -
@@ -88,7 +94,9 @@ export function registerCompanyRoutes(app: Express) {
 
   app.put(
     "/api/company",
-    requirePermission("masterData", "update"),
+    // Own module: master data access no longer lets a role rewrite the letterhead that every
+    // printed document carries.
+    requirePermission("companyProfile", "update"),
     validateBody(
       companyBodySchema,
       "Provide the company name, registered address, delivery address and tax ID"

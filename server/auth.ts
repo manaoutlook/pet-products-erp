@@ -113,10 +113,13 @@ export async function setupAdmin() {
         permissions: {
           products: { create: true, read: true, update: true, delete: true },
           orders: { create: true, read: true, update: true, delete: true },
+          vatMargin: { create: true, read: true, update: true, delete: true },
           inventory: { create: true, read: true, update: true, delete: true },
           users: { create: true, read: true, update: true, delete: true },
           stores: { create: true, read: true, update: true, delete: true },
           masterData: { create: true, read: true, update: true, delete: true },
+          companyProfile: { create: true, read: true, update: true, delete: true },
+          vatCompanies: { create: true, read: true, update: true, delete: true },
           pos: { create: true, read: true, update: true, delete: true },
           receipts: { create: true, read: true, update: true, delete: true },
           finance: { create: true, read: true, update: true, delete: true },

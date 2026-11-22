@@ -26,6 +26,12 @@ vi.mock('@/hooks/use-company', () => ({
     useCompanyInfo: () => ({ company: null, isLoading: false, isError: false, error: null }),
 }));
 
+// The layout asks whether the role may open the Company Profile screen (for the header's
+// "complete the profile" link); the scroll behaviour here does not depend on the answer.
+vi.mock('@/hooks/use-permissions', () => ({
+    usePermissions: () => ({ hasPermission: () => true }),
+}));
+
 describe('MainLayout scroll restoration', () => {
     afterEach(() => {
         vi.restoreAllMocks();

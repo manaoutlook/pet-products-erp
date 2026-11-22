@@ -102,7 +102,7 @@ describe('Sidebar', () => {
         locationState.value = '/';
         installMemoryStorage();
         mockRole({
-            allowed: ['products', 'orders', 'inventory', 'users', 'stores', 'masterData', 'pos', 'receipts', 'finance', 'customerProfiles'],
+            allowed: ['products', 'orders', 'vatMargin', 'inventory', 'users', 'stores', 'masterData', 'vatCompanies', 'companyProfile', 'pos', 'receipts', 'finance', 'customerProfiles'],
             isAdmin: true,
         });
     });
@@ -155,7 +155,7 @@ describe('Sidebar sections', () => {
         locationState.value = '/';
         installMemoryStorage();
         mockRole({
-            allowed: ['products', 'orders', 'inventory', 'users', 'stores', 'masterData', 'pos', 'receipts', 'finance', 'customerProfiles'],
+            allowed: ['products', 'orders', 'vatMargin', 'inventory', 'users', 'stores', 'masterData', 'vatCompanies', 'companyProfile', 'pos', 'receipts', 'finance', 'customerProfiles'],
             isAdmin: true,
         });
     });
@@ -306,5 +306,72 @@ describe('Sidebar permissions and active state', () => {
         expect(screen.getByRole('link', { name: 'Point of Sale' })).toHaveAttribute('aria-current', 'page');
         // "/" is a prefix of every path - it must only light up on the dashboard itself.
         expect(screen.getByRole('link', { name: 'Dashboard' })).not.toHaveAttribute('aria-current');
+    });
+
+    it('offers the VAT Margin Calculator only when its own module is granted', async () => {
+        const user = userEvent.setup();
+
+        // Orders access alone used to be enough - the profit split is partner-only, so it is not.
+        // Users is granted too so the Administration section itself still renders.
+        mockRole({ allowed: ['orders', 'users'] });
+        const { unmount } = render(<Sidebar />);
+        await user.click(screen.getByRole('button', { name: 'Administration' }));
+        expect(screen.queryByRole('link', { name: 'VAT Margin Calculator' })).not.toBeInTheDocument();
+
+        unmount();
+
+        // The first click remembered "Administration open"; start from the default fold again.
+        window.localStorage.clear();
+        mockRole({ allowed: ['vatMargin', 'users'] });
+        render(<Sidebar />);
+        await user.click(screen.getByRole('button', { name: 'Administration' }));
+        expect(screen.getByRole('link', { name: 'VAT Margin Calculator' })).toHaveAttribute(
+            'href',
+            '/vat-margin'
+        );
+    });
+
+    it('offers VAT Companies only when its own module is granted, not with Master Data alone', async () => {
+        const user = userEvent.setup();
+
+        // Suppliers and Brands (masterData) no longer imply the companies that issue VAT invoices.
+        // Users is granted too so the Administration section itself still renders.
+        mockRole({ allowed: ['masterData', 'users'] });
+        const { unmount } = render(<Sidebar />);
+        await user.click(screen.getByRole('button', { name: 'Administration' }));
+        expect(screen.queryByRole('link', { name: 'VAT Companies' })).not.toBeInTheDocument();
+
+        unmount();
+
+        window.localStorage.clear();
+        mockRole({ allowed: ['vatCompanies', 'users'] });
+        render(<Sidebar />);
+        await user.click(screen.getByRole('button', { name: 'Administration' }));
+        expect(screen.getByRole('link', { name: 'VAT Companies' })).toHaveAttribute(
+            'href',
+            '/vat-companies'
+        );
+    });
+
+    it('offers Company Profile only when its own module is granted, not with Master Data alone', async () => {
+        const user = userEvent.setup();
+
+        // Suppliers and Brands (masterData) no longer imply the letterhead screen. Users is
+        // granted too so the Administration section itself still renders.
+        mockRole({ allowed: ['masterData', 'users'] });
+        const { unmount } = render(<Sidebar />);
+        await user.click(screen.getByRole('button', { name: 'Administration' }));
+        expect(screen.queryByRole('link', { name: 'Company Profile' })).not.toBeInTheDocument();
+
+        unmount();
+
+        window.localStorage.clear();
+        mockRole({ allowed: ['companyProfile', 'users'] });
+        render(<Sidebar />);
+        await user.click(screen.getByRole('button', { name: 'Administration' }));
+        expect(screen.getByRole('link', { name: 'Company Profile' })).toHaveAttribute(
+            'href',
+            '/company-profile'
+        );
     });
 });

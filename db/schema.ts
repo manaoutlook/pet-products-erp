@@ -10,10 +10,20 @@ import { normalizeTaxCode, TAX_CODE_PATTERN } from "../shared/tax-code";
 type Permissions = {
   products: { create: boolean; read: boolean; update: boolean; delete: boolean };
   orders: { create: boolean; read: boolean; update: boolean; delete: boolean };
+  // The VAT Margin Calculator is its own module: the profit split is partner-only information,
+  // so it must not be implied by sales-order access.
+  vatMargin: { create: boolean; read: boolean; update: boolean; delete: boolean };
   inventory: { create: boolean; read: boolean; update: boolean; delete: boolean };
   users: { create: boolean; read: boolean; update: boolean; delete: boolean };
   stores: { create: boolean; read: boolean; update: boolean; delete: boolean };
   masterData: { create: boolean; read: boolean; update: boolean; delete: boolean };
+  // The VAT Companies screen holds the legal entities (and their invoice sequences) that issue
+  // VAT invoices. It is master data, but a role may be given suppliers/brands without it.
+  vatCompanies: { create: boolean; read: boolean; update: boolean; delete: boolean };
+  // The shop's own letterhead (name, addresses, tax ID). It is read by the band at the top of
+  // every screen, but editing it is a separate grant: a store manager may run the catalogue
+  // without being able to change what every printed document says the company is.
+  companyProfile: { create: boolean; read: boolean; update: boolean; delete: boolean };
   pos: { create: boolean; read: boolean; update: boolean; delete: boolean };
   receipts: { create: boolean; read: boolean; update: boolean; delete: boolean };
   finance: { create: boolean; read: boolean; update: boolean; delete: boolean };

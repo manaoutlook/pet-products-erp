@@ -123,21 +123,27 @@ function App() {
             <Route path="/suppliers">
               <RequirePermission module="masterData" action="read"><SuppliersPage /></RequirePermission>
             </Route>
+            {/*
+              Company Profile is its own module: every signed-in user reads the letterhead (it
+              heads every screen and every printed document), but changing it is a separate
+              grant, so Master Data access no longer implies it.
+            */}
             <Route path="/company-profile">
-              <RequirePermission module="masterData" action="read"><CompanyProfilePage /></RequirePermission>
+              <RequirePermission module="companyProfile" action="read"><CompanyProfilePage /></RequirePermission>
             </Route>
             {/*
-              VAT Companies: the two legal entities that may issue a VAT invoice. The household
-              business on the Company Profile cannot, so this screen is the one that holds the
-              seller details printed on a VAT invoice (and their own invoice number sequences).
+              VAT Companies is its own module: the legal entities that may issue a VAT invoice,
+              with their own details and invoice number sequences. Suppliers and Brands can be
+              granted without it, and vice versa.
             */}
             <Route path="/vat-companies">
-              <RequirePermission module="masterData" action="read"><VatCompaniesPage /></RequirePermission>
+              <RequirePermission module="vatCompanies" action="read"><VatCompaniesPage /></RequirePermission>
             </Route>
             {/* VAT Margin Calculator: the profit split agreed with the company that issued the
-                VAT invoice. Reads the order's lines and prices them from the Product module. */}
+                VAT invoice. Reads the order's lines and prices them from the Product module.
+                Its own module, so it can be granted without handing over all of Orders. */}
             <Route path="/vat-margin">
-              <RequirePermission module="orders" action="read"><VatMarginCalculatorPage /></RequirePermission>
+              <RequirePermission module="vatMargin" action="read"><VatMarginCalculatorPage /></RequirePermission>
             </Route>
             <Route path="/customers">
               <RequirePermission module="customerProfiles" action="read"><CustomerProfilesPage /></RequirePermission>

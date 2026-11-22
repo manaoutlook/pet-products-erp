@@ -135,9 +135,12 @@ export const SearchableSelect = React.forwardRef<
                         option.value === value ? "opacity-100" : "opacity-0"
                       )}
                     />
-                    <span className="truncate">{option.label}</span>
+                    {/* The label is the primary text, so it gets two thirds of the row and the
+                        description is squeezed first - a short role name must never collapse to
+                        "a..." because its blurb is long. */}
+                    <span className="min-w-0 flex-[2] truncate">{option.label}</span>
                     {option.description ? (
-                      <span className="ml-auto truncate pl-2 text-xs text-muted-foreground">
+                      <span className="min-w-0 flex-1 truncate pl-2 text-right text-xs text-muted-foreground">
                         {option.description}
                       </span>
                     ) : null}

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import type { Express } from 'express';
 import { db } from '../../../db';
 import { company } from '../../../db/schema';
@@ -12,6 +12,7 @@ import {
 import { registerCompanyRoutes } from '../../../server/routes/company';
 import { COMPANY_FIELDS, COMPANY_SINGLETON_ID } from '../../../shared/company';
 import { cleanDatabase, resetSequences, resetTestDatabase } from '../../helpers/test-db';
+import { makeRes, recordRoutes as harnessRecordRoutes } from '../../helpers/route-harness';
 
 /**
  * The company letterhead.
@@ -141,8 +142,85 @@ describe('company routes', () => {
     it('gates the write behind a permission check and a validator', () => {
         const put = registrations.find((r) => r.method === 'PUT');
 
-        // [requirePermission(masterData, update), validateBody, handler]
+        // [requirePermission(companyProfile, update), validateBody, handler]
         expect(put?.handlers.length).toBeGreaterThanOrEqual(3);
         expect(typeof put?.handlers[put.handlers.length - 1]).toBe('function');
+    });
+});
+
+describe('company letterhead permissions', () => {
+    /** The first handler express would run - the permission middleware. */
+    const permissionMiddleware = () => {
+        const entry = harnessRecordRoutes(registerCompanyRoutes).find(
+            (candidate) => candidate.method === 'PUT' && candidate.path === '/api/company',
+        );
+        if (!entry) throw new Error('route not registered: PUT /api/company');
+        return entry.handlers[0] as unknown as (
+            req: unknown,
+            res: unknown,
+            next: (error?: unknown) => void,
+        ) => Promise<unknown>;
+    };
+
+    /** A signed-in staff user; staff roles get exactly what their permission JSON grants. */
+    const staffRequest = (permissions: Record<string, unknown>) =>
+        ({
+            isAuthenticated: () => true,
+            user: {
+                id: 1,
+                username: 'cashier',
+                role: { name: 'cashier', hierarchyLevel: 'staff', permissions },
+            },
+        }) as never;
+
+    it('keeps the letterhead readable on every screen without the Company Profile module', async () => {
+        // The band renders on the POS and the receipts screen too; gating the read would blank
+        // the letterhead on screens a cashier opens all day.
+        const get = harnessRecordRoutes(registerCompanyRoutes).find(
+            (candidate) => candidate.method === 'GET' && candidate.path === '/api/company',
+        );
+
+        // [requireAuth, handler] - no permission middleware.
+        expect(get?.handlers).toHaveLength(2);
+    });
+
+    it('gates editing the letterhead on companyProfile.update, not masterData.update', async () => {
+        const deniedRes = makeRes();
+        const deniedNext = vi.fn();
+
+        await permissionMiddleware()(
+            staffRequest({ masterData: { create: true, read: true, update: true, delete: true } }),
+            deniedRes,
+            deniedNext,
+        );
+
+        expect(deniedNext).not.toHaveBeenCalled();
+        expect(deniedRes.statusCode).toBe(403);
+        expect((deniedRes.body as { message: string }).message).toContain('companyProfile update');
+
+        const allowedRes = makeRes();
+        const allowedNext = vi.fn();
+
+        await permissionMiddleware()(
+            staffRequest({ companyProfile: { read: true, update: true } }),
+            allowedRes,
+            allowedNext,
+        );
+
+        expect(allowedNext).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses a read-only Company Profile grant', async () => {
+        const res = makeRes();
+        const next = vi.fn();
+
+        await permissionMiddleware()(
+            staffRequest({ companyProfile: { read: true, update: false } }),
+            res,
+            next,
+        );
+
+        expect(next).not.toHaveBeenCalled();
+        expect(res.statusCode).toBe(403);
     });
 });

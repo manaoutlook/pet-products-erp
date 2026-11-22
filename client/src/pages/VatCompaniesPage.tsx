@@ -137,8 +137,8 @@ function VatCompaniesPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [values, setValues] = useState<FormValues>(EMPTY_FORM);
 
-  const canCreate = hasPermission("masterData", "create");
-  const canUpdate = hasPermission("masterData", "update");
+  const canCreate = hasPermission("vatCompanies", "create");
+  const canUpdate = hasPermission("vatCompanies", "update");
 
   const openCreate = () => {
     setEditing(null);

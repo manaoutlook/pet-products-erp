@@ -29,14 +29,31 @@ interface Permission {
 interface Permissions {
   products: Permission;
   orders: Permission;
+  /** The VAT Margin Calculator - its own module, so Orders access never implies it. */
+  vatMargin: Permission;
   inventory: Permission;
   users: Permission;
   stores: Permission;
   masterData: Permission;
+  vatCompanies: Permission;
+  companyProfile: Permission;
   pos: Permission;
   receipts: Permission;
   finance: Permission;
   customerProfiles: Permission;
+}
+
+type ModuleKey = keyof Permissions;
+type PermissionKey = keyof Permission;
+
+interface ModuleDefinition {
+  key: ModuleKey;
+  label: string;
+  /**
+   * Actions the screen actually uses. Most modules use all four; a module that omits
+   * this keeps the full View/Create/Edit/Delete column.
+   */
+  actions?: PermissionKey[];
 }
 
 interface Role {
@@ -129,13 +146,26 @@ function RolePermissionsPage() {
     }
   };
 
-  const modules = [
+  const modules: ModuleDefinition[] = [
     { key: 'products' as const, label: 'Products Module' },
     { key: 'orders' as const, label: 'Orders Module (Purchasing & Sales)' },
+    // View opens the screen and the statement; Edit saves the global margin/income-tax defaults.
+    // There is nothing to create or delete, so the column shows two switches instead of four.
+    { key: 'vatMargin' as const, label: 'VAT Margin Calculator Module', actions: ['read', 'update'] },
     { key: 'inventory' as const, label: 'Inventory Module' },
     { key: 'users' as const, label: 'User Management Module' },
     { key: 'stores' as const, label: 'Store Management Module' },
     { key: 'masterData' as const, label: 'Master Data Module' },
+    // The shop's own letterhead. Every signed-in user can read it - the band at the top of every
+    // screen and every printed document renders it - so View is what opens the edit screen;
+    // Edit is what actually changes it. Nothing is created or deleted (the table holds one row),
+    // so the column shows two switches instead of four.
+    { key: 'companyProfile' as const, label: 'Company Profile Module', actions: ['read', 'update'] },
+    // The legal entities that issue VAT invoices. View opens the screen (the list itself stays
+    // readable to anyone who can open a sales order - its form has to render the choice), Create
+    // adds a company and starts its invoice sequence, Edit changes its details and VAT rate.
+    // Nothing deletes a company, so the column shows three switches instead of four.
+    { key: 'vatCompanies' as const, label: 'VAT Companies Module', actions: ['read', 'create', 'update'] },
     { key: 'pos' as const, label: 'Point of Sales Module' },
     { key: 'receipts' as const, label: 'Receipts Module' },
     { key: 'finance' as const, label: 'Financial Accounts Module' },
@@ -174,8 +204,10 @@ function RolePermissionsPage() {
         <CardHeader>
           <CardTitle>Filters</CardTitle>
         </CardHeader>
-        <CardContent className="flex gap-4">
-          <div className="w-[220px]">
+        <CardContent className="flex flex-wrap gap-4">
+          {/* The role names plus their descriptions need real width: the dropdown list is sized to
+              the trigger, so a narrow trigger truncates the names themselves. */}
+          <div className="w-full sm:w-[400px]">
             <SearchableSelect
               value={selectedRole}
               onChange={(value) => setSelectedRole(value ?? "all")}
@@ -192,7 +224,7 @@ function RolePermissionsPage() {
               emptyMessage="No role found."
             />
           </div>
-          <div className="w-[260px]">
+          <div className="w-full sm:w-[400px]">
             <SearchableSelect
               value={selectedModule}
               onChange={(value) => setSelectedModule(value ?? "all")}
@@ -238,24 +270,31 @@ function RolePermissionsPage() {
                       {role.description && <p className="text-sm text-muted-foreground">{role.description}</p>}
                     </div>
                   </TableCell>
-                  {filteredModules.map(module => (
-                    <TableCell key={module.key}>
-                      <div className="space-y-2">
-                        {permissions.map(permission => (
-                          <div key={permission.key} className="flex items-center justify-between gap-2">
-                            <span className="text-sm">{permission.label}</span>
-                            <Switch
-                              checked={role.name === 'admin' ? true : (role.permissions[module.key]?.[permission.key] ?? false)}
-                              onCheckedChange={(checked) => {
-                                handlePermissionChange(role.id, module.key, permission.key, checked);
-                              }}
-                              disabled={updatePermissionsMutation.isPending}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </TableCell>
-                  ))}
+                  {filteredModules.map(module => {
+                    // Modules that declare their actions hide the switches they do not use.
+                    const moduleActions = module.actions ?? permissions.map(permission => permission.key);
+
+                    return (
+                      <TableCell key={module.key}>
+                        <div className="space-y-2">
+                          {permissions
+                            .filter(permission => moduleActions.includes(permission.key))
+                            .map(permission => (
+                              <div key={permission.key} className="flex items-center justify-between gap-2">
+                                <span className="text-sm">{permission.label}</span>
+                                <Switch
+                                  checked={role.name === 'admin' ? true : (role.permissions[module.key]?.[permission.key] ?? false)}
+                                  onCheckedChange={(checked) => {
+                                    handlePermissionChange(role.id, module.key, permission.key, checked);
+                                  }}
+                                  disabled={updatePermissionsMutation.isPending}
+                                />
+                              </div>
+                            ))}
+                        </div>
+                      </TableCell>
+                    );
+                  })}
                 </TableRow>
               ))}
             </TableBody>

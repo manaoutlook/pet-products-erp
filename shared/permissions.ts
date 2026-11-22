@@ -78,6 +78,16 @@ export function checkHierarchicalPermission(
 }
 
 /**
+ * Is this role an administrator? The one rule the API and the UI share for "may do
+ * anything, everywhere": the named `admin` role or the system-admin flag. Kept here so a
+ * screen that gates a control on it and the endpoint that enforces it cannot drift apart.
+ */
+export function isAdminRole(role: PermissionRole | null | undefined): boolean {
+  if (!role) return false;
+  return role.name === 'admin' || role.isSystemAdmin === true;
+}
+
+/**
  * Does this role grant `action` on `module`? Wraps the hierarchy rules above with the
  * admin bypass both the API and the sidebar apply.
  */
@@ -87,6 +97,6 @@ export function roleCan(
   action: PermissionAction,
 ): boolean {
   if (!role) return false;
-  if (role.name === 'admin' || role.isSystemAdmin === true) return true;
+  if (isAdminRole(role)) return true;
   return checkHierarchicalPermission(role.hierarchyLevel || 'staff', module, action, role.permissions);
 }

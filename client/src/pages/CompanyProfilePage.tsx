@@ -73,7 +73,7 @@ function CompanyProfilePage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const canUpdate = hasPermission("masterData", "update");
+  const canUpdate = hasPermission("companyProfile", "update");
 
   const form = useForm<CompanyProfileValues>({
     resolver: zodResolver(companyProfileSchema),
