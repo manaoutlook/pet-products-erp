@@ -7,7 +7,9 @@
 --
 --   income tax              the same for every document (20% in the worksheet)
 --   profit margin           the share SmartLife keeps, 95%-99%
---   VAT invoice service fee optional, a share of the sales value
+--
+-- (A third setting, the VAT invoice service fee, lived here until 0034 removed it: the fee is no
+-- longer charged, so the calculator has no field for it and the stored row is deleted.)
 --
 -- They were retyped for every statement, so two statements for the same month could disagree.
 -- `app_settings` stores them once, keyed by name, and the calculator pre-fills its fields from

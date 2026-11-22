@@ -13,23 +13,25 @@
  *   J  Conqueror profit / unit   F - I
  *   K  Conqueror profit total    J x G
  *   L  income tax                incomeTaxRate x K
- *   M  VAT invoice service fee   serviceFeeRate x O
- *   N  pay back to SmartLife     O - K - L - M
+ *   N  pay back to SmartLife     O - K - L
  *   O  sales value               F x G
  *   P  VAT                       vatRate x O
  *   Q  invoice total             O + P
  *
- * The unit figures (H, I, J) are per unit; K, L, M, N, O, P and Q are whole-line amounts. A
- * totals row sums K..Q and the quantity, exactly like the worksheet's third row.
+ * The unit figures (H, I, J) are per unit; K, L, N, O, P and Q are whole-line amounts. A totals
+ * row sums those columns and the quantity, exactly like the worksheet's third row.
  *
- * The sales value splits into three piles that add back up to it:
+ * The sales value splits into two piles that add back up to it:
  *
  *   VAT company profit (K) + income tax (L)   what the VAT company keeps from the invoice
- *   service fee (M)                           the VAT company's invoice-issuing fee
- *   payback to SmartLife (N)                  everything else - O - K - L - M
+ *   payback to SmartLife (N)                  everything else - O - K - L
  *
- * So N is SmartLife's price for the goods (I x G) less the tax and fee it covers, and the two
- * summary lines under the table (N, and K + L) are the amounts actually transferred.
+ * So N is SmartLife's price for the goods (I x G) less the tax it covers, and the two summary
+ * lines under the table (N, and K + L) are the amounts actually transferred.
+ *
+ * AI Agent Note: the column letters keep the worksheet's original labels. M (VAT invoice
+ * service fee) was retired and is deliberately not re-used, so every other letter still means
+ * what the partners' spreadsheet says it means.
  *
  * AI Agent Note: this module never reads the database. The route joins the order lines to the
  * products and passes numbers in, so the same arithmetic can be unit-tested without Postgres and
@@ -39,15 +41,15 @@
 
 import { roundVnd } from "./tax";
 
-/** Profit margin is the share of the profit SmartLife keeps - the sheet uses 95% to 99%. */
-export const VAT_MARGIN_MIN_RATE = 0.95;
-export const VAT_MARGIN_MAX_RATE = 0.99;
+/** Profit margin is the share of the profit SmartLife keeps - the sheet uses 92% to 98%. */
+export const VAT_MARGIN_MIN_PERCENT = 92;
+export const VAT_MARGIN_MAX_PERCENT = 98;
+export const VAT_MARGIN_MIN_RATE = VAT_MARGIN_MIN_PERCENT / 100;
+export const VAT_MARGIN_MAX_RATE = VAT_MARGIN_MAX_PERCENT / 100;
 
 /** Pre-filled on the calculator when no global setting has been saved yet. */
 export const DEFAULT_PROFIT_MARGIN_RATE = 0.97;
 export const DEFAULT_INCOME_TAX_RATE = 0.2;
-/** VAT invoice service fee is optional; a blank field means 0%. */
-export const DEFAULT_SERVICE_FEE_RATE = 0;
 
 /** Clamp a rate into 0..1, falling back when the input is not a finite number. */
 export function normaliseRate(value: number | string | null | undefined, fallback = 0): number {
@@ -57,7 +59,7 @@ export function normaliseRate(value: number | string | null | undefined, fallbac
 }
 
 /**
- * The profit margin is the one rate with a business rule around it: anything outside 95%-99%
+ * The profit margin is the one rate with a business rule around it: anything outside 92%-98%
  * is clamped, so a typo can never hand the VAT company the whole margin (or none of it).
  */
 export function normaliseProfitMarginRate(
@@ -69,13 +71,29 @@ export function normaliseProfitMarginRate(
   return Math.min(VAT_MARGIN_MAX_RATE, Math.max(VAT_MARGIN_MIN_RATE, numeric));
 }
 
+/**
+ * Whether a profit-margin FRACTION (0.97, not 97) is inside 92%-98%.
+ *
+ * `normaliseProfitMarginRate` silently clamps, which is right for the arithmetic but wrong for
+ * the operator: typing 99 must not quietly become 98. The screen asks this to decide whether to
+ * show the range error, and still computes with the clamped value so a statement is never
+ * produced from an out-of-range split.
+ */
+export function isProfitMarginRateInRange(value: number | string | null | undefined): boolean {
+  const numeric = typeof value === "string" ? Number(value) : value;
+  if (typeof numeric !== "number" || !Number.isFinite(numeric)) return false;
+  // A hair of tolerance so 0.92 (92 / 100) cannot fail on floating-point noise.
+  const epsilon = 1e-9;
+  return (
+    numeric >= VAT_MARGIN_MIN_RATE - epsilon && numeric <= VAT_MARGIN_MAX_RATE + epsilon
+  );
+}
+
 export interface VatMarginParams {
-  /** Share of the profit SmartLife keeps (0.95 - 0.99). */
+  /** Share of the profit SmartLife keeps (0.92 - 0.98). */
   profitMarginRate: number;
   /** Income-tax rate applied to the VAT company's profit (a global setting). */
   incomeTaxRate: number;
-  /** VAT invoice service fee as a share of sales value (optional, 0 when blank). */
-  serviceFeeRate: number;
   /** The rate the order's VAT company charges, snapshotted on `sales_orders.vat_rate`. */
   vatRate: number;
 }
@@ -106,8 +124,6 @@ export interface VatMarginLine {
   conquerorProfitTotal: number;
   /** L - income tax on K. */
   incomeTax: number;
-  /** M - VAT invoice service fee on the sales value. */
-  serviceFee: number;
   /** N - what the VAT company pays back to SmartLife. */
   paybackToSmartLife: number;
   /** O - sales value, F x G. */
@@ -124,7 +140,6 @@ export interface VatMarginTotals {
   quantity: number;
   conquerorProfitTotal: number;
   incomeTax: number;
-  serviceFee: number;
   paybackToSmartLife: number;
   salesValue: number;
   vatAmount: number;
@@ -157,10 +172,9 @@ function computeLine(source: VatMarginSourceLine, params: VatMarginParams): VatM
   const conquerorProfitTotal = roundVnd(conquerorProfitUnit * quantity);
   const salesValue = roundVnd(b2bPrice * quantity);
   const incomeTax = roundVnd(params.incomeTaxRate * conquerorProfitTotal);
-  const serviceFee = roundVnd(params.serviceFeeRate * salesValue);
-  // N: SmartLife gets the sales value less what the VAT company keeps (its profit), the income
-  // tax SmartLife covers out of its share, and the invoice-issuing fee. Identity: N + K + L + M = O.
-  const paybackToSmartLife = roundVnd(salesValue - conquerorProfitTotal - incomeTax - serviceFee);
+  // N: SmartLife gets the sales value less what the VAT company keeps (its profit) and the income
+  // tax SmartLife covers out of its share. Identity: N + K + L = O.
+  const paybackToSmartLife = roundVnd(salesValue - conquerorProfitTotal - incomeTax);
   const vatAmount = roundVnd(params.vatRate * salesValue);
   const invoiceTotal = roundVnd(salesValue + vatAmount);
 
@@ -175,7 +189,6 @@ function computeLine(source: VatMarginSourceLine, params: VatMarginParams): VatM
     conquerorProfitUnit,
     conquerorProfitTotal,
     incomeTax,
-    serviceFee,
     paybackToSmartLife,
     salesValue,
     vatAmount,
@@ -195,7 +208,6 @@ export function computeVatMarginStatement(
   const normalisedParams: VatMarginParams = {
     profitMarginRate: normaliseProfitMarginRate(params.profitMarginRate),
     incomeTaxRate: normaliseRate(params.incomeTaxRate),
-    serviceFeeRate: normaliseRate(params.serviceFeeRate),
     vatRate: normaliseRate(params.vatRate),
   };
 
@@ -225,7 +237,6 @@ export function computeVatMarginStatement(
       quantity: sum.quantity + line.quantity,
       conquerorProfitTotal: sum.conquerorProfitTotal + line.conquerorProfitTotal,
       incomeTax: sum.incomeTax + line.incomeTax,
-      serviceFee: sum.serviceFee + line.serviceFee,
       paybackToSmartLife: sum.paybackToSmartLife + line.paybackToSmartLife,
       salesValue: sum.salesValue + line.salesValue,
       vatAmount: sum.vatAmount + line.vatAmount,
@@ -235,7 +246,6 @@ export function computeVatMarginStatement(
       quantity: 0,
       conquerorProfitTotal: 0,
       incomeTax: 0,
-      serviceFee: 0,
       paybackToSmartLife: 0,
       salesValue: 0,
       vatAmount: 0,

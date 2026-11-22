@@ -19,13 +19,14 @@ import { readVatMarginSettings, saveVatMarginSettings } from "../vat-margin-sett
  * keep is agreed afterwards, on a spreadsheet. This route turns one document into that
  * spreadsheet:
  *
- *   GET /api/vat-margin/settings    - the global income tax / margin / service fee defaults
+ *   GET /api/vat-margin/settings    - the global income tax / margin defaults
  *   PUT /api/vat-margin/settings    - save them
  *   GET /api/vat-margin/documents   - what can be picked, for one document type
  *   GET /api/vat-margin/statement   - the per-line split for one document
  *
- * Permission module: `orders`, exactly like the orders and delivery notes the statement is built
- * from. Reading a statement is a read of those documents; saving the global defaults is an update.
+ * Permission module: `vatMargin`. The split is partner-only information, so it is granted on its
+ * own rather than implied by `orders`: reading a statement needs `vatMargin.read`, saving the
+ * global defaults needs `vatMargin.update`.
  *
  * AI Agent Note: the arithmetic lives in `shared/vat-margin.ts`, not here - this file only joins
  * the order lines to the products. Landing price and B2B price are read LIVE from `products`
@@ -51,7 +52,6 @@ const statementQuerySchema = z.object({
   id: z.coerce.number().int().positive("Pick a document"),
   // Fractions are optional: anything omitted falls back to the saved global setting.
   profitMarginRate: z.coerce.number().optional(),
-  serviceFeeRate: z.coerce.number().optional(),
   incomeTaxRate: z.coerce.number().optional(),
 });
 
@@ -62,7 +62,6 @@ const statementQuerySchema = z.object({
 const settingsSchema = z.object({
   incomeTaxRate: z.number().min(0).max(1).optional(),
   profitMarginRate: z.number().min(0).max(1).optional(),
-  serviceFeeRate: z.number().min(0).max(1).optional(),
 });
 
 const DOCUMENT_TYPE_LABELS: Record<VatMarginDocumentType, string> = {
@@ -224,14 +223,13 @@ export async function loadVatMarginSourceLines(
 export interface VatMarginOverrides {
   profitMarginRate?: number;
   incomeTaxRate?: number;
-  serviceFeeRate?: number;
 }
 
 /**
  * The full statement for one document, or `null` when the document does not exist.
  *
  * Rates come from the query string when the operator has changed a field, and from the saved
- * settings otherwise - so a statement is reproducible from its document plus the three rates.
+ * settings otherwise - so a statement is reproducible from its document plus the two rates.
  * The VAT rate is never an input: it is the rate the order was invoiced at, read from
  * `sales_orders.vat_rate`.
  */
@@ -254,7 +252,6 @@ export async function buildVatMarginStatement(
   const statement = computeVatMarginStatement(sourceLines, {
     profitMarginRate: overrides.profitMarginRate ?? settings.profitMarginRate,
     incomeTaxRate: overrides.incomeTaxRate ?? settings.incomeTaxRate,
-    serviceFeeRate: overrides.serviceFeeRate ?? settings.serviceFeeRate,
     vatRate: money(order.vatRate) ?? 0,
   });
 
@@ -292,7 +289,7 @@ function badQuery(res: Response, message: string) {
 }
 
 export function registerVatMarginRoutes(app: Express) {
-  app.get("/api/vat-margin/settings", requirePermission("orders", "read"), async (_req, res) => {
+  app.get("/api/vat-margin/settings", requirePermission("vatMargin", "read"), async (_req, res) => {
     try {
       res.json({ settings: await readVatMarginSettings() });
     } catch (error) {
@@ -303,7 +300,7 @@ export function registerVatMarginRoutes(app: Express) {
 
   app.put(
     "/api/vat-margin/settings",
-    requirePermission("orders", "update"),
+    requirePermission("vatMargin", "update"),
     validateBody(settingsSchema, "Send the rates as fractions (0.2 = 20%)"),
     async (req, res) => {
       try {
@@ -316,7 +313,7 @@ export function registerVatMarginRoutes(app: Express) {
     }
   );
 
-  app.get("/api/vat-margin/documents", requirePermission("orders", "read"), async (req, res) => {
+  app.get("/api/vat-margin/documents", requirePermission("vatMargin", "read"), async (req, res) => {
     const parsed = documentsQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       return badQuery(res, parsed.error.issues[0]?.message ?? "Pick a document type");
@@ -330,7 +327,7 @@ export function registerVatMarginRoutes(app: Express) {
     }
   });
 
-  app.get("/api/vat-margin/statement", requirePermission("orders", "read"), async (req, res) => {
+  app.get("/api/vat-margin/statement", requirePermission("vatMargin", "read"), async (req, res) => {
     const parsed = statementQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       return badQuery(res, parsed.error.issues[0]?.message ?? "Pick a document");
@@ -340,7 +337,6 @@ export function registerVatMarginRoutes(app: Express) {
       const statement = await buildVatMarginStatement(parsed.data.type, parsed.data.id, {
         profitMarginRate: parsed.data.profitMarginRate,
         incomeTaxRate: parsed.data.incomeTaxRate,
-        serviceFeeRate: parsed.data.serviceFeeRate,
       });
 
       if (!statement) {

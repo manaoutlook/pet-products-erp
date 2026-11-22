@@ -29,13 +29,15 @@ import {
 import { printVatMarginStatement } from "@/utils/vat-margin-print";
 import { formatCurrency, formatDate, formatPercent, formatQuantity } from "@/utils/format";
 import { useQueryClient } from "@tanstack/react-query";
-import { percentToRate } from "@shared/tax";
+import { percentToRate, rateToPercent } from "@shared/tax";
 import {
   DEFAULT_INCOME_TAX_RATE,
   DEFAULT_PROFIT_MARGIN_RATE,
-  DEFAULT_SERVICE_FEE_RATE,
+  isProfitMarginRateInRange,
   normaliseProfitMarginRate,
   normaliseRate,
+  VAT_MARGIN_MAX_PERCENT,
+  VAT_MARGIN_MIN_PERCENT,
   vatCompanyProfitAndTax,
 } from "@shared/vat-margin";
 
@@ -76,6 +78,31 @@ function percentInputToRate(value: string, fallback: number): number {
   return Number.isFinite(numeric) ? percentToRate(numeric) : fallback;
 }
 
+/**
+ * The profit-margin field steps by one percentage point per Up/Down arrow press.
+ *
+ * AI Agent Note: the range check and the clamp are deliberately separate. Stepping past 98 (or
+ * below 92) keeps the typed value on screen and raises the inline error, while
+ * `normaliseProfitMarginRate` still clamps what is sent for calculation - so the operator is told
+ * about the mistake and a statement is never built from an out-of-range split.
+ */
+const PROFIT_MARGIN_STEP_PERCENT = 1;
+
+const DEFAULT_PROFIT_MARGIN_PERCENT = rateToPercent(DEFAULT_PROFIT_MARGIN_RATE);
+
+/** The percentage currently in the field, defaulting to 97 when it is blank or unreadable. */
+function profitMarginFieldPercent(value: string): number {
+  const trimmed = value.trim().replace(",", ".");
+  const numeric = trimmed ? Number(trimmed) : DEFAULT_PROFIT_MARGIN_PERCENT;
+  return Number.isFinite(numeric) ? numeric : DEFAULT_PROFIT_MARGIN_PERCENT;
+}
+
+/** The field value one step up (`delta` 1) or down (`delta` -1), to one decimal place. */
+function stepProfitMarginPercent(value: string, delta: number): string {
+  const next = Math.round((profitMarginFieldPercent(value) + delta) * 10) / 10;
+  return String(next);
+}
+
 const money = (value: number) => formatCurrency(value);
 const quantity = (value: number) => formatQuantity(value);
 const percent = (value: number) => formatPercent(value, { maximumFractionDigits: 2 });
@@ -85,13 +112,12 @@ function VatMarginCalculatorPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const canSaveDefaults = hasPermission("orders", "update");
+  const canSaveDefaults = hasPermission("vatMargin", "update");
 
   const [type, setType] = useState<VatMarginDocumentType>("sales_order");
   const [documentId, setDocumentId] = useState<string | null>(null);
   const [profitMargin, setProfitMargin] = useState("");
   const [incomeTax, setIncomeTax] = useState("");
-  const [serviceFee, setServiceFee] = useState("");
   /** True once the saved defaults have filled the fields; later refetches must not overwrite typing. */
   const [ratesReady, setRatesReady] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -103,7 +129,6 @@ function VatMarginCalculatorPage() {
     if (ratesReady || !settingsQuery.data) return;
     setProfitMargin(String(Math.round(settingsQuery.data.profitMarginRate * 1000) / 10));
     setIncomeTax(String(Math.round(settingsQuery.data.incomeTaxRate * 1000) / 10));
-    setServiceFee(String(Math.round(settingsQuery.data.serviceFeeRate * 1000) / 10));
     setRatesReady(true);
   }, [settingsQuery.data, ratesReady]);
 
@@ -112,15 +137,18 @@ function VatMarginCalculatorPage() {
     setDocumentId(null);
   }, [type]);
 
+  /** The margin as typed, before clamping - drives the inline range error. */
+  const profitMarginRateInput = percentInputToRate(profitMargin, DEFAULT_PROFIT_MARGIN_RATE);
+  const profitMarginInRange = isProfitMarginRateInRange(profitMarginRateInput);
+
   const rates = useMemo(
     () => ({
       profitMarginRate: normaliseProfitMarginRate(
         percentInputToRate(profitMargin, DEFAULT_PROFIT_MARGIN_RATE)
       ),
       incomeTaxRate: normaliseRate(percentInputToRate(incomeTax, DEFAULT_INCOME_TAX_RATE)),
-      serviceFeeRate: normaliseRate(percentInputToRate(serviceFee, DEFAULT_SERVICE_FEE_RATE)),
     }),
-    [profitMargin, incomeTax, serviceFee]
+    [profitMargin, incomeTax]
   );
 
   const statementQuery = useVatMarginStatement(
@@ -249,11 +277,13 @@ function VatMarginCalculatorPage() {
             Rates
           </CardTitle>
           <CardDescription>
-            Profit margin is clamped to 95%-99%. The VAT rate comes from the order, never from this
+            Profit margin must stay between {VAT_MARGIN_MIN_PERCENT}% and{" "}
+            {VAT_MARGIN_MAX_PERCENT}% - the ↑ / ↓ keys in the field step it by 1% and a value
+            outside that range is flagged. The VAT rate comes from the order, never from this
             screen - an issued invoice keeps the rate it was issued at.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="space-y-2">
             <Label htmlFor="profit-margin">Profit margin %</Label>
             <Input
@@ -261,8 +291,39 @@ function VatMarginCalculatorPage() {
               inputMode="decimal"
               value={profitMargin}
               onChange={(event) => setProfitMargin(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+                // Step the value instead of moving the caret: one point per press.
+                event.preventDefault();
+                setProfitMargin((current) =>
+                  stepProfitMarginPercent(
+                    current,
+                    event.key === "ArrowUp"
+                      ? PROFIT_MARGIN_STEP_PERCENT
+                      : -PROFIT_MARGIN_STEP_PERCENT
+                  )
+                );
+              }}
               placeholder="97"
+              aria-invalid={!profitMarginInRange}
+              aria-describedby={
+                profitMarginInRange ? "profit-margin-help" : "profit-margin-help profit-margin-error"
+              }
+              className={
+                profitMarginInRange
+                  ? undefined
+                  : "border-destructive focus-visible:ring-destructive"
+              }
             />
+            <p id="profit-margin-help" className="text-xs text-muted-foreground">
+              Use ↑ / ↓ to step by 1%.
+            </p>
+            {!profitMarginInRange && (
+              <p id="profit-margin-error" role="alert" className="text-xs text-destructive">
+                Profit margin must be between {VAT_MARGIN_MIN_PERCENT}% and{" "}
+                {VAT_MARGIN_MAX_PERCENT}%.
+              </p>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="income-tax">Income tax %</Label>
@@ -274,23 +335,12 @@ function VatMarginCalculatorPage() {
               placeholder="20"
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="service-fee">VAT invoice service fee %</Label>
-            <Input
-              id="service-fee"
-              inputMode="decimal"
-              value={serviceFee}
-              onChange={(event) => setServiceFee(event.target.value)}
-              placeholder="0"
-            />
-            <p className="text-xs text-muted-foreground">Share of the sales value.</p>
-          </div>
           <div className="flex items-end">
             <Button
               type="button"
               variant="outline"
               onClick={saveDefaults}
-              disabled={!canSaveDefaults || saving}
+              disabled={!canSaveDefaults || saving || !profitMarginInRange}
               className="w-full"
             >
               {saving ? (
@@ -369,15 +419,10 @@ function VatMarginCalculatorPage() {
                   Margin {percent(statement.params.profitMarginRate)}
                 </Badge>
                 <Badge variant="outline">Income tax {percent(statement.params.incomeTaxRate)}</Badge>
-                {statement.params.serviceFeeRate > 0 && (
-                  <Badge variant="outline">
-                    Service fee {percent(statement.params.serviceFeeRate)}
-                  </Badge>
-                )}
               </div>
             </CardHeader>
             <CardContent className="overflow-x-auto">
-              <Table className="min-w-[1240px] text-xs">
+              <Table className="min-w-[1140px] text-xs">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-8">#</TableHead>
@@ -391,7 +436,6 @@ function VatMarginCalculatorPage() {
                     <TableHead className="text-right">VAT co. / unit (J)</TableHead>
                     <TableHead className="text-right">VAT co. profit (K)</TableHead>
                     <TableHead className="text-right">Income tax (L)</TableHead>
-                    <TableHead className="text-right">Service fee (M)</TableHead>
                     <TableHead className="text-right">Payback (N)</TableHead>
                     <TableHead className="text-right">Sales value (O)</TableHead>
                     <TableHead className="text-right">VAT (P)</TableHead>
@@ -432,9 +476,6 @@ function VatMarginCalculatorPage() {
                         {money(line.incomeTax)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {money(line.serviceFee)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
                         {money(line.paybackToSmartLife)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
@@ -465,9 +506,6 @@ function VatMarginCalculatorPage() {
                       {money(statement.totals.incomeTax)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {money(statement.totals.serviceFee)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
                       {money(statement.totals.paybackToSmartLife)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
@@ -484,38 +522,29 @@ function VatMarginCalculatorPage() {
               </Table>
 
               {/* The two amounts that actually move: what SmartLife is paid back, and what the
-                  VAT company keeps (its profit plus the income tax on it). They add up with the
-                  service fee to the sales value - that is the whole point of the split. */}
+                  VAT company keeps (its profit plus the income tax on it). Together they add up
+                  to the sales value - that is the whole point of the split. */}
               <div className="mt-4 space-y-2 rounded-lg border bg-muted/30 px-4 py-3">
-                <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
-                  <span className="font-medium">Payback to SmartLife</span>
-                  <span className="font-semibold tabular-nums">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="text-sm font-semibold">Payback to SmartLife</span>
+                  <span className="text-base font-bold tabular-nums">
                     {money(statement.totals.paybackToSmartLife)}
                   </span>
                 </div>
-                <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
-                  <span className="font-medium">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="text-sm font-semibold">
                     Profit and Income Tax for VAT company
-                    <span className="ml-2 text-caption font-normal text-muted-foreground">
+                    <span className="ml-2 text-xs font-medium text-foreground/80 tabular-nums">
                       {money(statement.totals.conquerorProfitTotal)} +{" "}
                       {money(statement.totals.incomeTax)}
                     </span>
                   </span>
-                  <span className="font-semibold tabular-nums">
+                  <span className="text-base font-bold tabular-nums">
                     {money(vatCompanyProfitAndTax(statement.totals))}
                   </span>
                 </div>
-                {statement.totals.serviceFee > 0 && (
-                  <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
-                    <span className="font-medium">VAT invoice service fee</span>
-                    <span className="font-semibold tabular-nums">
-                      {money(statement.totals.serviceFee)}
-                    </span>
-                  </div>
-                )}
                 <p className="border-t pt-2 text-caption text-muted-foreground">
-                  Payback + Profit and Income Tax
-                  {statement.totals.serviceFee > 0 ? " + Service fee" : ""} = Sales value{" "}
+                  Payback + Profit and Income Tax = Sales value{" "}
                   {money(statement.totals.salesValue)}. VAT {money(statement.totals.vatAmount)} is
                   paid to the tax office and is not part of the split.
                 </p>

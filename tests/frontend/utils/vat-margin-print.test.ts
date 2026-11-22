@@ -39,7 +39,6 @@ function statement(overrides: Partial<VatMarginStatement> = {}): VatMarginStatem
         conquerorProfitUnit: 1_500,
         conquerorProfitTotal: 3_000,
         incomeTax: 600,
-        serviceFee: 0,
         paybackToSmartLife: 296_400,
         salesValue: 300_000,
         vatAmount: 24_000,
@@ -51,7 +50,6 @@ function statement(overrides: Partial<VatMarginStatement> = {}): VatMarginStatem
       quantity: 2,
       conquerorProfitTotal: 3_000,
       incomeTax: 600,
-      serviceFee: 0,
       paybackToSmartLife: 296_400,
       salesValue: 300_000,
       vatAmount: 24_000,
@@ -60,7 +58,6 @@ function statement(overrides: Partial<VatMarginStatement> = {}): VatMarginStatem
     params: {
       profitMarginRate: 0.97,
       incomeTaxRate: 0.2,
-      serviceFeeRate: 0,
       vatRate: 0.08,
     },
     errors: [],
@@ -94,13 +91,12 @@ describe("VAT margin print document", () => {
     expect(html).toContain(">Total<");
     expect(html).toContain("Profit margin:");
     expect(html).toContain("Income tax:");
-    expect(html).toContain("VAT invoice service fee:");
   });
 
   it("summarises the payback and what the VAT company keeps below the table", () => {
     const html = buildVatMarginPrintDocument(statement());
 
-    // N = O - K - L - M = 300,000 - 3,000 - 600 - 0
+    // N = O - K - L = 300,000 - 3,000 - 600
     expect(html).toContain("Payback to SmartLife (N)");
     expect(html).toContain("296.400");
     // K + L = 3,000 + 600, the profit and the income tax it holds.
@@ -109,6 +105,17 @@ describe("VAT margin print document", () => {
     // The sales value closes the split, so the reader can add the lines up themselves.
     expect(html).toContain("Sales value (O)");
     expect(html).toContain("300.000");
+  });
+
+  it("prints the two transferred amounts in bold, larger than their labels", () => {
+    const html = buildVatMarginPrintDocument(statement());
+
+    // The amounts that actually move are set in `.value`: bold and 10px, so they are the first
+    // thing read on paper.
+    expect(html).toContain(".summary .row .value { font-weight: bold; font-size: 10px; }");
+    expect(html).toContain('<span class="value">296.400');
+    expect(html).toContain('<span class="value">3.600');
+    expect(html).toContain('<span class="value">300.000');
   });
 
   it("carries the missing-price warnings onto the sheet", () => {

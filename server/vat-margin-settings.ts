@@ -4,7 +4,6 @@ import { appSettings } from "@db/schema";
 import {
   DEFAULT_INCOME_TAX_RATE,
   DEFAULT_PROFIT_MARGIN_RATE,
-  DEFAULT_SERVICE_FEE_RATE,
   normaliseProfitMarginRate,
   normaliseRate,
 } from "../shared/vat-margin";
@@ -12,12 +11,11 @@ import {
 /**
  * The VAT Margin Calculator's global defaults, in `app_settings`.
  *
- * A statement is computed from three numbers. Two of them are decisions of the business, not of
+ * A statement is computed from two numbers. Both are decisions of the business, not of
  * the document in front of the operator:
  *
  *   - income tax on the VAT company's profit (20% in the worksheet);
- *   - the profit margin SmartLife keeps (95%-99%);
- *   - the VAT invoice service fee, when one is charged.
+ *   - the profit margin SmartLife keeps (92%-98%).
  *
  * Keeping them here means the calculator opens already filled in, and two statements printed on
  * the same day cannot disagree because somebody typed 20 on one and 0.2 on the other. The
@@ -32,22 +30,18 @@ import {
 export const VAT_MARGIN_SETTING_KEYS = {
   incomeTaxRate: "vat_margin.income_tax_rate",
   profitMarginRate: "vat_margin.default_profit_margin_rate",
-  serviceFeeRate: "vat_margin.default_service_fee_rate",
 } as const;
 
 export interface VatMarginSettings {
   /** Income tax charged on the VAT company's profit (fraction, 0.2 = 20%). */
   incomeTaxRate: number;
-  /** Profit margin SmartLife keeps, clamped to 95%-99% (fraction). */
+  /** Profit margin SmartLife keeps, clamped to 92%-98% (fraction). */
   profitMarginRate: number;
-  /** VAT invoice service fee as a share of the sales value (fraction, 0 may). */
-  serviceFeeRate: number;
 }
 
 export const DEFAULT_VAT_MARGIN_SETTINGS: VatMarginSettings = {
   incomeTaxRate: DEFAULT_INCOME_TAX_RATE,
   profitMarginRate: DEFAULT_PROFIT_MARGIN_RATE,
-  serviceFeeRate: DEFAULT_SERVICE_FEE_RATE,
 };
 
 function isMissingTable(error: unknown): boolean {
@@ -76,7 +70,6 @@ export async function readVatMarginSettings(): Promise<VatMarginSettings> {
         inArray(appSettings.key, [
           VAT_MARGIN_SETTING_KEYS.incomeTaxRate,
           VAT_MARGIN_SETTING_KEYS.profitMarginRate,
-          VAT_MARGIN_SETTING_KEYS.serviceFeeRate,
         ])
       );
 
@@ -86,16 +79,13 @@ export async function readVatMarginSettings(): Promise<VatMarginSettings> {
       incomeTaxRate: normaliseRate(
         readNumber(byKey.get(VAT_MARGIN_SETTING_KEYS.incomeTaxRate), DEFAULT_INCOME_TAX_RATE)
       ),
-      // The 95%-99% rule is applied on read as well as on write, so a hand-edited row cannot
+      // The 92%-98% rule is applied on read as well as on write, so a hand-edited row cannot
       // hand the VAT company the whole margin.
       profitMarginRate: normaliseProfitMarginRate(
         readNumber(
           byKey.get(VAT_MARGIN_SETTING_KEYS.profitMarginRate),
           DEFAULT_PROFIT_MARGIN_RATE
         )
-      ),
-      serviceFeeRate: normaliseRate(
-        readNumber(byKey.get(VAT_MARGIN_SETTING_KEYS.serviceFeeRate), DEFAULT_SERVICE_FEE_RATE)
       ),
     };
   } catch (error) {
@@ -128,12 +118,6 @@ export async function saveVatMarginSettings(
     rows.push({
       key: VAT_MARGIN_SETTING_KEYS.profitMarginRate,
       value: String(normaliseProfitMarginRate(settings.profitMarginRate)),
-    });
-  }
-  if (settings.serviceFeeRate !== undefined) {
-    rows.push({
-      key: VAT_MARGIN_SETTING_KEYS.serviceFeeRate,
-      value: String(normaliseRate(settings.serviceFeeRate)),
     });
   }
 

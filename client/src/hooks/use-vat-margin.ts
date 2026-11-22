@@ -34,7 +34,6 @@ export interface VatMarginDocument {
 export interface VatMarginSettings {
   incomeTaxRate: number;
   profitMarginRate: number;
-  serviceFeeRate: number;
 }
 
 export interface VatMarginStatementDocument {
@@ -113,7 +112,6 @@ export function useVatMarginDocuments(type: VatMarginDocumentType) {
 export interface VatMarginRates {
   profitMarginRate: number;
   incomeTaxRate: number;
-  serviceFeeRate: number;
 }
 
 export function useVatMarginStatement(
@@ -130,7 +128,6 @@ export function useVatMarginStatement(
         id: String(id),
         profitMarginRate: String(rates.profitMarginRate),
         incomeTaxRate: String(rates.incomeTaxRate),
-        serviceFeeRate: String(rates.serviceFeeRate),
       });
       return getJson<VatMarginStatement>(`/api/vat-margin/statement?${params.toString()}`);
     },

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { db } from '../../../db';
 import {
@@ -15,6 +15,7 @@ import {
 } from '../../helpers/test-db';
 import {
   computeVatMarginStatement,
+  isProfitMarginRateInRange,
   normaliseProfitMarginRate,
   vatCompanyProfitAndTax,
   type VatMarginSourceLine,
@@ -26,7 +27,7 @@ import {
   registerVatMarginRoutes,
 } from '../../../server/routes/vat-margin';
 import { generateDeliveryNoteNumber, generateSalesOrderNumber } from '../../../server/numbering';
-import { recordRoutes } from '../../helpers/route-harness';
+import { makeRes, recordRoutes } from '../../helpers/route-harness';
 
 /**
  * VAT Margin Calculator.
@@ -54,7 +55,6 @@ describe('VAT margin arithmetic', () => {
   const params = {
     profitMarginRate: 0.97,
     incomeTaxRate: 0.2,
-    serviceFeeRate: 0,
     vatRate: 0.1,
   };
 
@@ -65,11 +65,10 @@ describe('VAT margin arithmetic', () => {
     expect(row.marginAmount).toBe(48_500);
     expect(row.smartLifePrice).toBe(148_500);
     expect(row.conquerorProfitUnit).toBe(1_500);
-    // K = J x G; O = F x G; L = 20% x K; N = O - K - L - M
+    // K = J x G; O = F x G; L = 20% x K; N = O - K - L
     expect(row.conquerorProfitTotal).toBe(3_000);
     expect(row.salesValue).toBe(300_000);
     expect(row.incomeTax).toBe(600);
-    expect(row.serviceFee).toBe(0);
     expect(row.paybackToSmartLife).toBe(296_400);
     // P = 10% x O; Q = O + P
     expect(row.vatAmount).toBe(30_000);
@@ -77,25 +76,12 @@ describe('VAT margin arithmetic', () => {
     expect(row.hasError).toBe(false);
   });
 
-  it('charges the service fee on the sales value, not on the profit', () => {
-    const statement = computeVatMarginStatement([line()], { ...params, serviceFeeRate: 0.05 });
-    const [row] = statement.lines;
-
-    // 5% x O (300,000), not 5% x K (3,000).
-    expect(row.serviceFee).toBe(15_000);
-    // N = O - K - L - M = 300,000 - 3,000 - 600 - 15,000.
-    expect(row.paybackToSmartLife).toBe(281_400);
-  });
-
-  it('leaves the sales value fully accounted for: N + K + L + M = O', () => {
-    const statement = computeVatMarginStatement([line()], { ...params, serviceFeeRate: 0.05 });
+  it('leaves the sales value fully accounted for: N + K + L = O', () => {
+    const statement = computeVatMarginStatement([line()], params);
     const { totals } = statement;
 
     expect(
-      totals.paybackToSmartLife +
-        totals.conquerorProfitTotal +
-        totals.incomeTax +
-        totals.serviceFee
+      totals.paybackToSmartLife + totals.conquerorProfitTotal + totals.incomeTax
     ).toBe(totals.salesValue);
   });
 
@@ -106,13 +92,23 @@ describe('VAT margin arithmetic', () => {
     expect(vatCompanyProfitAndTax(statement.totals)).toBe(3_600);
   });
 
-  it('clamps the profit margin into 95%-99%', () => {
-    expect(normaliseProfitMarginRate(0.5)).toBe(0.95);
-    expect(normaliseProfitMarginRate(2)).toBe(0.99);
+  it('clamps the profit margin into 92%-98%', () => {
+    expect(normaliseProfitMarginRate(0.5)).toBe(0.92);
+    expect(normaliseProfitMarginRate(2)).toBe(0.98);
     expect(normaliseProfitMarginRate(Number.NaN)).toBe(0.97);
 
     const statement = computeVatMarginStatement([line()], { ...params, profitMarginRate: 1 });
-    expect(statement.params.profitMarginRate).toBe(0.99);
+    expect(statement.params.profitMarginRate).toBe(0.98);
+  });
+
+  it('reports whether a typed profit margin is inside the range, without changing it', () => {
+    expect(isProfitMarginRateInRange(0.92)).toBe(true);
+    expect(isProfitMarginRateInRange(0.95)).toBe(true);
+    expect(isProfitMarginRateInRange('0.98')).toBe(true);
+    // Just outside either end: the screen shows the error, the arithmetic still clamps.
+    expect(isProfitMarginRateInRange(0.919)).toBe(false);
+    expect(isProfitMarginRateInRange(0.981)).toBe(false);
+    expect(isProfitMarginRateInRange(Number.NaN)).toBe(false);
   });
 
   it('totals the quantity and every money column', () => {
@@ -217,32 +213,29 @@ describe('VAT margin settings and documents', () => {
     expect(await readVatMarginSettings()).toEqual({
       incomeTaxRate: 0.2,
       profitMarginRate: 0.97,
-      serviceFeeRate: 0,
     });
   });
 
   it('round-trips the settings and clamps the profit margin on the way in', async () => {
     const saved = await saveVatMarginSettings(
-      { profitMarginRate: 1, incomeTaxRate: 0.15, serviceFeeRate: 0.02 },
+      { profitMarginRate: 1, incomeTaxRate: 0.15 },
       testData.users.admin.id
     );
 
     expect(saved).toEqual({
       incomeTaxRate: 0.15,
-      profitMarginRate: 0.99,
-      serviceFeeRate: 0.02,
+      profitMarginRate: 0.98,
     });
     expect(await readVatMarginSettings()).toEqual(saved);
   });
 
   it('leaves settings that were not sent untouched', async () => {
     await saveVatMarginSettings({ incomeTaxRate: 0.15 }, testData.users.admin.id);
-    await saveVatMarginSettings({ serviceFeeRate: 0.01 }, testData.users.admin.id);
+    await saveVatMarginSettings({ profitMarginRate: 0.93 }, testData.users.admin.id);
 
     expect(await readVatMarginSettings()).toEqual({
       incomeTaxRate: 0.15,
-      profitMarginRate: 0.97,
-      serviceFeeRate: 0.01,
+      profitMarginRate: 0.93,
     });
   });
 
@@ -274,17 +267,15 @@ describe('VAT margin settings and documents', () => {
     const order = await seedOrder();
 
     const statement = await buildVatMarginStatement('sales_order', order.id, {
-      profitMarginRate: 0.95,
+      profitMarginRate: 0.92,
       incomeTaxRate: 0.1,
-      serviceFeeRate: 0.05,
     });
 
     const row = statement!.lines[0];
-    // H = 95% x 50,000 = 47,500; J = 2,500; K = 5,000; L = 500; M = 5% x 300,000 = 15,000.
-    expect(row.marginAmount).toBe(47_500);
-    expect(row.conquerorProfitTotal).toBe(5_000);
-    expect(row.incomeTax).toBe(500);
-    expect(row.serviceFee).toBe(15_000);
+    // H = 92% x 50,000 = 46,000; J = 4,000; K = 8,000; L = 800.
+    expect(row.marginAmount).toBe(46_000);
+    expect(row.conquerorProfitTotal).toBe(8_000);
+    expect(row.incomeTax).toBe(800);
   });
 
   it('reports a price that is missing from the Product module instead of zero-filling it', async () => {
@@ -357,5 +348,95 @@ describe('VAT margin settings and documents', () => {
     expect(put?.handlers.length).toBeGreaterThanOrEqual(3);
   });
 
+});
+
+/**
+ * The calculator has its own module. Reading a sales order must not be enough to see the
+ * partner's profit split, so every endpoint is checked against `vatMargin` rather than `orders`.
+ */
+describe('VAT margin permissions', () => {
+  type Method = 'GET' | 'PUT';
+
+  /** The first handler express would run - the `requirePermission` middleware. */
+  const permissionMiddleware = (method: Method, path: string) => {
+    const entry = recordRoutes(registerVatMarginRoutes).find(
+      (candidate) => candidate.method === method && candidate.path === path,
+    );
+    if (!entry) throw new Error(`route not registered: ${method} ${path}`);
+    return entry.handlers[0] as unknown as (
+      req: unknown,
+      res: unknown,
+      next: (error?: unknown) => void,
+    ) => Promise<unknown>;
+  };
+
+  /** A signed-in staff user; staff roles get exactly what their permission JSON grants. */
+  const staffRequest = (permissions: Record<string, unknown>) =>
+    ({
+      isAuthenticated: () => true,
+      user: {
+        id: 1,
+        username: 'cashier',
+        role: { name: 'cashier', hierarchyLevel: 'staff', permissions },
+      },
+    }) as never;
+
+  const ordersOnly = { orders: { create: true, read: true, update: true, delete: false } };
+
+  it.each([
+    '/api/vat-margin/settings',
+    '/api/vat-margin/documents',
+    '/api/vat-margin/statement',
+  ])('refuses %s to a role that only has Orders access', async (path) => {
+    const res = makeRes();
+    const next = vi.fn();
+
+    await permissionMiddleware('GET', path)(staffRequest(ordersOnly), res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
+    expect((res.body as { message: string }).message).toContain('vatMargin read');
+  });
+
+  it.each([
+    '/api/vat-margin/settings',
+    '/api/vat-margin/documents',
+    '/api/vat-margin/statement',
+  ])('opens %s to a role granted vatMargin.read', async (path) => {
+    const res = makeRes();
+    const next = vi.fn();
+
+    await permissionMiddleware('GET', path)(staffRequest({ vatMargin: { read: true } }), res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('only lets vatMargin.update save the shared defaults', async () => {
+    const deniedRes = makeRes();
+    const deniedNext = vi.fn();
+
+    await permissionMiddleware('PUT', '/api/vat-margin/settings')(
+      staffRequest({ vatMargin: { read: true, update: false } }),
+      deniedRes,
+      deniedNext,
+    );
+
+    expect(deniedNext).not.toHaveBeenCalled();
+    expect(deniedRes.statusCode).toBe(403);
+    expect((deniedRes.body as { message: string }).message).toContain('vatMargin update');
+
+    const allowedRes = makeRes();
+    const allowedNext = vi.fn();
+
+    await permissionMiddleware('PUT', '/api/vat-margin/settings')(
+      staffRequest({ vatMargin: { read: true, update: true } }),
+      allowedRes,
+      allowedNext,
+    );
+
+    expect(allowedNext).toHaveBeenCalledTimes(1);
+    expect(allowedRes.statusCode).toBe(200);
+  });
 });
 
