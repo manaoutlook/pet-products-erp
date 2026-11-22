@@ -19,6 +19,21 @@ vi.mock('@/hooks/use-toast', () => ({
     useToast: () => ({ toast: mocks.toast, toasts: [], dismiss: vi.fn() }),
 }));
 
+/**
+ * Permissions decide whether "Deliver From" is a picker or a read-only line. These tests are
+ * about the order itself, so they run as an administrator unless a test says otherwise.
+ */
+const permissions = vi.hoisted(() => ({ isAdmin: true }));
+
+vi.mock('@/hooks/use-permissions', () => ({
+    usePermissions: () => ({
+        hasPermission: () => true,
+        getModulePermissions: () => null,
+        getAllowedModules: () => [],
+        isAdmin: permissions.isAdmin,
+    }),
+}));
+
 const vatCompanies = vi.hoisted(() => ({ activeCompanies: [] as unknown[], isLoading: false }));
 
 vi.mock('@/hooks/use-vat-companies', () => ({
@@ -155,6 +170,7 @@ describe('SalesOrderFormDialog', () => {
     beforeEach(() => {
         fetchMock.mockReset();
         mocks.toast.mockClear();
+        permissions.isAdmin = true;
         vatCompanies.activeCompanies = [];
         vatCompanies.isLoading = false;
         // happy-dom has no pointer capture; Radix Select calls it when its trigger is clicked.
@@ -425,6 +441,98 @@ describe('SalesOrderFormDialog', () => {
                 String(url) === '/api/sales-orders/7' && (options as RequestInit)?.method === 'PUT',
         )!;
         expect(JSON.parse(String((init as RequestInit).body)).storeId).toBe(5);
+    });
+
+    it('pins a non-admin to their assigned store and cannot change it', async () => {
+        permissions.isAdmin = false;
+
+        const stubFetch = vi.fn(async (url: string, init?: RequestInit) => {
+            const path = String(url).split('?')[0];
+            if (path === '/api/products') return json(products);
+            if (path === '/api/customer-profiles') return json(customers);
+            if (path === '/api/user/store') return json({ store: stores[0] });
+            if (path === '/api/vat-companies') return json({ companies: [] });
+            if (path === '/api/sales-orders' && init?.method === 'POST') {
+                return json({ orderNumber: 'SO-20261119-0003' });
+            }
+            return json({});
+        });
+        vi.stubGlobal('fetch', stubFetch);
+
+        const user = userEvent.setup();
+        renderDialog();
+
+        // The location is shown, not offered: no dropdown, and the box cannot be typed over.
+        const deliverFrom = await screen.findByLabelText(/deliver from/i);
+        await waitFor(() => expect(deliverFrom).toHaveValue('Test Store 1'));
+        expect(deliverFrom).toHaveAttribute('readonly');
+        expect(screen.queryByRole('combobox', { name: /deliver from/i })).not.toBeInTheDocument();
+        // The full store list is an admin read; a shop user never asks for it.
+        expect(stubFetch).not.toHaveBeenCalledWith('/api/stores', expect.anything());
+
+        await user.type(screen.getByLabelText(/customer name/i), 'Pet Shop A');
+        await pick(user, /product 1/i, 'Dog Food');
+        await user.type(screen.getByPlaceholderText('Qty'), '1');
+
+        await user.click(screen.getByRole('button', { name: /create sales order/i }));
+        submitForm();
+
+        await waitFor(() =>
+            expect(stubFetch).toHaveBeenCalledWith(
+                '/api/sales-orders',
+                expect.objectContaining({ method: 'POST' }),
+            ),
+        );
+
+        const [, init] = stubFetch.mock.calls.find(
+            ([url, options]) =>
+                String(url) === '/api/sales-orders' && (options as RequestInit)?.method === 'POST',
+        )!;
+        expect(JSON.parse(String((init as RequestInit).body)).storeId).toBe(4);
+    });
+
+    it('ships a user with no store assignment from the Distribution Centre', async () => {
+        permissions.isAdmin = false;
+
+        const stubFetch = vi.fn(async (url: string, init?: RequestInit) => {
+            const path = String(url).split('?')[0];
+            if (path === '/api/products') return json(products);
+            if (path === '/api/customer-profiles') return json(customers);
+            if (path === '/api/user/store') return json({ store: null });
+            if (path === '/api/vat-companies') return json({ companies: [] });
+            if (path === '/api/sales-orders' && init?.method === 'POST') {
+                return json({ orderNumber: 'SO-20261119-0004' });
+            }
+            return json({});
+        });
+        vi.stubGlobal('fetch', stubFetch);
+
+        const user = userEvent.setup();
+        renderDialog();
+
+        const deliverFrom = await screen.findByLabelText(/deliver from/i);
+        await waitFor(() => expect(deliverFrom).toHaveValue('Distribution Centre'));
+
+        await user.type(screen.getByLabelText(/customer name/i), 'Pet Shop A');
+        await pick(user, /product 1/i, 'Dog Food');
+        await user.type(screen.getByPlaceholderText('Qty'), '1');
+
+        await user.click(screen.getByRole('button', { name: /create sales order/i }));
+        submitForm();
+
+        await waitFor(() =>
+            expect(stubFetch).toHaveBeenCalledWith(
+                '/api/sales-orders',
+                expect.objectContaining({ method: 'POST' }),
+            ),
+        );
+
+        const [, init] = stubFetch.mock.calls.find(
+            ([url, options]) =>
+                String(url) === '/api/sales-orders' && (options as RequestInit)?.method === 'POST',
+        )!;
+        // Null is the Distribution Centre (`inventory.store_id IS NULL`).
+        expect(JSON.parse(String((init as RequestInit).body)).storeId).toBeNull();
     });
 
     it('adds and removes lines, keeping at least one', async () => {

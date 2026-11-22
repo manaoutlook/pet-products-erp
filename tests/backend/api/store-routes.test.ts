@@ -33,10 +33,20 @@ describe('store routes', () => {
         expect(keys.sort()).toEqual([
             'DELETE /api/stores/:id',
             'GET /api/stores',
+            'GET /api/user/store',
             'POST /api/stores',
             'PUT /api/stores/:id',
         ]);
         expect(new Set(keys).size).toBe(keys.length);
+    });
+
+    it('lets any authenticated user read their own store', () => {
+        const own = registrations.find((r) => r.path === '/api/user/store');
+
+        // [requireAuth, handler] - the assignment is read off the session, so there is nothing
+        // to authorise beyond being signed in.
+        expect(own?.method).toBe('GET');
+        expect(own?.handlers).toHaveLength(2);
     });
 
     it('gates create/update/delete behind a permission check and a validator', () => {
@@ -50,7 +60,7 @@ describe('store routes', () => {
     });
 
     it('lets any authenticated user list stores', () => {
-        const get = registrations.find((r) => r.method === 'GET');
+        const get = registrations.find((r) => r.method === 'GET' && r.path === '/api/stores');
 
         // [requireAuth, handler]
         expect(get?.handlers).toHaveLength(2);

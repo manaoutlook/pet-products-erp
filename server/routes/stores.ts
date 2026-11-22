@@ -1,7 +1,7 @@
 import type { Express } from "express";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db } from "@db";
-import { stores, invoiceCounters, insertStoreSchema } from "@db/schema";
+import { stores, invoiceCounters, insertStoreSchema, userStoreAssignments } from "@db/schema";
 import { requireAuth, requirePermission } from "../middleware";
 import { validateBody, validateParams, idParamSchema } from "../validate";
 import { getStoreDeletionBlockers, hasBlockers, buildStoreDeletionError } from "../store-deletion";
@@ -19,6 +19,35 @@ import { initializeStoreCounter } from "../invoice-counter";
  * permission middleware that the now-deleted duplicate registrations never reached.
  */
 export function registerStoreRoutes(app: Express) {
+  /**
+   * The store the signed-in user is assigned to.
+   *
+   * This is the "Deliver from" location on a sales order: choosing that location is an
+   * admin decision, so every other user ships from the store they work at (the API applies
+   * the same rule when the order is saved - see `resolveDeliverFromStoreId` in
+   * server/routes/sales-orders.ts). `store: null` means the Distribution Centre, the same
+   * convention `sales_orders.store_id` uses, and is also what an unassigned user falls
+   * back to. A user may have several assignments; the first one is the till's default and
+   * is used here too.
+   */
+  app.get("/api/user/store", requireAuth, async (req, res) => {
+    try {
+      const assignment = await db.query.userStoreAssignments.findFirst({
+        where: eq(userStoreAssignments.userId, req.user!.id),
+        orderBy: [asc(userStoreAssignments.id)],
+        with: { store: true },
+      });
+
+      res.json({ store: assignment?.store ?? null });
+    } catch (error) {
+      console.error("Error fetching the user's store:", error);
+      res.status(500).json({
+        message: "Failed to fetch your store",
+        suggestion: "Please try again later",
+      });
+    }
+  });
+
   // Store Management endpoints
   app.get("/api/stores", requireAuth, async (req, res) => {
     try {

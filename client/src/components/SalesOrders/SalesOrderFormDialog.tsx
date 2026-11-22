@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
+import { usePermissions } from "@/hooks/use-permissions";
 import { useVatCompanies } from "@/hooks/use-vat-companies";
 import { Loader2, Check, Plus, Trash2 } from "lucide-react";
 import { formatCurrency, formatPercent } from "@/utils/format";
@@ -247,6 +248,8 @@ export function SalesOrderFormDialog({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isEdit = Boolean(order);
+  // Choosing the "Deliver from" location is an admin decision; see the field below.
+  const { isAdmin } = usePermissions();
 
   const form = useForm<SalesOrderFormValues>({
     resolver: zodResolver(salesOrderSchema),
@@ -270,11 +273,37 @@ export function SalesOrderFormDialog({
     queryKey: ["/api/customer-profiles"],
   });
 
-  // The locations this order can ship from. The list is a plain read: a store the user cannot
-  // see is not in the response, and the empty option is the Distribution Centre.
+  // The locations this order can ship from. The picker is an admin-only control, so only an
+  // admin needs the full list; everybody else is pinned to their own store.
   const { data: stores = [] } = useQuery<StockLocation[]>({
     queryKey: ["/api/stores"],
+    enabled: isAdmin,
   });
+
+  // The store the signed-in user is assigned to. `store: null` is the Distribution Centre -
+  // the same convention the order uses for "no store" - and is what the API falls back to.
+  // The server applies this rule again when the order is saved, so the form and the stored
+  // order can never disagree.
+  const { data: assignedStore, isLoading: assignedStoreLoading } = useQuery<{
+    store: StockLocation | null;
+  }>({
+    queryKey: ["/api/user/store"],
+    enabled: !isAdmin,
+  });
+
+  const assignedStoreId = assignedStore?.store ? String(assignedStore.store.id) : "";
+  const deliverFromLabel = assignedStoreLoading
+    ? "Loading…"
+    : assignedStore?.store?.name ?? "Distribution Centre";
+
+  // Re-seed the location for a non-admin once the assignment has arrived. It lives outside
+  // `formDefaults` because the store comes from a query, not from the order, and it runs
+  // after the reset above so the read-only field always shows what the API will save.
+  useEffect(() => {
+    if (!open || isAdmin || assignedStoreLoading) return;
+
+    form.setValue("storeId", assignedStoreId, { shouldDirty: false, shouldValidate: false });
+  }, [open, order, isAdmin, assignedStoreLoading, assignedStoreId, form]);
 
   // The licensed companies (CI / HI) that may issue this order's VAT paperwork.
   const { activeCompanies: vatCompanies, isLoading: vatCompaniesLoading } = useVatCompanies();
@@ -576,28 +605,43 @@ export function SalesOrderFormDialog({
                 render={({ field }) => (
                   <FormItem className="md:col-span-2">
                     <FormLabel>Deliver From</FormLabel>
-                    <Select
-                      value={field.value || "dc"}
-                      onValueChange={(value) => field.onChange(value === "dc" ? "" : value)}
-                    >
+                    {isAdmin ? (
+                      <Select
+                        value={field.value || "dc"}
+                        onValueChange={(value) => field.onChange(value === "dc" ? "" : value)}
+                      >
+                        <FormControl>
+                          <SelectTrigger aria-label="Deliver from">
+                            <SelectValue placeholder="Distribution Centre" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {/* "" is the DC: `inventory.store_id IS NULL`, the same convention the
+                              goods receipt uses for its destination. */}
+                          <SelectItem value="dc">Distribution Centre</SelectItem>
+                          {stores.map((store) => (
+                            <SelectItem key={store.id} value={String(store.id)}>
+                              {store.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      // Not a picker: everybody but an admin ships from the store they are
+                      // assigned to, and the API pins the order to that same location.
                       <FormControl>
-                        <SelectTrigger aria-label="Deliver from">
-                          <SelectValue placeholder="Distribution Centre" />
-                        </SelectTrigger>
+                        <Input
+                          value={deliverFromLabel}
+                          readOnly
+                          aria-label="Deliver from"
+                          className="bg-muted"
+                        />
                       </FormControl>
-                      <SelectContent>
-                        {/* "" is the DC: `inventory.store_id IS NULL`, the same convention the
-                            goods receipt uses for its destination. */}
-                        <SelectItem value="dc">Distribution Centre</SelectItem>
-                        {stores.map((store) => (
-                          <SelectItem key={store.id} value={String(store.id)}>
-                            {store.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    )}
                     <p className="text-caption text-muted-foreground">
-                      The units come off this location's stock when the delivery note is issued.
+                      {isAdmin
+                        ? "The units come off this location's stock when the delivery note is issued."
+                        : "The units come off your assigned store's stock. Only an administrator can change this."}
                     </p>
                     <FormMessage />
                   </FormItem>

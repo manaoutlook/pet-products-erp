@@ -1,8 +1,14 @@
-import type { Express, Response } from "express";
-import { and, desc, eq, ne } from "drizzle-orm";
+import type { Express, Request, Response } from "express";
+import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@db";
-import { deliveryNotes, salesOrderItems, salesOrders, vatCompanies } from "@db/schema";
+import {
+  deliveryNotes,
+  salesOrderItems,
+  salesOrders,
+  userStoreAssignments,
+  vatCompanies,
+} from "@db/schema";
 import { requireAuth, requirePermission } from "../middleware";
 import { validateBody, validateParams, idParamSchema } from "../validate";
 import { generateSalesOrderNumber } from "../numbering";
@@ -17,6 +23,7 @@ import {
   issueSalesOrderInvoice,
 } from "../sales-order-invoices";
 import { vatCompanyMissingFields } from "../../shared/vat-company";
+import { isAdminRole } from "../../shared/permissions";
 
 /**
  * Sales Order endpoints (the outbound counterpart of /api/purchase-orders).
@@ -108,6 +115,29 @@ function handleSalesOrderError(res: Response, error: unknown, fallback: string) 
     message: fallback,
     suggestion: "Please try again later",
   });
+}
+
+/**
+ * The "Deliver from" location a request may actually save.
+ *
+ * Only an administrator may choose the location. Everybody else ships from the store they
+ * are assigned to - the same store the till sells from - or from the Distribution Centre
+ * when they have no assignment. The value in the body is ignored rather than rejected, so
+ * a stale dialog (or a user whose assignment changed mid-session) still produces an order
+ * that obeys the rule instead of a mystery 403.
+ */
+async function resolveDeliverFromStoreId(
+  req: Request,
+  requestedStoreId: number | null | undefined
+): Promise<number | null> {
+  if (isAdminRole(req.user?.role)) return requestedStoreId ?? null;
+
+  const assignment = await db.query.userStoreAssignments.findFirst({
+    where: eq(userStoreAssignments.userId, req.user!.id),
+    orderBy: [asc(userStoreAssignments.id)],
+  });
+
+  return assignment?.storeId ?? null;
 }
 
 /** The VAT company block stored on an order / delivery note. All null = "No VAT". */
@@ -341,6 +371,10 @@ export function registerSalesOrderWriteRoutes(app: Express) {
       const body = req.body as z.infer<typeof salesOrderSchema>;
 
       try {
+        // Admins choose where the units leave from; for everybody else it is the store they
+        // are assigned to (or the Distribution Centre when they have none).
+        const storeId = await resolveDeliverFromStoreId(req, body.storeId);
+
         const created = await db.transaction(async (tx) => {
           const { lines, total } = await buildSalesOrderLines(tx, body.items);
           const vatCompany = await resolveVatCompanySnapshot(tx, body.vatCompanyId);
@@ -362,7 +396,7 @@ export function registerSalesOrderWriteRoutes(app: Express) {
               phone: body.phone,
               deliveryAddress: body.deliveryAddress,
               // Null = the Distribution Centre (same convention as a purchase order).
-              storeId: body.storeId ?? null,
+              storeId,
               ...vatCompany,
               orderDate: body.orderDate ? new Date(body.orderDate) : new Date(),
               totalAmount: total.toFixed(2),
@@ -403,6 +437,9 @@ export function registerSalesOrderWriteRoutes(app: Express) {
       const body = req.body as z.infer<typeof salesOrderSchema>;
 
       try {
+        // The same rule as create: only an admin moves an order to another location.
+        const storeId = await resolveDeliverFromStoreId(req, body.storeId);
+
         const updated = await db.transaction(async (tx) => {
           const order = await tx.query.salesOrders.findFirst({
             where: eq(salesOrders.id, salesOrderId),
@@ -472,7 +509,7 @@ export function registerSalesOrderWriteRoutes(app: Express) {
               deliveryAddress: body.deliveryAddress,
               // The shipping location; moved freely until goods actually leave (the delivery
               // note snapshots whichever location it ships from).
-              storeId: body.storeId ?? null,
+              storeId,
               // Re-snapshot the VAT company on every save: the order has not shipped yet,
               // so correcting its letterhead is allowed while the document is still a draft.
               ...vatCompany,
