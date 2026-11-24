@@ -165,6 +165,92 @@ SELECT setval(pg_get_serial_sequence('users','id'), COALESCE((SELECT max(id) FRO
 
 ---
 
+## Emptying the transactions (done once, 2026-11-24)
+
+Before go-live the production database was stripped of every transaction and
+then seeded from a physical count. Master data was kept: products, suppliers,
+brands, categories, stores, regions, VAT companies, finance partners, customer
+profiles, users, roles, permissions and the `inventory` rows themselves.
+
+Repeat this only while no real document has left the building.
+
+1. Stop the app and dump first — the dump is the only rollback:
+
+   ```bash
+   cd /Users/manavazhagan/Documents/VS-Code/1git/PetErp-Git/SmartERP-prod
+   ./stop_prod.sh
+   set -a; source ./.env; set +a
+   pg_dump -Fc "$DATABASE_URL" -f "backups/smart_erp_prod_pre_reset_$(date +%Y%m%d_%H%M).dump"
+   ```
+
+2. Archive the generated files (`uploads/delivery-notes`, `uploads/invoices`,
+   `uploads/inventory-imports`) — they are not in the dump.
+
+3. Truncate in **one** transaction. Listing every referencing table means no
+   `CASCADE` is needed; if a table is missing, Postgres refuses and the whole
+   transaction rolls back instead of leaving a half-empty database:
+
+   ```sql
+   BEGIN;
+   TRUNCATE TABLE
+     invoice_payments, invoices,
+     delivery_note_items, delivery_notes,
+     sales_order_items, sales_orders,
+     goods_receipt_items, goods_receipts,
+     purchase_order_actions, purchase_order_items, purchase_orders,
+     sales_transaction_actions, sales_transaction_items, sales_transactions,
+     stock_movements,
+     transfer_actions, transfer_history,
+     transfer_request_items, transfer_requests,
+     finance_entries, inventory_import_files
+   RESTART IDENTITY;
+   UPDATE inventory SET quantity = 0, updated_at = now();
+   UPDATE invoice_counters SET current_number = 0, last_updated = now();
+   COMMIT;
+   ```
+
+4. `./start_prod.sh` (rebuild first if code changed) and `./check_prod.sh`.
+
+What to know before doing it again:
+
+- Deleting an order, delivery note or invoice does **not** reverse its stock
+  movement, so a row-by-row delete quietly corrupts the ledger. The block above
+  clears `stock_movements` too, which is why `inventory.quantity` has to be
+  zeroed in the same transaction.
+- `transaction_type='BULK_IMPORT'`, `reason='adjustment'`,
+  `ref_type='inventory_import'` — the vocabulary the physical-count import
+  writes, and what a correct fresh ledger contains.
+- `invoice_counters` was reset to `0` for **every** prefix (DC-, CI-, HI-,
+  RCPT-, FIN-) on 2026-11-24. That is only defensible before the first real
+  invoice reaches a customer; afterwards a reset re-issues numbers that already
+  appear on tax documents.
+- SO / DN / PO numbers are not counters. `server/numbering.ts` builds
+  `SO-YYYYMMDD-NNNN` from the date plus a random 4-digit suffix, so the first
+  order after a reset carries today's date — starting at `0001` would need a
+  new counter feature, not a data fix.
+- `stock_movements.ref_type` / `ref_id` have no foreign key, so orphans never
+  fail loudly; they just accumulate. Truncating the table is the cheap cure.
+- `customer_profiles` stores no rolled-up balances (they are derived from
+  invoices), so no customer needs fixing after a reset.
+
+Then import the count: **Inventory → Import** (`inventory-import-template.xlsx`;
+columns Product SKU, Product Name, Inventory Type `DC`/`STORE`, Store, Quantity,
+Location, Purchase Date, Expiry Date; 5 000-row cap, all-or-nothing
+validation). Verify the ledger afterwards:
+
+```sql
+SELECT count(*), sum(quantity) FROM inventory;
+SELECT sum(delta) FROM stock_movements;
+```
+
+The two sums must match and every row must be `BULK_IMPORT`.
+
+Artifacts from the 2026-11-24 run:
+`backups/smart_erp_prod_pre_reset_20261124_1942.dump`,
+`archives/20261124_1942/`.
+
+---
+
 ## Ongoing updates (after go-live)
 
 **Prod becomes the source of truth for data.** Never restore a development dump
