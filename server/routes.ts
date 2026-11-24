@@ -85,6 +85,7 @@ import {
   buildInvoicePayload,
 } from "./invoice-documents";
 import { generateInventoryBarcode, generateOrderNumber, generateTransferNumber } from "./numbering";
+import { inventoryTypeForStore } from "./inventory-type";
 import { receiveGoods } from "./goods-receipt";
 import {
   MAX_GALLERY_IMAGES,
@@ -5293,7 +5294,9 @@ export function registerRoutes(app: Express): Server {
           });
         } else {
           // Create new inventory in destination store
-          const inventoryType = transferRequest.toStoreId === null ? 'DC' : 'STORE';
+          // Type follows the destination store (a WAREHOUSE holds DC stock), not just whether
+          // a store id is present - see server/inventory-type.ts.
+          const inventoryType = inventoryTypeForStore(transferRequest.toStore?.type);
           const barcode = generateInventoryBarcode(inventoryType, item.productId.toString(), transferRequest.toStoreId);
 
           const [newDestInventory] = await db
@@ -5614,7 +5617,11 @@ export function registerRoutes(app: Express): Server {
         destInventoryId = destInventory.id;
         destQuantityAfter = destAfter.quantity;
       } else {
-        const inventoryType = toStoreId === null ? 'DC' : 'STORE';
+        // A warehouse destination holds DC stock; a retail destination holds STORE stock.
+        const destinationStore = await db.query.stores.findFirst({
+          where: eq(stores.id, toStoreId),
+        });
+        const inventoryType = inventoryTypeForStore(destinationStore?.type);
         const barcode = generateInventoryBarcode(inventoryType, productId.toString(), toStoreId);
         const [newDest] = await db
           .insert(inventory)
