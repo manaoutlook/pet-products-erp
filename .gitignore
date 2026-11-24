@@ -49,3 +49,9 @@ coverage/
 .DS_Store
 *.pem
 *.tar.gz
+
+# Production instance runtime state (pid file, dumps, archived uploads)
+.prod.pid
+logs/
+backups/
+archives/
