@@ -188,6 +188,15 @@ function resolveSessionSecret(): string {
 }
 
 export function setupAuth(app: Express) {
+  // `NODE_ENV=production` implies HTTPS, but a production build is also served
+  // over plain HTTP on a LAN (e.g. http://192.168.1.10:5002) where browsers drop
+  // Secure cookies and nobody can log in. COOKIE_SECURE=false keeps the cookie
+  // working on HTTP; leave it unset (or true) behind a TLS-terminating proxy.
+  const secureCookie =
+    process.env.COOKIE_SECURE !== undefined
+      ? process.env.COOKIE_SECURE === "true"
+      : app.get("env") === "production";
+
   const sessionSettings: session.SessionOptions = {
     secret: resolveSessionSecret(),
     name: 'sid',
@@ -196,7 +205,7 @@ export function setupAuth(app: Express) {
     rolling: true,
     cookie: {
       httpOnly: true,
-      secure: app.get("env") === "production",
+      secure: secureCookie,
       sameSite: 'lax',
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     },
