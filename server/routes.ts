@@ -10,6 +10,7 @@ import { registerVatCompanyRoutes } from "./routes/vat-companies";
 import { registerSalesOrderRoutes, registerSalesOrderWriteRoutes } from "./routes/sales-orders";
 import { registerDeliveryNoteRoutes } from "./routes/delivery-notes";
 import { registerFinanceRoutes } from "./routes/finance";
+import { registerAttachmentRoutes } from "./routes/attachments";
 import { registerVatMarginRoutes } from "./routes/vat-margin";
 import { db } from "@db";
 import {
@@ -394,6 +395,11 @@ export function registerRoutes(app: Express): Server {
   // report that adds it to the invoice receipts owned by Receivables. Registered after the order
   // documents because `GET /api/finance/outstanding` reads the same invoices they issue.
   registerFinanceRoutes(app);
+
+  // Proof documents (receipt photos, bank-transfer screenshots, paperwork) on purchase orders,
+  // goods receipts, customer receipts and finance entries. Registered before the page routes so
+  // /api/attachments is matched once, and after the transactions it hangs off.
+  registerAttachmentRoutes(app);
 
   // VAT Margin Calculator: the profit split the two partners agree on for an issued VAT
   // invoice. Registered after the order documents because it prices their lines from the

@@ -24,6 +24,8 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatDateTime } from "@/utils/format";
+import { PendingAttachmentPicker } from "@/components/attachments/AttachmentUploader";
+import { uploadAttachmentFiles } from "@/components/attachments/attachment-api";
 import { Loader2, Package } from "lucide-react";
 
 /**
@@ -148,6 +150,9 @@ export function ReceiveGoodsDialog({
   disabledReason,
 }: ReceiveGoodsDialogProps) {
   const [open, setOpen] = useState(false);
+  // Delivery paperwork picked before the receipt exists: photos of the cartons, the supplier's
+  // delivery note, the customs papers. Uploaded once the POST returns the receipt id.
+  const [documents, setDocuments] = useState<File[]>([]);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -256,7 +261,14 @@ export function ReceiveGoodsDialog({
 
       return response.json();
     },
-    onSuccess: (result: any) => {
+    onSuccess: async (result: any) => {
+      // The receipt now exists, so the delivery pictures can be attached to it. A failed upload
+      // never undoes the receipt - it is reported and can be retried from the order's register.
+      const uploaded =
+        documents.length > 0 && result?.receipt?.id
+          ? await uploadAttachmentFiles("goods_receipt", result.receipt.id, documents)
+          : null;
+
       // The PO list, the order detail and inventory all changed.
       queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
       queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
@@ -274,7 +286,16 @@ export function ReceiveGoodsDialog({
         variant: "success",
       });
       setOpen(false);
+      setDocuments([]);
       form.reset(defaultValues());
+
+      if (uploaded && uploaded.failures.length > 0) {
+        toast({
+          title: `${uploaded.failures.length} delivery picture(s) were not saved`,
+          description: uploaded.failures.join(" "),
+          variant: "destructive",
+        });
+      }
     },
     onError: (error: Error) => {
       toast({ title: "Could not receive goods", description: error.message, variant: "destructive" });
@@ -288,6 +309,7 @@ export function ReceiveGoodsDialog({
         // Re-snapshot the outstanding quantities every time the form is opened, so a dialog
         // left open across a receipt never re-sends a quantity that is no longer owed.
         if (next) form.reset(defaultValues());
+        else setDocuments([]);
         setOpen(next);
       }}
     >
@@ -462,6 +484,14 @@ export function ReceiveGoodsDialog({
                 <span>{formatCurrency(totalAdditionalCost)}</span>
               </div>
             </div>
+
+            <PendingAttachmentPicker
+              files={documents}
+              onFilesChange={setDocuments}
+              label="Delivery note / goods pictures"
+              description="Photograph the cartons, the supplier's delivery note or the customs papers for this shipment - up to 10 pictures, 5 MB each. They are saved with the goods receipt."
+              disabled={receiveGoods.isPending}
+            />
 
             <FormField
               control={form.control}

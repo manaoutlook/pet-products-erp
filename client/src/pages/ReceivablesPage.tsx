@@ -48,6 +48,9 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
+import { PendingAttachmentPicker } from "@/components/attachments/AttachmentUploader";
+import { AttachmentsButton } from "@/components/attachments/AttachmentsDialog";
+import { uploadAttachmentFiles } from "@/components/attachments/attachment-api";
 import { PAYMENT_METHODS, type PaymentMethod } from "@shared/invoice-payment";
 import type { InvoiceKind, InvoiceSource, InvoiceStatus } from "@shared/invoice-payment";
 
@@ -183,6 +186,8 @@ function ReceivablesPage() {
   const [reference, setReference] = useState("");
   const [paidAt, setPaidAt] = useState(todayIso());
   const [notes, setNotes] = useState("");
+  // Bank-transfer screenshots / photos of the signed receipt, picked before the receipt exists.
+  const [paymentDocuments, setPaymentDocuments] = useState<File[]>([]);
 
   // A void and a cancel both need a written reason, so they share one little dialog.
   const [reasonAction, setReasonAction] = useState<
@@ -237,7 +242,14 @@ function ReceivablesPage() {
       });
       return readJson(response);
     },
-    onSuccess: (result: { receiptNumber: string; invoice: InvoiceRow }) => {
+    onSuccess: async (result: { receiptNumber: string; invoice: InvoiceRow; payment: { id: number } }) => {
+      // The receipt exists now, so the proof of payment can be filed against it. A failed upload
+      // does not void the receipt - the pictures can be added from the invoice's receipt list.
+      const uploaded =
+        paymentDocuments.length > 0
+          ? await uploadAttachmentFiles("invoice_payment", result.payment.id, paymentDocuments)
+          : null;
+
       toast({
         title: `Receipt ${result.receiptNumber} recorded`,
         description:
@@ -246,10 +258,20 @@ function ReceivablesPage() {
             : "The invoice is now fully paid.",
         variant: "success",
       });
+
+      if (uploaded && uploaded.failures.length > 0) {
+        toast({
+          title: `${uploaded.failures.length} payment picture(s) were not saved`,
+          description: uploaded.failures.join(" "),
+          variant: "destructive",
+        });
+      }
+
       setRecordPaymentFor(null);
       setAmount("");
       setReference("");
       setNotes("");
+      setPaymentDocuments([]);
       setMethod("BANK_TRANSFER");
       refreshAll();
     },
@@ -701,23 +723,32 @@ function ReceivablesPage() {
                                   {formatCurrency(payment.amount)}
                                 </TableCell>
                                 <TableCell className="text-right">
-                                  {canRecordMoney && !payment.voided && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => {
-                                        setReason("");
-                                        setReasonAction({
-                                          kind: "void",
-                                          paymentId: payment.id,
-                                          receiptNumber: payment.receiptNumber,
-                                        });
-                                      }}
-                                    >
-                                      <XCircle className="h-4 w-4 mr-1" />
-                                      Void
-                                    </Button>
-                                  )}
+                                  <div className="flex items-center justify-end gap-1">
+                                    {/* Proof pictures of the money: the bank screenshot or the
+                                        signed paper receipt. */}
+                                    <AttachmentsButton
+                                      entityType="invoice_payment"
+                                      entityId={payment.id}
+                                      label={`Receipt ${payment.receiptNumber}`}
+                                    />
+                                    {canRecordMoney && !payment.voided && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => {
+                                          setReason("");
+                                          setReasonAction({
+                                            kind: "void",
+                                            paymentId: payment.id,
+                                            receiptNumber: payment.receiptNumber,
+                                          });
+                                        }}
+                                      >
+                                        <XCircle className="h-4 w-4 mr-1" />
+                                        Void
+                                      </Button>
+                                    )}
+                                  </div>
                                 </TableCell>
                               </TableRow>
                             ))}
@@ -758,9 +789,14 @@ function ReceivablesPage() {
       {/* Record a receipt against one invoice. The amount can be anything up to the balance. */}
       <Dialog
         open={recordPaymentFor != null}
-        onOpenChange={(open) => !open && setRecordPaymentFor(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRecordPaymentFor(null);
+            setPaymentDocuments([]);
+          }
+        }}
       >
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Record a payment</DialogTitle>
             <DialogDescription>
@@ -822,6 +858,13 @@ function ReceivablesPage() {
                 onChange={(event) => setReference(event.target.value)}
               />
             </div>
+            <PendingAttachmentPicker
+              files={paymentDocuments}
+              onFilesChange={setPaymentDocuments}
+              label="Payment proof"
+              description="Screenshot the bank transfer or photograph the signed receipt - up to 10 pictures, 5 MB each. They are filed with this receipt when you record it."
+              disabled={recordPayment.isPending}
+            />
             <div>
               <Label htmlFor="receivable-notes">Notes</Label>
               <Textarea

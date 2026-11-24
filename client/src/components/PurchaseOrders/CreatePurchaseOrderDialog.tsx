@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -8,6 +8,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import { PendingAttachmentPicker } from "@/components/attachments/AttachmentUploader";
+import { uploadAttachmentFiles } from "@/components/attachments/attachment-api";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 
@@ -47,6 +50,8 @@ interface ProductOption {
   id: number;
   name: string;
   price: string;
+  /** Catalogue code, shown next to the name and searchable. Optional: older rows may be blank. */
+  sku?: string | null;
 }
 
 interface StoreOption {
@@ -58,6 +63,10 @@ interface StoreOption {
 
 export function CreatePurchaseOrderDialog() {
   const [open, setOpen] = useState(false);
+  // Pictures picked before the order exists (supplier invoice, transfer screenshot). They are
+  // uploaded right after the POST returns the new order id - the API needs a transaction to hang
+  // them on.
+  const [documents, setDocuments] = useState<File[]>([]);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -90,8 +99,21 @@ export function CreatePurchaseOrderDialog() {
   // AI Agent Note: Filter stores for those with type 'WAREHOUSE' (Distribution Center)
   const warehouses = stores.filter((s) => s.type === 'WAREHOUSE');
 
+  // AI Agent Note: the catalogue is longer than a native select can be scanned, so the item
+  // picker is a searchable combobox. The SKU is indexed too - the product name alone is not
+  // enough when several variants share a prefix ("SmartLife ... Pen").
+  const productOptions = useMemo(
+    () =>
+      products.map((product) => ({
+        value: String(product.id),
+        label: product.name,
+        description: product.sku ?? null,
+      })),
+    [products]
+  );
+
   const createPurchaseOrder = useMutation({
-    mutationFn: async (data: FormData) => {
+    mutationFn: async (data: FormData): Promise<{ purchaseOrder: { id: number; orderNumber: string } }> => {
       const response = await fetch('/api/purchase-orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -121,14 +143,32 @@ export function CreatePurchaseOrderDialog() {
 
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: async (result) => {
+      // The order now exists, so the pictures picked above can be attached to it. A failure here
+      // never undoes the order - the message says which picture has to be added again from the
+      // register.
+      const uploaded = documents.length
+        ? await uploadAttachmentFiles("purchase_order", result.purchaseOrder.id, documents)
+        : null;
+
       queryClient.invalidateQueries({ queryKey: ['/api/purchase-orders'] });
-      toast({
-        title: "Success",
-        description: "Purchase order created successfully",
-        variant: "success",
-      });
+
+      if (uploaded && uploaded.failures.length > 0) {
+        toast({
+          title: `Order ${result.purchaseOrder.orderNumber} created, but ${uploaded.failures.length} picture(s) were not saved`,
+          description: uploaded.failures.join(" "),
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Success",
+          description: "Purchase order created successfully",
+          variant: "success",
+        });
+      }
+
       setOpen(false);
+      setDocuments([]);
       form.reset({
         items: [{ productId: "", quantity: "", unitPrice: "" }],
         deliveryDate: defaultDeliveryDate,
@@ -147,8 +187,10 @@ export function CreatePurchaseOrderDialog() {
     createPurchaseOrder.mutate(data);
   };
 
-  const handleProductChange = (index: number, productId: string) => {
-    form.setValue(`items.${index}.productId`, productId);
+  const handleProductChange = (index: number, productId: string | null) => {
+    // The picker has no "clear" entry, so this only guards the `null` its onChange type allows.
+    if (!productId) return;
+    form.setValue(`items.${index}.productId`, productId, { shouldValidate: true });
     const selectedProduct = products.find((p) => p.id.toString() === productId);
     if (selectedProduct) {
       form.setValue(`items.${index}.unitPrice`, selectedProduct.price.toString());
@@ -156,7 +198,14 @@ export function CreatePurchaseOrderDialog() {
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // Closing without saving drops the staged pictures, so a later order cannot inherit them.
+        if (!next) setDocuments([]);
+        setOpen(next);
+      }}
+    >
       <DialogTrigger asChild>
         <Button variant="create">
           <Plus className="mr-2 h-4 w-4" />
@@ -283,23 +332,17 @@ export function CreatePurchaseOrderDialog() {
                     name={`items.${index}.productId`}
                     render={({ field }) => (
                       <FormItem className="flex-1">
-                        <Select
-                          onValueChange={(value) => handleProductChange(index, value)}
-                          value={field.value}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select product" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {products.map((product) => (
-                              <SelectItem key={product.id} value={product.id.toString()}>
-                                {product.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <FormControl>
+                          <SearchableSelect
+                            value={field.value || null}
+                            onChange={(value) => handleProductChange(index, value)}
+                            options={productOptions}
+                            placeholder="Select product"
+                            searchPlaceholder="Search by name or SKU..."
+                            emptyMessage="No products found."
+                            aria-label={`Product ${index + 1}`}
+                          />
+                        </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -362,6 +405,14 @@ export function CreatePurchaseOrderDialog() {
                 </div>
               ))}
             </div>
+
+            <PendingAttachmentPicker
+              files={documents}
+              onFilesChange={setDocuments}
+              label="Supplier invoice / bank-transfer pictures"
+              description="Photograph or screenshot the supplier invoice, the transfer confirmation or any paperwork that belongs to this order - up to 10 pictures, 5 MB each. They are saved with the order when you create it."
+              disabled={createPurchaseOrder.isPending}
+            />
 
             <div className="flex justify-end gap-4">
               <Button

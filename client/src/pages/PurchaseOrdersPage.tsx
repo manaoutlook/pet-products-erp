@@ -38,6 +38,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { CreatePurchaseOrderDialog } from "@/components/PurchaseOrders/CreatePurchaseOrderDialog";
 import { ReceiveGoodsDialog } from "@/components/PurchaseOrders/ReceiveGoodsDialog";
+import { AttachmentsButton } from "@/components/attachments/AttachmentsDialog";
 import { printPurchaseOrder } from "@/components/PurchaseOrders/PurchaseOrderPrint";
 import { useCompanyInfo } from "@/hooks/use-company";
 import { companyHeaderMissingFields } from "@/components/company/CompanyHeader";
@@ -445,6 +446,13 @@ function PurchaseOrdersPage() {
                           <X className="h-4 w-4" />
                         </Button>
 
+                        {/* Supplier invoice / transfer screenshot filed against this order. */}
+                        <AttachmentsButton
+                          entityType="purchase_order"
+                          entityId={order.id}
+                          label={`Order ${order.orderNumber}`}
+                        />
+
                         {/* View Details */}
                         <Dialog>
                           <DialogTrigger asChild>
@@ -547,6 +555,15 @@ function PurchaseOrdersPage() {
 
                                       return (
                                         <div key={receipt.id} className="rounded-lg border p-4 space-y-3">
+                                          <div className="flex items-center justify-end">
+                                            {/* Photos of the cartons / delivery note taken when the
+                                                goods were received. */}
+                                            <AttachmentsButton
+                                              entityType="goods_receipt"
+                                              entityId={receipt.id}
+                                              label={`Goods receipt ${receipt.receiptNumber}`}
+                                            />
+                                          </div>
                                           <div className="grid grid-cols-2 gap-4 text-sm">
                                             <div className="space-y-1">
                                               <div><strong>Receipt Number:</strong> {receipt.receiptNumber}</div>

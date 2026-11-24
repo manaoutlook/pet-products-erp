@@ -1685,6 +1685,36 @@ export const stockMovements = pgTable("stock_movements", {
   typeIdx: index("stock_movements_type_idx").on(table.transactionType, table.createdAt),
 }));
 
+// Proof documents on a transaction: a photo of the paper receipt, a bank-transfer screenshot,
+// the supplier's delivery note, customs paperwork.
+//
+// AI Agent Note - `entity_type` + `entity_id` is a deliberate polymorphic pair instead of one
+// nullable FK per table: a document belongs to exactly one transaction, and the supported kinds
+// are pinned by the CHECK below (`ATTACHMENT_ENTITY_TYPES` in shared/attachments.ts). There is no
+// FK to the parent because there is no single parent table to point at; the API refuses an
+// attachment when the transaction does not exist (server/attachments.ts). The bytes are written to
+// `uploads/attachments/` and only the short URL is stored, exactly like products and delivery
+// notes, so a money list never carries image payloads.
+export const attachments = pgTable("attachments", {
+  id: serial("id").primaryKey(),
+  // 'purchase_order' | 'goods_receipt' | 'invoice_payment' | 'finance_entry'
+  entityType: varchar("entity_type", { length: 32 }).notNull(),
+  entityId: integer("entity_id").notNull(),
+  // The name the file had on the device ("IMG_2041.jpg", "transfer-2024-05-02.png").
+  fileName: varchar("file_name", { length: 255 }).notNull(),
+  mimeType: varchar("mime_type", { length: 100 }).notNull(),
+  // `/uploads/attachments/<file>` - served by `express.static` in server/index.ts.
+  url: varchar("url", { length: 500 }).notNull(),
+  uploadedByUserId: integer("uploaded_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  entityIdx: index("attachments_entity_idx").on(table.entityType, table.entityId),
+  entityTypeCheck: check(
+    "attachments_entity_type_check",
+    sql`${table.entityType} IN ('purchase_order', 'goods_receipt', 'invoice_payment', 'finance_entry')`
+  ),
+}));
+
 // The company letterhead is a singleton, so the whole table is exposed as one
 // insert/select schema pair rather than a list. The primary key is pinned by
 // `COMPANY_SINGLETON_ID` in shared/company.ts and by a CHECK constraint.

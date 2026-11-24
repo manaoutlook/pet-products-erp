@@ -20,6 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { SearchInput } from "@/components/ui/search-input";
+import { AttachmentsButton } from "@/components/attachments/AttachmentsDialog";
 import { Ban, Loader2, Printer, Receipt, RefreshCw, Wallet } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { PAYMENT_METHODS } from "@shared/invoice-payment";
@@ -293,15 +294,23 @@ export function CustomerReceiptsPanel({ company }: CustomerReceiptsPanelProps) {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handlePrint(receipt)}
-                        title="Print this receipt"
-                      >
-                        <Printer className="h-4 w-4" />
-                        <span className="sr-only">Print {receipt.receiptNumber}</span>
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        {/* Bank-transfer screenshot or photo of the signed receipt. */}
+                        <AttachmentsButton
+                          entityType="invoice_payment"
+                          entityId={receipt.id}
+                          label={`Receipt ${receipt.receiptNumber}`}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handlePrint(receipt)}
+                          title="Print this receipt"
+                        >
+                          <Printer className="h-4 w-4" />
+                          <span className="sr-only">Print {receipt.receiptNumber}</span>
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

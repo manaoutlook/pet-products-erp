@@ -52,6 +52,9 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
+import { PendingAttachmentPicker } from "@/components/attachments/AttachmentUploader";
+import { AttachmentsButton } from "@/components/attachments/AttachmentsDialog";
+import { uploadAttachmentFiles } from "@/components/attachments/attachment-api";
 import {
   EXPENSE_CATEGORIES,
   FINANCE_ENTRY_TYPES,
@@ -391,6 +394,9 @@ function FinancePage() {
   const limit = 25;
 
   const [entryDialogOpen, setEntryDialogOpen] = useState(false);
+  // The receipt/voucher pictures picked while the entry is being typed. Uploaded once the POST
+  // returns the entry id - until then there is nothing in the database to attach them to.
+  const [entryDocuments, setEntryDocuments] = useState<File[]>([]);
   const [form, setForm] = useState<EntryFormState>(emptyEntryForm());
 
   const [partnerDialogOpen, setPartnerDialogOpen] = useState(false);
@@ -501,13 +507,30 @@ function FinancePage() {
       });
       return readJson(response);
     },
-    onSuccess: (result: { entry: FinanceEntryRow }) => {
+    onSuccess: async (result: { entry: FinanceEntryRow }) => {
+      // The entry exists now; file the voucher/receipt pictures against it. A failed upload is
+      // reported but never undoes the entry - they can be added from the entries table.
+      const uploaded =
+        entryDocuments.length > 0
+          ? await uploadAttachmentFiles("finance_entry", result.entry.id, entryDocuments)
+          : null;
+
       toast({
         title: `${FINANCE_ENTRY_TYPE_LABELS[result.entry.entryType]} ${result.entry.entryNumber} recorded`,
         description: formatCurrency(result.entry.amount),
         variant: "success",
       });
+
+      if (uploaded && uploaded.failures.length > 0) {
+        toast({
+          title: `${uploaded.failures.length} voucher picture(s) were not saved`,
+          description: uploaded.failures.join(" "),
+          variant: "destructive",
+        });
+      }
+
       setEntryDialogOpen(false);
+      setEntryDocuments([]);
       setForm(emptyEntryForm());
       refreshMoney();
     },
@@ -1295,19 +1318,27 @@ function FinancePage() {
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          {canVoid && !entry.voided ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setVoiding(entry);
-                                setVoidReason("");
-                              }}
-                            >
-                              <Ban className="mr-1 h-4 w-4" />
-                              Void
-                            </Button>
-                          ) : null}
+                          <div className="flex items-center justify-end gap-1">
+                            {/* The paper receipt or bank screenshot behind this entry. */}
+                            <AttachmentsButton
+                              entityType="finance_entry"
+                              entityId={entry.id}
+                              label={`Entry ${entry.entryNumber}`}
+                            />
+                            {canVoid && !entry.voided ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setVoiding(entry);
+                                  setVoidReason("");
+                                }}
+                              >
+                                <Ban className="mr-1 h-4 w-4" />
+                                Void
+                              </Button>
+                            ) : null}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -1456,7 +1487,10 @@ function FinancePage() {
         open={entryDialogOpen}
         onOpenChange={(open) => {
           setEntryDialogOpen(open);
-          if (!open) setForm(emptyEntryForm());
+          if (!open) {
+            setForm(emptyEntryForm());
+            setEntryDocuments([]);
+          }
         }}
       >
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
@@ -1661,6 +1695,14 @@ function FinancePage() {
                 maxLength={500}
               />
             </div>
+
+            <PendingAttachmentPicker
+              files={entryDocuments}
+              onFilesChange={setEntryDocuments}
+              label="Receipt / bank-transfer pictures"
+              description="Photograph the paper receipt or screenshot the bank transfer for this entry - up to 10 pictures, 5 MB each. They are filed with the entry when you record it."
+              disabled={createEntry.isPending}
+            />
           </div>
 
           <DialogFooter>
