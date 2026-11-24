@@ -87,3 +87,41 @@ export function imageFilesFromClipboard(
   const files = payload.files ? Array.from(payload.files) : [];
   return files.filter(isPicture).map(namedPastedFile);
 }
+
+/**
+ * The part of `ClipboardItem` that `navigator.clipboard.read()` hands back.
+ *
+ * Async on purpose: unlike a paste event, the Async Clipboard API does not give out the blob
+ * directly, it has to be awaited per type.
+ */
+export interface ClipboardItemHandle {
+  types: readonly string[];
+  getType: (type: string) => Promise<Blob>;
+}
+
+/**
+ * Pictures read from the clipboard on demand - this is what the "Paste" button behind
+ * `navigator.clipboard.read()` uses, for the people who would rather click a button than know the
+ * Cmd+V shortcut, and for the ones whose focus is in a field where pasting a picture is refused.
+ *
+ * Throws only from `getType` (browser permission problems); a clipboard that simply holds no
+ * picture yields an empty array, which the caller reports as "nothing to paste".
+ */
+export async function imageFilesFromClipboardItems(
+  items: readonly ClipboardItemHandle[]
+): Promise<File[]> {
+  const files: File[] = [];
+
+  for (const item of items) {
+    const type = (item.types ?? []).find((candidate) =>
+      candidate.toLowerCase().startsWith("image/")
+    );
+    if (!type) continue;
+
+    const blob = await item.getType(type);
+    // A screenshot has no name here either - `namedPastedFile` gives it one.
+    files.push(namedPastedFile(new File([blob], "", { type })));
+  }
+
+  return files;
+}

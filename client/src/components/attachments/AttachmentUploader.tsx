@@ -10,16 +10,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { ImagePlus, Loader2, X } from "lucide-react";
+import { ClipboardPaste, ImagePlus, Loader2, X } from "lucide-react";
 import { deleteAttachment, listAttachments, uploadAttachment } from "./attachment-api";
-import { usePasteImages } from "./use-paste-images";
+import { readClipboardImages, usePasteImages } from "./use-paste-images";
 
 /**
  * Under every picker. Screenshots are the normal case for a bank transfer, and they are already on
  * the clipboard - saving one to disk first and then hunting for it in the file dialog is exactly
  * the step where people give up.
  */
-const PASTE_HINT = "Or copy a screenshot and paste it here with ⌘V (Ctrl+V).";
+const PASTE_HINT =
+  "Or copy a screenshot and press ⌘V (Ctrl+V) here - or use “Paste screenshot”.";
 
 /**
  * The picture field on a transaction.
@@ -103,7 +104,9 @@ function PickerHeader({
   count,
   disabled,
   busy,
+  pasting,
   onPick,
+  onPaste,
 }: {
   label: string;
   description: string;
@@ -111,8 +114,13 @@ function PickerHeader({
   count: number;
   disabled?: boolean;
   busy?: boolean;
+  pasting?: boolean;
   onPick: () => void;
+  onPaste: () => void;
 }) {
+  const atLimit = count >= MAX_ATTACHMENTS_PER_ENTITY;
+  const blocked = disabled || busy || atLimit;
+
   return (
     <div className="space-y-1">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -122,20 +130,40 @@ function PickerHeader({
             ({count}/{MAX_ATTACHMENTS_PER_ENTITY})
           </span>
         </Label>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={onPick}
-          disabled={disabled || busy || count >= MAX_ATTACHMENTS_PER_ENTITY}
-        >
-          {busy ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <ImagePlus className="mr-2 h-4 w-4" />
-          )}
-          Add pictures
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* A button, not just the printed shortcut: the keystroke alone is invisible, and users
+              could not find it (a real complaint from the pilot). This reads the clipboard and
+              feeds the exact same `handleFiles` path. */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onPaste}
+            disabled={blocked || pasting}
+            title="Paste a screenshot from the clipboard"
+          >
+            {pasting ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <ClipboardPaste className="mr-2 h-4 w-4" />
+            )}
+            Paste screenshot
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onPick}
+            disabled={blocked}
+          >
+            {busy ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <ImagePlus className="mr-2 h-4 w-4" />
+            )}
+            Add pictures
+          </Button>
+        </div>
       </div>
       <p className="text-xs text-muted-foreground">{description}</p>
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
@@ -160,6 +188,7 @@ export function AttachmentUploader({
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pasting, setPasting] = useState(false);
   const queryKey = ["/api/attachments", entityType, entityId];
 
   const listQuery = useQuery({
@@ -220,6 +249,18 @@ export function AttachmentUploader({
   // A pasted screenshot takes the same path as a picked file: cap, validation, upload.
   usePasteImages((files) => void handleFiles(files), !busy);
 
+  // The "Paste screenshot" button: same path again, just triggered by a click instead of Cmd+V.
+  const pasteFromClipboard = async () => {
+    setPasting(true);
+    try {
+      const { files, error: pasteError } = await readClipboardImages();
+      if (pasteError) setError(pasteError);
+      if (files.length > 0) await handleFiles(files);
+    } finally {
+      setPasting(false);
+    }
+  };
+
   return (
     <div className={cn("space-y-3", className)}>
       <PickerHeader
@@ -228,7 +269,9 @@ export function AttachmentUploader({
         hint={PASTE_HINT}
         count={attachments.length}
         busy={busy || listQuery.isLoading}
+        pasting={pasting}
         onPick={() => inputRef.current?.click()}
+        onPaste={() => void pasteFromClipboard()}
       />
 
       <input
@@ -290,6 +333,7 @@ export function PendingAttachmentPicker({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pasting, setPasting] = useState(false);
 
   // Object URLs are the only way to preview a File before it is uploaded; revoke them when the
   // selection changes or the dialog closes so the browser can release the memory.
@@ -343,6 +387,18 @@ export function PendingAttachmentPicker({
   // Pasted screenshots land here too - same cap, same validation, same staged list.
   usePasteImages(handleFiles, !disabled);
 
+  // Same handler behind the "Paste screenshot" button, for people who never press Cmd+V.
+  const pasteFromClipboard = async () => {
+    setPasting(true);
+    try {
+      const { files: pasted, error: pasteError } = await readClipboardImages();
+      if (pasteError) setError(pasteError);
+      else handleFiles(pasted);
+    } finally {
+      setPasting(false);
+    }
+  };
+
   return (
     <div className={cn("space-y-3", className)}>
       <PickerHeader
@@ -351,7 +407,9 @@ export function PendingAttachmentPicker({
         hint={PASTE_HINT}
         count={files.length}
         disabled={disabled}
+        pasting={pasting}
         onPick={() => inputRef.current?.click()}
+        onPaste={() => void pasteFromClipboard()}
       />
 
       <input

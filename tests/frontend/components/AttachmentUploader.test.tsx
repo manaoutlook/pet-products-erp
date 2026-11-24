@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeAll } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { PendingAttachmentPicker } from "@/components/attachments/AttachmentUploader";
 import { MAX_ATTACHMENTS_PER_ENTITY } from "@shared/attachments";
@@ -41,6 +41,27 @@ function Harness({ initial = [] }: { initial?: File[] }) {
 
 const fileInput = (container: HTMLElement) =>
   container.querySelector('input[type="file"]') as HTMLInputElement;
+
+/**
+ * Stand-in for `navigator.clipboard.read()`, which jsdom does not implement. Each entry is one
+ * `ClipboardItem`: the types it offers and the blob for a given type.
+ */
+const stubClipboard = (blobs: Array<{ type: string; types?: string[] }>) => {
+  const read = vi.fn(async () =>
+    blobs.map(({ type, types }) => ({
+      types: types ?? [type],
+      getType: async (requested: string) =>
+        new Blob(["binary"], { type: requested === type ? type : "application/octet-stream" }),
+    }))
+  );
+
+  Object.defineProperty(navigator, "clipboard", { value: { read }, configurable: true });
+  return read;
+};
+
+afterEach(() => {
+  Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+});
 
 describe("PendingAttachmentPicker", () => {
   it("stages a picked picture and shows it", () => {
@@ -102,7 +123,7 @@ describe("PendingAttachmentPicker", () => {
 
     expect(screen.getByTestId("count").textContent).toBe("1");
     expect(screen.getByAltText("pasted.png")).toBeInTheDocument();
-    expect(screen.getByText(/paste it here with/i)).toBeInTheDocument();
+    expect(screen.getByText(/press ⌘V \(Ctrl\+V\) here/i)).toBeInTheDocument();
   });
 
   it("leaves a text-only paste to the browser", () => {
@@ -136,5 +157,52 @@ describe("PendingAttachmentPicker", () => {
 
     expect(screen.getByTestId("count").textContent).toBe(String(MAX_ATTACHMENTS_PER_ENTITY));
     expect(screen.getByText(/remove one to choose another/i)).toBeInTheDocument();
+  });
+
+  it("stages the picture behind the Paste screenshot button", async () => {
+    const read = stubClipboard([{ type: "image/png" }]);
+
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /paste screenshot/i }));
+
+    await waitFor(() => expect(screen.getByTestId("count").textContent).toBe("1"));
+    expect(read).toHaveBeenCalledTimes(1);
+    // The clipboard image has no name of its own, so it is named after where it came from.
+    expect(screen.getByAltText(/^pasted-\d+-\d+\.png$/)).toBeInTheDocument();
+  });
+
+  it("says so when the clipboard holds no picture", async () => {
+    stubClipboard([]);
+
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /paste screenshot/i }));
+
+    expect(await screen.findByText(/no picture on the clipboard/i)).toBeInTheDocument();
+    expect(screen.getByTestId("count").textContent).toBe("0");
+  });
+
+  it("points at Cmd+V when the browser refuses to open the clipboard", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: { read: vi.fn(async () => Promise.reject(new Error("NotAllowedError"))) },
+      configurable: true,
+    });
+
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /paste screenshot/i }));
+
+    expect(await screen.findByText(/will not let the page read the clipboard|blocked clipboard access/i)).toBeInTheDocument();
+  });
+
+  it("stages a clipboard picture from the Paste button under the same ceiling", async () => {
+    stubClipboard([{ type: "image/png" }]);
+    const full = Array.from({ length: MAX_ATTACHMENTS_PER_ENTITY }, (_, index) =>
+      makeFile(`receipt-${index}.png`)
+    );
+
+    render(<Harness initial={full} />);
+
+    // At the cap both buttons are closed, so nothing can be pasted past the limit.
+    expect(screen.getByRole("button", { name: /paste screenshot/i })).toBeDisabled();
+    expect(screen.getByTestId("count").textContent).toBe(String(MAX_ATTACHMENTS_PER_ENTITY));
   });
 });

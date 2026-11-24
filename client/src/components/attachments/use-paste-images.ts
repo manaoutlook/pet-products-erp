@@ -1,5 +1,45 @@
 import { useEffect, useRef } from "react";
-import { imageFilesFromClipboard } from "./clipboard-images";
+import { imageFilesFromClipboard, imageFilesFromClipboardItems } from "./clipboard-images";
+
+/**
+ * Shown when the browser has no Async Clipboard API at all (or refuses to expose it - it is
+ * restricted to secure contexts, so a plain-http LAN address does not get it).
+ */
+export const CLIPBOARD_UNSUPPORTED =
+  "This browser will not let the page read the clipboard. Copy the screenshot and press ⌘V (Ctrl+V) with the window focused.";
+
+/**
+ * Why a Paste click produced nothing, when the reason is the clipboard rather than the file rules.
+ */
+export const CLIPBOARD_EMPTY =
+  "There is no picture on the clipboard. Take a screenshot first (⌘⇧⌃4 on a Mac, Win+Shift+S on Windows), then press Paste again.";
+
+export const CLIPBOARD_REFUSED =
+  "The browser blocked clipboard access. Allow it in the address bar, or copy the screenshot and press ⌘V (Ctrl+V) instead.";
+
+/**
+ * Read the clipboard on demand - the "Paste" button next to "Add pictures".
+ *
+ * `Cmd+V` (`usePasteImages` below) is the fast path, but it is invisible: nothing on screen says
+ * it exists, and it does nothing at all when the focus sits somewhere that eats the keystroke.
+ * This is the same handler behind a button, so the feature can be found by looking.
+ *
+ * Never throws: every failure is a message for the picker's error line.
+ */
+export async function readClipboardImages(): Promise<{ files: File[]; error: string | null }> {
+  if (typeof navigator === "undefined" || typeof navigator.clipboard?.read !== "function") {
+    return { files: [], error: CLIPBOARD_UNSUPPORTED };
+  }
+
+  try {
+    const files = await imageFilesFromClipboardItems(await navigator.clipboard.read());
+    return { files, error: files.length > 0 ? null : CLIPBOARD_EMPTY };
+  } catch {
+    // NotAllowedError (permission dismissed) or a browser that answers `read()` with an error
+    // whenever the tab is not focused. The Cmd+V route still works, so say so.
+    return { files: [], error: CLIPBOARD_REFUSED };
+  }
+}
 
 /**
  * Attach whatever picture is pasted while this component is mounted.
