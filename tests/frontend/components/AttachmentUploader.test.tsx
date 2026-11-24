@@ -89,4 +89,52 @@ describe("PendingAttachmentPicker", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /add pictures/i })).toBeDisabled();
   });
+
+  it("stages a picture pasted from the clipboard", () => {
+    render(<Harness />);
+
+    fireEvent.paste(document, {
+      clipboardData: {
+        items: [{ kind: "file", type: "image/png", getAsFile: () => makeFile("pasted.png") }],
+        files: [],
+      },
+    });
+
+    expect(screen.getByTestId("count").textContent).toBe("1");
+    expect(screen.getByAltText("pasted.png")).toBeInTheDocument();
+    expect(screen.getByText(/paste it here with/i)).toBeInTheDocument();
+  });
+
+  it("leaves a text-only paste to the browser", () => {
+    render(<Harness />);
+
+    // `true` means the event was not prevented, so copying text into a form field still works.
+    const dispatched = fireEvent.paste(document, {
+      clipboardData: {
+        items: [{ kind: "string", type: "text/plain", getAsFile: () => null }],
+        files: [],
+      },
+    });
+
+    expect(dispatched).toBe(true);
+    expect(screen.getByTestId("count").textContent).toBe("0");
+  });
+
+  it("holds a pasted picture to the same ceiling as a picked one", () => {
+    const full = Array.from({ length: MAX_ATTACHMENTS_PER_ENTITY }, (_, index) =>
+      makeFile(`receipt-${index}.png`)
+    );
+
+    render(<Harness initial={full} />);
+
+    fireEvent.paste(document, {
+      clipboardData: {
+        items: [{ kind: "file", type: "image/png", getAsFile: () => makeFile("late.png") }],
+        files: [],
+      },
+    });
+
+    expect(screen.getByTestId("count").textContent).toBe(String(MAX_ATTACHMENTS_PER_ENTITY));
+    expect(screen.getByText(/remove one to choose another/i)).toBeInTheDocument();
+  });
 });

@@ -12,6 +12,14 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { ImagePlus, Loader2, X } from "lucide-react";
 import { deleteAttachment, listAttachments, uploadAttachment } from "./attachment-api";
+import { usePasteImages } from "./use-paste-images";
+
+/**
+ * Under every picker. Screenshots are the normal case for a bank transfer, and they are already on
+ * the clipboard - saving one to disk first and then hunting for it in the file dialog is exactly
+ * the step where people give up.
+ */
+const PASTE_HINT = "Or copy a screenshot and paste it here with ⌘V (Ctrl+V).";
 
 /**
  * The picture field on a transaction.
@@ -26,6 +34,11 @@ import { deleteAttachment, listAttachments, uploadAttachment } from "./attachmen
  *
  * Both show the same tiles, the same cap and the same per-file validation, so the limit a user
  * meets while creating a receipt is the one the API enforces later.
+ *
+ * AI Agent Note - a picture can arrive two ways and both end in the same handler: chosen with the
+ * file dialog (`<input type="file">`), or pasted with Cmd+V / Ctrl+V (`usePasteImages`, which is
+ * how a bank-transfer screenshot normally reaches the screen). Adding a third source means calling
+ * the same `handleFiles`/`addFiles` with more `File`s - never a second copy of the cap check.
  */
 
 interface AttachmentTile {
@@ -86,6 +99,7 @@ function AttachmentTiles({
 function PickerHeader({
   label,
   description,
+  hint,
   count,
   disabled,
   busy,
@@ -93,6 +107,7 @@ function PickerHeader({
 }: {
   label: string;
   description: string;
+  hint?: string;
   count: number;
   disabled?: boolean;
   busy?: boolean;
@@ -123,6 +138,7 @@ function PickerHeader({
         </Button>
       </div>
       <p className="text-xs text-muted-foreground">{description}</p>
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </div>
   );
 }
@@ -163,9 +179,7 @@ export function AttachmentUploader({
   const attachments = listQuery.data ?? [];
   const remaining = Math.max(0, MAX_ATTACHMENTS_PER_ENTITY - attachments.length);
 
-  const handlePicked = async (fileList: FileList | null) => {
-    const picked = Array.from(fileList ?? []);
-    if (inputRef.current) inputRef.current.value = "";
+  const handleFiles = async (picked: File[]) => {
     if (picked.length === 0) return;
 
     setError(null);
@@ -203,11 +217,15 @@ export function AttachmentUploader({
     }
   };
 
+  // A pasted screenshot takes the same path as a picked file: cap, validation, upload.
+  usePasteImages((files) => void handleFiles(files), !busy);
+
   return (
     <div className={cn("space-y-3", className)}>
       <PickerHeader
         label="Proof pictures"
         description={ATTACHMENT_HELP_TEXT}
+        hint={PASTE_HINT}
         count={attachments.length}
         busy={busy || listQuery.isLoading}
         onPick={() => inputRef.current?.click()}
@@ -219,7 +237,11 @@ export function AttachmentUploader({
         accept={ATTACHMENT_ACCEPT}
         multiple
         className="hidden"
-        onChange={(event) => void handlePicked(event.target.files)}
+        onChange={(event) => {
+          const picked = Array.from(event.target.files ?? []);
+          event.target.value = "";
+          void handleFiles(picked);
+        }}
       />
 
       {listQuery.isError ? (
@@ -289,9 +311,7 @@ export function PendingAttachmentPicker({
 
   const remaining = Math.max(0, MAX_ATTACHMENTS_PER_ENTITY - files.length);
 
-  const handlePicked = (fileList: FileList | null) => {
-    const picked = Array.from(fileList ?? []);
-    if (inputRef.current) inputRef.current.value = "";
+  const handleFiles = (picked: File[]) => {
     if (picked.length === 0) return;
 
     setError(null);
@@ -320,11 +340,15 @@ export function PendingAttachmentPicker({
     setError(problem);
   };
 
+  // Pasted screenshots land here too - same cap, same validation, same staged list.
+  usePasteImages(handleFiles, !disabled);
+
   return (
     <div className={cn("space-y-3", className)}>
       <PickerHeader
         label={label}
         description={description}
+        hint={PASTE_HINT}
         count={files.length}
         disabled={disabled}
         onPick={() => inputRef.current?.click()}
@@ -337,7 +361,11 @@ export function PendingAttachmentPicker({
         multiple
         className="hidden"
         disabled={disabled}
-        onChange={(event) => handlePicked(event.target.files)}
+        onChange={(event) => {
+          const picked = Array.from(event.target.files ?? []);
+          event.target.value = "";
+          handleFiles(picked);
+        }}
       />
 
       <AttachmentTiles
