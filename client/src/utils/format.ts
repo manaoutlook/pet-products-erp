@@ -164,6 +164,31 @@ export function formatMonthLabel(
   }).format(date);
 }
 
+/**
+ * Short VND amount for chart axes, e.g. `formatCompactCurrency(1500000)` -> "1,5 Tr ₫".
+ * Charts cannot afford "1.500.000 ₫" on every tick, but they must still read as money.
+ */
+export function formatCompactCurrency(
+  value: Formattable,
+  options: NumberFormatOptions & { currency?: string } = {},
+): string {
+  const numeric = toNumber(value);
+  if (numeric === null) return formatCompactCurrency(0, options);
+
+  const {
+    locale = DEFAULT_LOCALE,
+    currency = DEFAULT_CURRENCY,
+    maximumFractionDigits = 1,
+  } = options;
+
+  return new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency,
+    notation: 'compact',
+    maximumFractionDigits,
+  }).format(numeric);
+}
+
 /** Percentage from an already-computed ratio, e.g. `formatPercent(0.184)` -> "18,4%". */
 export function formatPercent(
   value: Formattable,

@@ -53,6 +53,7 @@ import { z } from "zod";
 import { validateBody, validateParams, idParamSchema } from "./validate";
 import { resolveScope, scopeDenies, scopeStoreFilter } from "./scoping";
 import { getDashboardStats, getOrderTrend } from "./dashboard-stats";
+import { getStorePerformance } from "./store-performance";
 import {
   applyStockChange,
   recordOpeningStock,
@@ -2163,6 +2164,25 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Dashboard in one round trip: the tiles and the chart must agree, so they are read together
+  // under one scope resolution. The two endpoints below stay for compatibility (and for any
+  // bookmark that hits them directly), but the screen itself only calls this one.
+  app.get("/api/dashboard", requireAuth, async (req, res) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const scope = await resolveScope(user);
+      const [stats, trend] = await Promise.all([getDashboardStats(scope), getOrderTrend(scope)]);
+      res.json({ stats, trend });
+    } catch (error) {
+      console.error("Error fetching dashboard:", error);
+      res.status(500).json({ message: "Failed to fetch dashboard" });
+    }
+  });
+
   // Stats API - the dashboard tiles.
   //
   // `requireAuth`, not `users:read`: this is a dashboard aggregate, not user data, and a cashier
@@ -3365,80 +3385,13 @@ export function registerRoutes(app: Express): Server {
   // Store Performance API endpoints
   app.get("/api/stores/performance", requireAuth, async (req, res) => {
     try {
-      // Get current month's start and end dates
-      const currentMonthStart = new Date();
-      currentMonthStart.setDate(1);
-      currentMonthStart.setHours(0, 0, 0, 0);
-      const nextMonthStart = new Date(currentMonthStart);
-      nextMonthStart.setMonth(nextMonthStart.getMonth() + 1);
-      nextMonthStart.setHours(0, 0, 0, 0);
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
 
-      const startDate = currentMonthStart;
-      const endDate = nextMonthStart;
-
-      // Get performance metrics for each store
-      const storeMetrics = await db
-        .select({
-          storeId: stores.id,
-          storeName: stores.name,
-          totalSales: sql`sum(${orderItems.price} * ${orderItems.quantity})`,
-          orderCount: sql`count(distinct ${orders.id})`,
-          inventoryCount: sql`count(distinct ${inventory.id})`
-        })
-        .from(stores)
-        .leftJoin(orders, eq(orders.storeId, stores.id))
-        .leftJoin(orderItems, eq(orderItems.orderId, orders.id))
-        .leftJoin(inventory, eq(inventory.storeId, stores.id))
-        .where(
-          and(
-            gte(orders.createdAt, startDate),
-            lt(orders.createdAt, endDate)
-          )
-        )
-        .groupBy(stores.id, stores.name);
-
-      // Get historical performance data for trending
-      const historicalData = await db
-        .select({
-          storeId: stores.id,
-          month: sql<string>`date_trunc('month', ${orders.createdAt})::date`,
-          revenue: sql<number>`sum(${orders.total})`,
-          orderCount: sql<number>`count(distinct ${orders.id})`
-        })
-        .from(stores)
-        .leftJoin(orders, eq(orders.storeId, stores.id))
-        .where(
-          gte(
-            orders.createdAt,
-            sql`date_trunc('month', current_date - interval '6 months')`
-          )
-        )
-        .groupBy(stores.id, sql`date_trunc('month', ${orders.createdAt})`)
-        .orderBy(stores.id, sql`date_trunc('month', ${orders.createdAt})`);
-
-      // Get inventory status
-      const inventoryStatus = await db
-        .select({
-          storeId: stores.id,
-          totalItems: sql<number>`count(distinct ${inventory.productId})`,
-          lowStockItems: sql<number>`
-            count(distinct case
-              when ${inventory.quantity} <= ${products.minStock}
-              then ${inventory.productId}
-              else null
-            end)
-          `
-        })
-        .from(stores)
-        .leftJoin(inventory, eq(inventory.storeId, stores.id))
-        .leftJoin(products, eq(inventory.productId, products.id))
-        .groupBy(stores.id);
-
-      res.json({
-        currentMetrics: storeMetrics,
-        historicalData,
-        inventoryStatus
-      });
+      const scope = await resolveScope(user);
+      res.json(await getStorePerformance(scope));
     } catch (error) {
       console.error('Error fetching store performance:', error);
       res.status(500).json({
