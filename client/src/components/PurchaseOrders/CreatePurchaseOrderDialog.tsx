@@ -5,13 +5,19 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { PendingAttachmentPicker } from "@/components/attachments/AttachmentUploader";
 import { uploadAttachmentFiles } from "@/components/attachments/attachment-api";
 import { useToast } from "@/hooks/use-toast";
+import { usePermissions } from "@/hooks/use-permissions";
+import {
+  BACK_DATED_PURCHASE_ORDER_MESSAGE,
+  isBackDatedPurchaseOrderDate,
+  todayInVietnam,
+} from "@shared/purchase-order-dates";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 
 // Schema for the purchase order form
@@ -19,11 +25,14 @@ const purchaseOrderSchema = z.object({
   supplierId: z.string().min(1, "Supplier is required"),
   // AI Agent Note: destinationStoreId is mandatory for multiple DC support.
   destinationStoreId: z.string().min(1, "Destination Warehouse is required"),
-  deliveryDate: z.string().refine((date) => {
-    const deliveryDate = new Date(date);
-    const now = new Date();
-    return deliveryDate > now;
-  }, "Delivery date must be in the future"),
+  // AI Agent Note: the shape of the expected delivery date is all this checks. Whether a past
+  // date may be used is a permission question (administrators only - see
+  // shared/purchase-order-dates.ts), answered in `onSubmit` where the role is known; a schema
+  // built at module load cannot see the logged-in user.
+  deliveryDate: z
+    .string()
+    .min(1, "Delivery date is required")
+    .refine((date) => !Number.isNaN(new Date(date).getTime()), "Enter a valid delivery date"),
   notes: z.string().optional(),
   items: z.array(z.object({
     productId: z.string().min(1, "Product is required"),
@@ -69,6 +78,8 @@ export function CreatePurchaseOrderDialog() {
   const [documents, setDocuments] = useState<File[]>([]);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  // Back-dating an order is an administrator's call: the expected date drives the overdue report.
+  const { isAdmin } = usePermissions();
 
   // Set default delivery date to tomorrow
   const tomorrow = new Date();
@@ -184,6 +195,12 @@ export function CreatePurchaseOrderDialog() {
   });
 
   const onSubmit = (data: FormData) => {
+    // The server enforces the same rule (POST /api/purchase-orders); checking here turns a 403
+    // after the whole payload is built into an inline message next to the date field.
+    if (!isAdmin && isBackDatedPurchaseOrderDate(data.deliveryDate)) {
+      form.setError("deliveryDate", { message: BACK_DATED_PURCHASE_ORDER_MESSAGE });
+      return;
+    }
     createPurchaseOrder.mutate(data);
   };
 
@@ -287,9 +304,17 @@ export function CreatePurchaseOrderDialog() {
                     <Input
                       type="datetime-local"
                       {...field}
-                      min={new Date().toISOString().slice(0, 16)}
+                      // Everyone else can only pick from today on; an administrator may reach
+                      // back, because entering an order after the goods arrived is normal
+                      // bookkeeping. The API enforces the same boundary.
+                      min={isAdmin ? undefined : `${todayInVietnam()}T00:00`}
                     />
                   </FormControl>
+                  <FormDescription>
+                    {isAdmin
+                      ? "Past dates are allowed - use them when you are entering an order that was already delivered."
+                      : "Today or a later. Only an administrator can back-date a purchase order."}
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

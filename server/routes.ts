@@ -35,7 +35,11 @@ import {
 import { sql } from "drizzle-orm";
 import { eq, and, or, desc, gte, lt, isNull, gt } from "drizzle-orm";
 import { requireRole, requireAuth, requirePermission } from "./middleware";
-import { checkHierarchicalPermission } from "../shared/permissions";
+import { checkHierarchicalPermission, isAdminRole } from "../shared/permissions";
+import {
+  BACK_DATED_PURCHASE_ORDER_MESSAGE,
+  isBackDatedPurchaseOrderDate,
+} from "../shared/purchase-order-dates";
 import { normalizeDescriptionNewlines } from "@shared/product-description";
 import { importProducts } from "./product-import";
 import { importInventory } from "./inventory-import";
@@ -466,6 +470,17 @@ export function registerRoutes(app: Express): Server {
       }
 
       const { supplierId, destinationStoreId, deliveryDate, notes, items } = result.data;
+
+      // AI Agent Note: entering an order after the fact is bookkeeping, but it is the
+      // administrator's call - the expected date drives the register's overdue count and every
+      // goods receipt's "days late". The dialog hides the option for everyone else; this is the
+      // endpoint that actually enforces it (shared/purchase-order-dates.ts).
+      if (!isAdminRole(req.user?.role) && isBackDatedPurchaseOrderDate(deliveryDate)) {
+        return res.status(403).json({
+          message: BACK_DATED_PURCHASE_ORDER_MESSAGE,
+          suggestion: "Choose today or a later delivery date, or ask an administrator to enter the order",
+        });
+      }
 
       // Generate unique order number
       const orderNumber = generateOrderNumber();

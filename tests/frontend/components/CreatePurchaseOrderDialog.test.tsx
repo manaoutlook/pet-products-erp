@@ -1,13 +1,36 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CreatePurchaseOrderDialog } from '@/components/PurchaseOrders/CreatePurchaseOrderDialog';
+import {
+    BACK_DATED_PURCHASE_ORDER_MESSAGE as BACK_DATED_MESSAGE,
+    todayInVietnam,
+} from '@shared/purchase-order-dates';
 
 const { toastMock } = vi.hoisted(() => ({ toastMock: vi.fn() }));
 
 vi.mock('@/hooks/use-toast', () => ({
     useToast: () => ({ toast: toastMock, toasts: [], dismiss: vi.fn() }),
+}));
+
+/**
+ * Back-dating a purchase order is administrator-only. The tests run as an administrator unless a
+ * test says otherwise - the same convention SalesOrderFormDialog's tests use for its own
+ * role-dependent controls.
+ */
+const permissions = vi.hoisted(() => ({ isAdmin: true }));
+
+vi.mock('@/hooks/use-permissions', () => ({
+    usePermissions: () => ({
+        isAdmin: permissions.isAdmin,
+        hasPermission: () => true,
+        can: () => true,
+        getModulePermissions: () => null,
+        getAllowedModules: () => [],
+        role: undefined,
+        isLoading: false,
+    }),
 }));
 
 // cmdk and floating-ui measure their panels, and cmdk scrolls the active item into view.
@@ -22,6 +45,14 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
 }
 if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
     Element.prototype.scrollIntoView = function scrollIntoView() {};
+}
+// Radix's Select captures the pointer on open; jsdom/happy-dom do not implement the capture API.
+if (typeof Element !== 'undefined') {
+    for (const method of ['hasPointerCapture', 'setPointerCapture', 'releasePointerCapture'] as const) {
+        if (!(Element.prototype as any)[method]) {
+            (Element.prototype as any)[method] = () => false;
+        }
+    }
 }
 
 /**
@@ -140,5 +171,142 @@ describe('CreatePurchaseOrderDialog product picker', () => {
         await user.type(search, 'zzzz-no-such-product');
 
         expect(await screen.findByText('No products found.')).toBeTruthy();
+    });
+});
+
+/**
+ * Back-dated purchase orders.
+ *
+ * Orders are routinely typed in after the fact - the paper invoice reaches the office days after
+ * the goods do - so a past expected delivery date has to be accepted. The register flags it as
+ * overdue; it is not an input error. It is, however, an administrator's call: the expected date is
+ * what the register reports as overdue and what every goods receipt is measured against, so the
+ * dialog refuses it for everyone else (and `POST /api/purchase-orders` enforces the same rule).
+ */
+describe('CreatePurchaseOrderDialog back-dated orders', () => {
+    afterEach(() => {
+        cleanup();
+        toastMock.mockClear();
+        vi.unstubAllGlobals();
+        permissions.isAdmin = true;
+    });
+
+    const dialog = () => screen.getByRole('dialog');
+    const deliveryDateInput = () =>
+        screen.getByLabelText(/expected delivery date/i) as HTMLInputElement;
+    const submittedBody = () => {
+        const call = vi
+            .mocked(fetch)
+            .mock.calls.find(
+                ([url, init]) =>
+                    String(url) === '/api/purchase-orders' &&
+                    (init as RequestInit | undefined)?.method === 'POST'
+            );
+        return call ? JSON.parse(String((call[1] as RequestInit).body)) : null;
+    };
+
+    /**
+     * Picks an entry from one of the Radix selects. The trigger also renders a hidden native
+     * `<option>` carrying the same label (form compatibility), so the click is scoped to the
+     * listbox rather than matched document-wide.
+     */
+    async function chooseOption(
+        user: ReturnType<typeof userEvent.setup>,
+        label: string
+    ): Promise<void> {
+        const listbox = await screen.findByRole('listbox');
+        await user.click(await within(listbox).findByText(label));
+    }
+
+    async function fillOrder(user: ReturnType<typeof userEvent.setup>, date: string) {
+        await user.click(screen.getByRole('button', { name: /create purchase order/i }));
+
+        await user.click(screen.getByRole('combobox', { name: /supplier/i }));
+        await chooseOption(user, 'Langwei Technology (ningbo) Co., Ltd.');
+
+        await user.click(screen.getByRole('combobox', { name: /destination warehouse/i }));
+        await chooseOption(user, 'Mana House');
+
+        await user.type(screen.getByPlaceholderText('Quantity'), '3');
+
+        // The product picker is a popover: opening it dismisses anything else that is open, so it
+        // is filled last and its search box is only found after the catalogue has rendered.
+        await user.click(screen.getByRole('combobox', { name: /product 1/i }));
+        const search = await screen.findByPlaceholderText('Search by name or SKU...');
+        await screen.findByText(products[0].name);
+        await user.type(search, 'RC-AD-2');
+        await user.click(await screen.findByText('Royal Canin Adult 2kg'));
+
+        // `datetime-local` inputs are driven with a change event: typing digit by digit leaves
+        // the browser's own date mask half-filled.
+        fireEvent.change(deliveryDateInput(), { target: { value: date } });
+    }
+
+    /**
+     * Submits the dialog.
+     *
+     * AI Agent Note: happy-dom does not perform implicit form submission when a `<button
+     * type="submit">` is clicked (the same reason SalesOrderFormDialog fires the event), so the
+     * submit event is dispatched directly.
+     */
+    function submitForm() {
+        fireEvent.submit(dialog().querySelector('form') as HTMLFormElement);
+    }
+
+    it('submits a purchase order whose expected delivery date is in the past', async () => {
+        const { user } = setup();
+        await fillOrder(user, '2025-01-15T10:00');
+
+        // An administrator is offered the whole calendar, and the hint says why.
+        expect(deliveryDateInput()).not.toHaveAttribute('min');
+        expect(screen.getByText(/past dates are allowed/i)).toBeTruthy();
+
+        submitForm();
+
+        await waitFor(() => expect(submittedBody()).toBeTruthy());
+        expect(submittedBody().deliveryDate).toBe(
+            new Date('2025-01-15T10:00').toISOString()
+        );
+        expect(screen.queryByText(/must be in the future/i)).toBeNull();
+        expect(screen.queryByText('Enter a valid delivery date')).toBeNull();
+    });
+
+    it('refuses a back-dated order from a user who is not an administrator', async () => {
+        permissions.isAdmin = false;
+
+        const { user } = setup();
+        await fillOrder(user, '2025-01-15T10:00');
+
+        // The picker is limited to today onwards rather than merely rejecting the save.
+        expect(deliveryDateInput()).toHaveAttribute('min', `${todayInVietnam()}T00:00`);
+        expect(screen.getByText(/only an administrator can back-date/i)).toBeTruthy();
+
+        submitForm();
+
+        expect(await screen.findByText(BACK_DATED_MESSAGE)).toBeTruthy();
+        expect(submittedBody()).toBeNull();
+    });
+
+    it('lets a user who is not an administrator order for today', async () => {
+        permissions.isAdmin = false;
+
+        const { user } = setup();
+        await fillOrder(user, `${todayInVietnam()}T08:00`);
+
+        submitForm();
+
+        await waitFor(() => expect(submittedBody()).toBeTruthy());
+        expect(screen.queryByText(BACK_DATED_MESSAGE)).toBeNull();
+    });
+
+    it('still requires a delivery date', async () => {
+        const { user } = setup();
+        await user.click(screen.getByRole('button', { name: /create purchase order/i }));
+
+        fireEvent.change(deliveryDateInput(), { target: { value: '' } });
+        submitForm();
+
+        expect(await screen.findByText('Delivery date is required')).toBeTruthy();
+        expect(submittedBody()).toBeNull();
     });
 });
