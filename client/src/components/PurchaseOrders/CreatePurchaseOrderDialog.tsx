@@ -212,12 +212,15 @@ export function CreatePurchaseOrderDialog() {
           Create Purchase Order
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Create Purchase Order</DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            {/* Two columns: the four header fields are short, and stacking them pushed Items and the
+                pictures below the fold. Falls back to one column on a narrow screen. */}
+            <div className="grid gap-4 sm:grid-cols-2">
             <FormField
               control={form.control}
               name="supplierId"
@@ -306,6 +309,8 @@ export function CreatePurchaseOrderDialog() {
               )}
             />
 
+            </div>
+
             <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <h3 className="text-lg font-medium">Items</h3>
@@ -331,7 +336,10 @@ export function CreatePurchaseOrderDialog() {
                     control={form.control}
                     name={`items.${index}.productId`}
                     render={({ field }) => (
-                      <FormItem className="flex-1">
+                      // The product name is the long value in this row, so it takes twice the width
+                      // of the two numbers beside it - that is what stops every row reading
+                      // "SmartLif... PW...".
+                      <FormItem className="min-w-0 flex-[2]">
                         <FormControl>
                           <SearchableSelect
                             value={field.value || null}
