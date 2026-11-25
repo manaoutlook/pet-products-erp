@@ -19,11 +19,13 @@ import {
   FinanceError,
   createFinanceEntry,
   createFinancePartner,
+  deleteFinancePartner,
   financeSummary,
   getFinanceEntry,
   listFinanceEntries,
   listFinancePartners,
   updateFinanceEntry,
+  updateFinancePartner,
   voidFinanceEntry,
 } from '../../../server/finance';
 
@@ -527,6 +529,102 @@ describe('financial accounts', () => {
 
     const partners = await listFinancePartners();
     expect(partners.partners[0].balance).toBe(0);
+  });
+
+  it('renames a partner without moving their money', async () => {
+    const partner = await createFinancePartner({
+      name: 'Le Van Gop',
+      phone: '0909000111',
+      createdByUserId: data.users.admin.id,
+    });
+
+    await postEntry({
+      entryType: 'partner_deposit',
+      category: 'Partner capital',
+      description: 'Initial capital',
+      amount: 5000000,
+      partnerId: partner.id,
+      fundingKind: 'capital',
+    });
+
+    const renamed = await updateFinancePartner({
+      partnerId: partner.id,
+      name: 'Le Van Gop (HCMC)',
+      phone: '0909000222',
+      notes: 'Capital partner',
+    });
+
+    // Only the label moves: the deposit is still theirs and still counts.
+    expect(renamed.name).toBe('Le Van Gop (HCMC)');
+    expect(renamed.phone).toBe('0909000222');
+    expect(renamed.notes).toBe('Capital partner');
+    expect(renamed.deposits).toBe(5000000);
+    expect(renamed.withdrawals).toBe(0);
+    expect(renamed.balance).toBe(5000000);
+
+    const partners = await listFinancePartners();
+    expect(partners.partners).toHaveLength(1);
+    expect(partners.partners[0].name).toBe('Le Van Gop (HCMC)');
+    expect(partners.totals.balance).toBe(5000000);
+
+    // The name stays unique, exactly like adding one.
+    await createFinancePartner({ name: 'Nguyen Van B', createdByUserId: data.users.admin.id });
+    const clash = await updateFinancePartner({
+      partnerId: partner.id,
+      name: 'Nguyen Van B',
+    }).catch((error) => error);
+    expect(clash).toBeInstanceOf(FinanceError);
+    expect((clash as FinanceError).status).toBe(409);
+
+    const missing = await updateFinancePartner({ partnerId: 999999, name: 'Nobody' }).catch(
+      (error) => error
+    );
+    expect(missing).toBeInstanceOf(FinanceError);
+    expect((missing as FinanceError).status).toBe(404);
+  });
+
+  it('deletes a partner only once their money has left the company', async () => {
+    const partner = await createFinancePartner({
+      name: 'Pham Thi Gop',
+      createdByUserId: data.users.admin.id,
+    });
+
+    const deposit = await postEntry({
+      entryType: 'partner_deposit',
+      category: 'Partner capital',
+      description: 'Initial capital',
+      amount: 3000000,
+      partnerId: partner.id,
+      fundingKind: 'capital',
+    });
+
+    // 3,000,000 of theirs is still in the company, so deleting them would silently write it off.
+    const refused = await deleteFinancePartner(partner.id).catch((error) => error);
+    expect(refused).toBeInstanceOf(FinanceError);
+    expect((refused as FinanceError).status).toBe(409);
+    expect((refused as FinanceError).message).toContain('still has money in the company');
+    expect((await listFinancePartners()).partners).toHaveLength(1);
+
+    // Voiding the deposit takes the money out of every total; the partner can then go, and the
+    // voided row goes with them - it still points at the partner through `partner_id`.
+    await voidFinanceEntry({
+      entryId: deposit.id,
+      voidedByUserId: data.users.admin.id,
+      reason: 'Typed twice',
+    });
+
+    const deleted = await deleteFinancePartner(partner.id);
+    expect(deleted.name).toBe('Pham Thi Gop');
+    expect(deleted.deletedEntries).toEqual([deposit.entryNumber]);
+
+    const partners = await listFinancePartners();
+    expect(partners.partners).toHaveLength(0);
+    expect(partners.totals.balance).toBe(0);
+    expect((await listFinanceEntries()).entries).toHaveLength(0);
+
+    const missing = await deleteFinancePartner(partner.id).catch((error) => error);
+    expect(missing).toBeInstanceOf(FinanceError);
+    expect((missing as FinanceError).status).toBe(404);
   });
 
   it('rejects an entry without a category, a description or a real date', async () => {

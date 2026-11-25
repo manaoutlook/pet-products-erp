@@ -1,5 +1,6 @@
 import { db } from "@db";
 import {
+  attachments,
   financeEntries,
   financePartners,
   invoicePayments,
@@ -7,8 +8,9 @@ import {
   purchaseOrders,
   suppliers,
 } from "@db/schema";
-import { and, desc, eq, gte, ilike, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import type { DbClient } from "./db-types";
+import { deleteAttachmentFile } from "./attachment-files";
 import { generateFinanceEntryNumber } from "./finance-counter";
 import {
   AGING_BUCKETS,
@@ -594,6 +596,134 @@ export async function createFinancePartner(input: {
     }
     throw error;
   }
+}
+
+/**
+ * Correct a partner's details (name, phone, notes).
+ *
+ * The money rows are never touched, so no total moves: only who the deposits belong to is
+ * restated. The name stays unique, so renaming onto an existing partner is a 409 like adding one.
+ */
+export async function updateFinancePartner(input: {
+  partnerId: number;
+  name: string;
+  phone?: string | null;
+  notes?: string | null;
+}) {
+  const name = input.name?.trim();
+  if (!name) throw new FinanceError("Enter the partner's name", 400);
+
+  let partner: typeof financePartners.$inferSelect | undefined;
+
+  try {
+    [partner] = await db
+      .update(financePartners)
+      .set({
+        name,
+        phone: input.phone?.trim() || null,
+        notes: input.notes?.trim() || null,
+        updatedAt: new Date(),
+      })
+      .where(eq(financePartners.id, input.partnerId))
+      .returning();
+  } catch (error) {
+    if ((error as { code?: string }).code === "23505") {
+      throw new FinanceError("A partner with this name already exists", 409);
+    }
+    throw error;
+  }
+
+  if (!partner) throw new FinanceError("Partner not found", 404);
+
+  const [totals] = await partnerTotals(db, partner.id);
+  const deposits = numberOf(totals?.deposits);
+  const withdrawals = numberOf(totals?.withdrawals);
+
+  return {
+    ...partner,
+    deposits,
+    withdrawals,
+    balance: partnerBalanceOf(deposits, withdrawals),
+  };
+}
+
+/**
+ * Delete a partner - administrators only, and only once none of their money is in the company.
+ *
+ * The balance is derived, so "nothing left" means the posted deposits and withdrawals net to
+ * zero (or there are none). A partner who still holds capital is refused with a 409: deleting
+ * them would take money off the report that nobody agreed to write off. Void the deposits or
+ * record the settling withdrawal first, then the partner can go.
+ *
+ * Once the balance is zero the partner's own rows go with them in one transaction - a voided
+ * deposit still points at the partner through `finance_entries.partner_id`, so leaving it behind
+ * would break that foreign key - and the voucher pictures attached to those entries are deleted
+ * from disk afterwards, mirroring `scripts/delete-purchase-order.ts`.
+ */
+export async function deleteFinancePartner(partnerId: number) {
+  const files: string[] = [];
+
+  const deleted = await db.transaction(async (tx) => {
+    const [partner] = await tx
+      .select()
+      .from(financePartners)
+      .where(eq(financePartners.id, partnerId))
+      .for("update");
+
+    if (!partner) throw new FinanceError("Partner not found", 404);
+
+    const [totals] = await partnerTotals(tx, partner.id);
+    const deposits = numberOf(totals?.deposits);
+    const withdrawals = numberOf(totals?.withdrawals);
+    const balance = partnerBalanceOf(deposits, withdrawals);
+
+    if (balance !== 0) {
+      throw new FinanceError(
+        `${partner.name} still has money in the company`,
+        409,
+        "Record the withdrawal that settles it, or void their deposits, and delete the partner once the balance is zero."
+      );
+    }
+
+    const entries = await tx
+      .select({ id: financeEntries.id, entryNumber: financeEntries.entryNumber })
+      .from(financeEntries)
+      .where(eq(financeEntries.partnerId, partner.id));
+
+    const entryIds = entries.map((entry) => entry.id);
+    if (entryIds.length > 0) {
+      const attached = await tx
+        .select({ url: attachments.url })
+        .from(attachments)
+        .where(
+          and(eq(attachments.entityType, "finance_entry"), inArray(attachments.entityId, entryIds))
+        );
+
+      files.push(...attached.map((file) => file.url));
+
+      await tx
+        .delete(attachments)
+        .where(
+          and(eq(attachments.entityType, "finance_entry"), inArray(attachments.entityId, entryIds))
+        );
+      await tx.delete(financeEntries).where(inArray(financeEntries.id, entryIds));
+    }
+
+    await tx.delete(financePartners).where(eq(financePartners.id, partner.id));
+
+    return {
+      id: partner.id,
+      name: partner.name,
+      deletedEntries: entries.map((entry) => entry.entryNumber),
+    };
+  });
+
+  // The rows are gone; the pictures would otherwise sit on disk as orphans.
+  await Promise.all(
+    files.map((url) => deleteAttachmentFile(url).catch(() => undefined))
+  );
+
+  return deleted;
 }
 
 /**

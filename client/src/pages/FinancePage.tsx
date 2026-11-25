@@ -49,6 +49,7 @@ import {
   Printer,
   RefreshCw,
   ShoppingCart,
+  Trash2,
   Users,
   Wallet,
 } from "lucide-react";
@@ -88,7 +89,8 @@ import { vietnamDayOf } from "@shared/vietnam-day";
  *              add their own "Supplier purchases" entry when created. Rows are never edited or
  *              deleted: a mistake is voided with a reason and stays visible. The tab links to the
  *              receipts register, because till sales deliberately do not appear here.
- *   Partners - who has money in the company, and how much of it is still there.
+ *   Partners - who has money in the company, and how much of it is still there. An administrator
+ *              can correct a partner's details, or delete them once their balance is zero.
  *
  * Invoice receipts are NOT recorded here. They belong to Receivables; this page only reads them
  * into the report, so a receipt voided there leaves income immediately. The "Money in" figure and
@@ -471,9 +473,14 @@ function FinancePage() {
   const [form, setForm] = useState<EntryFormState>(emptyEntryForm());
 
   const [partnerDialogOpen, setPartnerDialogOpen] = useState(false);
+  /** The partner being corrected; null while registering a new one. */
+  const [editingPartner, setEditingPartner] = useState<FinancePartnerRow | null>(null);
   const [partnerName, setPartnerName] = useState("");
   const [partnerPhone, setPartnerPhone] = useState("");
   const [partnerNotes, setPartnerNotes] = useState("");
+
+  /** The partner waiting to be deleted; null while the confirm dialog is closed. */
+  const [deletingPartner, setDeletingPartner] = useState<FinancePartnerRow | null>(null);
 
   const [voiding, setVoiding] = useState<FinanceEntryRow | null>(null);
   const [voidReason, setVoidReason] = useState("");
@@ -650,31 +657,109 @@ function FinancePage() {
     },
   });
 
+  /** Open the partner dialog empty (new partner) or filled in (correcting one). */
+  const openPartnerDialog = (partner: FinancePartnerRow | null = null) => {
+    setEditingPartner(partner);
+    setPartnerName(partner?.name ?? "");
+    setPartnerPhone(partner?.phone ?? "");
+    setPartnerNotes(partner?.notes ?? "");
+    setPartnerDialogOpen(true);
+  };
+
+  const closePartnerDialog = () => {
+    setPartnerDialogOpen(false);
+    setEditingPartner(null);
+    setPartnerName("");
+    setPartnerPhone("");
+    setPartnerNotes("");
+  };
+
+  const partnerPayload = () => ({
+    name: partnerName.trim(),
+    phone: partnerPhone.trim() || null,
+    notes: partnerNotes.trim() || null,
+  });
+
   const createPartner = useMutation({
     mutationFn: async () => {
       const response = await fetch("/api/finance/partners", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          name: partnerName.trim(),
-          phone: partnerPhone.trim() || null,
-          notes: partnerNotes.trim() || null,
-        }),
+        body: JSON.stringify(partnerPayload()),
       });
       return readJson(response);
     },
     onSuccess: (result: { partner: FinancePartnerRow }) => {
       toast({ title: `${result.partner.name} added`, variant: "success" });
-      setPartnerDialogOpen(false);
-      setPartnerName("");
-      setPartnerPhone("");
-      setPartnerNotes("");
+      closePartnerDialog();
       refreshMoney();
     },
     onError: (error: Error & { suggestion?: string }) => {
       toast({
         title: "The partner was not added",
+        description: error.suggestion ? `${error.message} - ${error.suggestion}` : error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  /** Correct a partner's details. PATCH: the money rows stay, only the label changes. */
+  const updatePartner = useMutation({
+    mutationFn: async () => {
+      if (!editingPartner) throw new Error("Choose a partner to edit");
+      const response = await fetch(`/api/finance/partners/${editingPartner.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(partnerPayload()),
+      });
+      return readJson(response);
+    },
+    onSuccess: (result: { partner: FinancePartnerRow }) => {
+      toast({ title: `${result.partner.name} updated`, variant: "success" });
+      closePartnerDialog();
+      refreshMoney();
+    },
+    onError: (error: Error & { suggestion?: string }) => {
+      toast({
+        title: "The partner was not updated",
+        description: error.suggestion ? `${error.message} - ${error.suggestion}` : error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  /**
+   * Delete a partner. The API refuses while their balance is not zero, so the dialog says what is
+   * still held rather than hiding the button - the administrator sees why it cannot go yet.
+   */
+  const deletePartner = useMutation({
+    mutationFn: async () => {
+      if (!deletingPartner) throw new Error("Choose a partner to delete");
+      const response = await fetch(`/api/finance/partners/${deletingPartner.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      return readJson(response);
+    },
+    onSuccess: (result: { name: string; deletedEntries: string[] }) => {
+      toast({
+        title: `${result.name} deleted`,
+        description:
+          result.deletedEntries.length > 0
+            ? `${result.deletedEntries.length} money entr${
+                result.deletedEntries.length === 1 ? "y" : "ies"
+              } recorded for them went too.`
+            : "They had no money entries left in the book.",
+        variant: "success",
+      });
+      setDeletingPartner(null);
+      refreshMoney();
+    },
+    onError: (error: Error & { suggestion?: string }) => {
+      toast({
+        title: "The partner was not deleted",
         description: error.suggestion ? `${error.message} - ${error.suggestion}` : error.message,
         variant: "destructive",
       });
@@ -1596,7 +1681,7 @@ function FinancePage() {
               </p>
             </div>
             {canCreate ? (
-              <Button onClick={() => setPartnerDialogOpen(true)}>
+              <Button onClick={() => openPartnerDialog()}>
                 <Plus className="mr-2 h-4 w-4" />
                 New partner
               </Button>
@@ -1641,7 +1726,7 @@ function FinancePage() {
                   </p>
                 </div>
               ) : (
-                <Table className="min-w-[720px]">
+                <Table className="min-w-[860px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Partner</TableHead>
@@ -1650,6 +1735,7 @@ function FinancePage() {
                       <TableHead className="text-right">Withdrawn</TableHead>
                       <TableHead className="text-right">Balance</TableHead>
                       <TableHead>Notes</TableHead>
+                      {canEdit ? <TableHead className="text-right">Actions</TableHead> : null}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1676,6 +1762,31 @@ function FinancePage() {
                         <TableCell className="max-w-[240px] text-xs text-muted-foreground">
                           {partner.notes ?? "-"}
                         </TableCell>
+                        {canEdit ? (
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                aria-label={`Edit partner ${partner.name}`}
+                                onClick={() => openPartnerDialog(partner)}
+                              >
+                                <Pencil className="mr-1 h-4 w-4" />
+                                Edit
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive hover:text-destructive"
+                                aria-label={`Delete partner ${partner.name}`}
+                                onClick={() => setDeletingPartner(partner)}
+                              >
+                                <Trash2 className="mr-1 h-4 w-4" />
+                                Delete
+                              </Button>
+                            </div>
+                          </TableCell>
+                        ) : null}
                       </TableRow>
                     ))}
                   </TableBody>
@@ -1940,13 +2051,24 @@ function FinancePage() {
       </Dialog>
 
 
-      {/* ----------------------------------------------------------- New partner */}
-      <Dialog open={partnerDialogOpen} onOpenChange={setPartnerDialogOpen}>
+      {/* ------------------------------------------------- New partner / correct one */}
+      <Dialog
+        open={partnerDialogOpen}
+        onOpenChange={(open) => {
+          if (open) {
+            setPartnerDialogOpen(true);
+          } else {
+            closePartnerDialog();
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Add a partner</DialogTitle>
+            <DialogTitle>{editingPartner ? `Edit ${editingPartner.name}` : "Add a partner"}</DialogTitle>
             <DialogDescription>
-              A partner is someone whose money the company holds - capital or a loan.
+              {editingPartner
+                ? "Correct the name, phone or notes. The money already recorded for them stays exactly as it is."
+                : "A partner is someone whose money the company holds - capital or a loan."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -1980,15 +2102,73 @@ function FinancePage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPartnerDialogOpen(false)}>
+            <Button variant="outline" onClick={closePartnerDialog}>
               Cancel
             </Button>
             <Button
-              onClick={() => createPartner.mutate()}
-              disabled={partnerName.trim() === "" || createPartner.isPending}
+              onClick={() => (editingPartner ? updatePartner.mutate() : createPartner.mutate())}
+              disabled={
+                partnerName.trim() === "" || createPartner.isPending || updatePartner.isPending
+              }
             >
-              {createPartner.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Add partner
+              {createPartner.isPending || updatePartner.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              {editingPartner ? "Save changes" : "Add partner"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* --------------------------------------------------------- Delete partner */}
+      <Dialog
+        open={deletingPartner !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeletingPartner(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete {deletingPartner?.name ?? "this partner"}?</DialogTitle>
+            <DialogDescription>
+              Deleting removes the partner and any money entries recorded for them. It only works
+              once their balance is zero - money the company still holds cannot be deleted off the
+              report, so void their deposits or record the settling withdrawal first.
+            </DialogDescription>
+          </DialogHeader>
+
+          {deletingPartner ? (
+            <div className="space-y-2 rounded-lg border bg-muted/40 p-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Deposited</span>
+                <span className="font-medium text-success">
+                  {formatCurrency(deletingPartner.deposits)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Withdrawn</span>
+                <span className="font-medium text-destructive">
+                  {formatCurrency(deletingPartner.withdrawals)}
+                </span>
+              </div>
+              <div className="flex justify-between border-t pt-2">
+                <span className="text-muted-foreground">Still in the company</span>
+                <span className="font-semibold">{formatCurrency(deletingPartner.balance)}</span>
+              </div>
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletingPartner(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deletePartner.mutate()}
+              disabled={deletePartner.isPending}
+            >
+              {deletePartner.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Delete partner
             </Button>
           </DialogFooter>
         </DialogContent>

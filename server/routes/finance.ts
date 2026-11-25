@@ -8,11 +8,13 @@ import {
   FinanceError,
   createFinanceEntry,
   createFinancePartner,
+  deleteFinancePartner,
   financeSummary,
   getFinanceEntry,
   listFinanceEntries,
   listFinancePartners,
   updateFinanceEntry,
+  updateFinancePartner,
   voidFinanceEntry,
 } from "../finance";
 import { listInvoices } from "../invoices";
@@ -32,6 +34,8 @@ import { resolveScope, scopeStoreIds } from "../scoping";
  * POST /api/finance/entries/:id/void - void an entry (reason required, row kept)
  * GET  /api/finance/partners    - partners with their live capital balance
  * POST /api/finance/partners    - add a partner
+ * PATCH /api/finance/partners/:id - correct a partner's details (administrators only)
+ * DELETE /api/finance/partners/:id - delete a partner whose balance is zero (administrators only)
  *
  * Money received against an invoice is NOT posted here: `/api/invoices/:id/payments` (Receivables)
  * owns that stream and the report reads it from `invoice_payments`.
@@ -402,6 +406,52 @@ export function registerFinanceRoutes(app: Express) {
         return res.status(201).json({ partner });
       } catch (error) {
         return respondWithError(res, error, "Failed to add the partner");
+      }
+    }
+  );
+
+  /**
+   * Correct a partner's details. Administrators only, like correcting an entry: the name is what
+   * every past deposit is reported under, so it is not a clerk's call.
+   */
+  app.patch(
+    "/api/finance/partners/:id",
+    requireAuth,
+    requireAdmin,
+    requirePermission("finance", "update"),
+    validateParams(idParamSchema),
+    validateBody(createPartnerBodySchema, "Enter the partner's name"),
+    async (req, res) => {
+      try {
+        const { id } = req.params as unknown as z.infer<typeof idParamSchema>;
+        const body = req.body as z.infer<typeof createPartnerBodySchema>;
+        const partner = await updateFinancePartner({ partnerId: id, ...body });
+        return res.json({ partner, message: "Partner updated" });
+      } catch (error) {
+        return respondWithError(res, error, "Failed to update the partner");
+      }
+    }
+  );
+
+  /**
+   * Delete a partner. Administrators only, and the service refuses while their balance is not
+   * zero - money the owner is holding cannot be deleted off the report by accident.
+   */
+  app.delete(
+    "/api/finance/partners/:id",
+    requireAuth,
+    requireAdmin,
+    requirePermission("finance", "update"),
+    validateParams(idParamSchema),
+    async (req, res) => {
+      try {
+        const { id } = req.params as unknown as z.infer<typeof idParamSchema>;
+        return res.json({
+          ...(await deleteFinancePartner(id)),
+          message: "Partner deleted",
+        });
+      } catch (error) {
+        return respondWithError(res, error, "Failed to delete the partner");
       }
     }
   );

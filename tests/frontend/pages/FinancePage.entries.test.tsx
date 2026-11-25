@@ -118,6 +118,18 @@ const json = (data: unknown) => ({
     text: async () => JSON.stringify(data),
 });
 
+/**
+ * Currency in the DOM is formatted by `Intl`, which separates the amount from the symbol with a
+ * narrow no-break space. Build a matcher that accepts any gap between the parts.
+ */
+function money(value: number) {
+    const escaped = formatCurrency(value)
+        .split(/[\s\u00A0\u202F]+/)
+        .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join('[\\s\\u00A0\\u202F]*');
+    return new RegExp(`^${escaped}$`);
+}
+
 type FetchStub = ReturnType<typeof vi.fn>;
 
 function renderEntries(
@@ -145,8 +157,12 @@ function renderEntries(
     const stub = vi.fn(async (url: string, init?: RequestInit) => {
         const path = String(url).split('?')[0];
 
-        // POST creates, PATCH corrects - both go through the same stub so a test can tell them apart.
-        if ((init?.method === 'POST' || init?.method === 'PATCH') && options.onPost) {
+        // POST creates, PATCH corrects and DELETE removes - all go through the same stub so a
+        // test can tell them apart.
+        if (
+            (init?.method === 'POST' || init?.method === 'PATCH' || init?.method === 'DELETE') &&
+            options.onPost
+        ) {
             return json(
                 options.onPost(
                     path,
@@ -479,6 +495,99 @@ describe('FinancePage - correcting an entry', () => {
         expect(screen.queryByRole('button', { name: /edit entry/i })).not.toBeInTheDocument();
         // Voiding stays available: finance update is enough to reverse a mistake, not rewrite it.
         expect(screen.getAllByRole('button', { name: /void/i }).length).toBeGreaterThan(0);
+    });
+});
+
+describe('FinancePage - correcting and deleting a partner', () => {
+    it('opens the partner dialog filled in and saves with PATCH', async () => {
+        const patches: { path: string; body: Record<string, unknown> }[] = [];
+        renderEntries({
+            onPost: (path, body, method) => {
+                patches.push({ path, body: body as Record<string, unknown> });
+                return { partner: { ...partner, name: 'Nguyen Van Gop (HCMC)' } };
+            },
+        });
+
+        const user = userEvent.setup();
+        await user.click(await screen.findByRole('tab', { name: /partners/i }));
+        await user.click(
+            await screen.findByRole('button', { name: /edit partner nguyen van gop/i }),
+        );
+
+        const dialog = await screen.findByRole('dialog');
+        expect(within(dialog).getByText('Edit Nguyen Van Gop')).toBeInTheDocument();
+        // The form starts from the row, so only what is wrong has to be retyped.
+        expect(within(dialog).getByLabelText('Name')).toHaveValue('Nguyen Van Gop');
+        expect(within(dialog).getByLabelText('Phone')).toHaveValue('0900000000');
+        expect(within(dialog).getByLabelText('Notes')).toHaveValue('Founding partner');
+
+        const name = within(dialog).getByLabelText('Name');
+        await user.clear(name);
+        await user.type(name, 'Nguyen Van Gop (HCMC)');
+        await user.click(within(dialog).getByRole('button', { name: /save changes/i }));
+
+        await waitFor(() => expect(patches).toHaveLength(1));
+        expect(patches[0]).toMatchObject({
+            path: '/api/finance/partners/1',
+            body: {
+                name: 'Nguyen Van Gop (HCMC)',
+                phone: '0900000000',
+                notes: 'Founding partner',
+            },
+        });
+        await waitFor(() =>
+            expect(mocks.toast).toHaveBeenCalledWith(
+                expect.objectContaining({ title: 'Nguyen Van Gop (HCMC) updated' }),
+            ),
+        );
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    });
+
+    it('deletes a partner only after the administrator confirms', async () => {
+        const requests: { path: string; method?: string }[] = [];
+        renderEntries({
+            onPost: (path, _body, method) => {
+                requests.push({ path, method });
+                return { id: 1, name: 'Nguyen Van Gop', deletedEntries: ['FIN-20261119-0003'] };
+            },
+        });
+
+        const user = userEvent.setup();
+        await user.click(await screen.findByRole('tab', { name: /partners/i }));
+        await user.click(
+            await screen.findByRole('button', { name: /delete partner nguyen van gop/i }),
+        );
+
+        const dialog = await screen.findByRole('dialog');
+        expect(within(dialog).getByText('Delete Nguyen Van Gop?')).toBeInTheDocument();
+        // The money still held is laid out, so a refusal from the API is never a surprise.
+        expect(within(dialog).getByText(money(partner.deposits))).toBeInTheDocument();
+        expect(within(dialog).getByText(money(partner.balance))).toBeInTheDocument();
+
+        await user.click(within(dialog).getByRole('button', { name: /^delete partner$/i }));
+
+        await waitFor(() => expect(requests).toHaveLength(1));
+        expect(requests[0]).toEqual({ path: '/api/finance/partners/1', method: 'DELETE' });
+        await waitFor(() =>
+            expect(mocks.toast).toHaveBeenCalledWith(
+                expect.objectContaining({ title: 'Nguyen Van Gop deleted' }),
+            ),
+        );
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    });
+
+    it('hides partner edit and delete from a bookkeeper without the administrator role', async () => {
+        mocks.isAdmin.value = false;
+        renderEntries();
+
+        const user = userEvent.setup();
+        await user.click(await screen.findByRole('tab', { name: /partners/i }));
+        expect(await screen.findByText('0900000000')).toBeInTheDocument();
+
+        expect(screen.queryByRole('button', { name: /edit partner/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /delete partner/i })).not.toBeInTheDocument();
+        // Adding a partner stays a create-permission action, not an administrator one.
+        expect(screen.getByRole('button', { name: /new partner/i })).toBeInTheDocument();
     });
 });
 
