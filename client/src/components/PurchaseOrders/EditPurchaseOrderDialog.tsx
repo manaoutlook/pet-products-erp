@@ -181,6 +181,7 @@ export function EditPurchaseOrderDialog({ order }: EditPurchaseOrderDialogProps)
       toast({
         title: "Nothing to save",
         description: "Change the order date, the expected delivery date or the note first",
+        variant: "destructive",
       });
       return;
     }
