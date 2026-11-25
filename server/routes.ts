@@ -838,10 +838,10 @@ export function registerRoutes(app: Express): Server {
   /*
    * Correct the dates of an order that already exists.
    *
-   * There is no edit screen in the app for a purchase order - the actions row can only move it
-   * through its life (print, invoice, payment, receipt, cancel). The date, however, is entered by
-   * hand and is regularly wrong (the order was placed on the phone on Monday and typed in on
-   * Thursday), so this is the one field that can be corrected afterwards.
+   * There is no full edit screen for a purchase order - the supplier, the lines and the amounts are
+   * priced once and the goods receipts depend on them. The date, however, is entered by hand and is
+   * regularly wrong (the order was placed on the phone on Monday and typed in on Thursday), so the
+   * two dates and the note can be corrected from the pencil in the actions row.
    *
    * Two dates, two meanings: `orderDate` is when the order was placed and drives the Finance
    * period of the expense the order posted, while `deliveryDate` is the date the supplier
