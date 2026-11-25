@@ -1,6 +1,13 @@
 import { db } from "@db";
-import { financeEntries, financePartners, invoicePayments, invoices } from "@db/schema";
-import { and, desc, eq, gte, ilike, isNull, lte, or, sql } from "drizzle-orm";
+import {
+  financeEntries,
+  financePartners,
+  invoicePayments,
+  invoices,
+  purchaseOrders,
+  suppliers,
+} from "@db/schema";
+import { and, desc, eq, gte, ilike, isNull, lte, ne, or, sql } from "drizzle-orm";
 import type { DbClient } from "./db-types";
 import { generateFinanceEntryNumber } from "./finance-counter";
 import {
@@ -11,6 +18,7 @@ import {
 import type { InvoiceStatus } from "../shared/invoice-payment";
 import type { FinanceEntryType, FundingKind } from "../shared/finance";
 import {
+  PURCHASE_ORDER_EXPENSE_CATEGORY,
   directionOfFinanceEntry,
   isPartnerEntryType,
   partnerBalanceOf,
@@ -27,6 +35,11 @@ import { endOfVietnamDay, startOfVietnamDay, vietnamDayOf } from "../shared/viet
  *
  * The report (`financeSummary`) adds them together but never copies rows between them. A receipt
  * voided in Receivables therefore disappears from income immediately, with no reconciliation.
+ *
+ * Purchase orders post into `finance_entries` instead: creating one writes a posted expense for
+ * its total (heading "Supplier purchases", reference = PO number), and cancelling it voids that
+ * row. The report also lists the orders behind those rows as `purchases`, so the supplier and the
+ * PO number are one click from the money-out total.
  *
  * Every write is a transaction. A partner withdrawal takes a row lock on the partner before it
  * reads the balance, so two people cannot both withdraw the last of the money.
@@ -150,12 +163,13 @@ async function partnerTotals(executor: DbClient, partnerId?: number) {
 }
 
 /**
- * Record an expense, other income, partner deposit or partner withdrawal.
+ * Validate one entry and turn its amount into whole VND.
  *
- * The number and the row commit together. A withdrawal is refused (409) when it would take out
- * more than the partner has put in; the check runs under the partner row lock.
+ * Kept separate from the insert so a caller that already holds a transaction (a purchase order is
+ * posted together with its items) can reuse exactly the same rules instead of keeping a second
+ * copy that drifts.
  */
-export async function createFinanceEntry(input: CreateFinanceEntryInput) {
+function validateEntryInput(input: CreateFinanceEntryInput) {
   const amount = roundMoney(numberOf(input.amount));
   if (amount <= 0) throw new FinanceError("Enter an amount greater than zero", 400);
   if (!input.category?.trim()) throw new FinanceError("Choose a category", 400);
@@ -175,6 +189,83 @@ export async function createFinanceEntry(input: CreateFinanceEntryInput) {
     );
   }
 
+  return { amount, entryType, partnerEntry };
+}
+
+/**
+ * Allocate the entry number and insert the row in the caller's transaction.
+ *
+ * The number is generated from the same executor, so a purchase order and its expense commit or
+ * roll back as one unit.
+ */
+async function insertEntry(
+  executor: DbClient,
+  input: CreateFinanceEntryInput,
+  amount: number,
+  entryType: FinanceEntryType,
+  partnerEntry: boolean
+) {
+  const entryNumber = await generateFinanceEntryNumber(executor);
+
+  const [created] = await executor
+    .insert(financeEntries)
+    .values({
+      entryNumber,
+      entryType,
+      direction: directionOfFinanceEntry(entryType),
+      category: input.category.trim(),
+      description: input.description.trim(),
+      amount: amount.toFixed(2),
+      entryDate: input.entryDate,
+      paymentMethod: input.paymentMethod || "CASH",
+      reference: input.reference?.trim() || null,
+      notes: input.notes?.trim() || null,
+      partnerId: partnerEntry ? input.partnerId ?? null : null,
+      fundingKind: partnerEntry ? input.fundingKind ?? null : null,
+      status: "posted",
+      createdByUserId: input.createdByUserId,
+    })
+    .returning();
+
+  const entry = await executor.query.financeEntries.findFirst({
+    where: eq(financeEntries.id, created.id),
+    with: entryRelations,
+  });
+
+  return toFinanceEntryApiRow(entry!);
+}
+
+/**
+ * Insert a posted income/expense row using a transaction the caller already opened.
+ *
+ * Used when a document that is itself money moving (a purchase order) must post its expense in
+ * the same transaction as the document. Partner entries are refused here on purpose: they need
+ * the partner row lock and the balance check that `createFinanceEntry` owns.
+ */
+export async function insertPostedFinanceEntry(
+  executor: DbClient,
+  input: CreateFinanceEntryInput
+) {
+  if (isPartnerEntryType(input.entryType)) {
+    throw new FinanceError(
+      "Partner deposits and withdrawals must be recorded from the Finance screen",
+      400
+    );
+  }
+
+  const { amount, entryType, partnerEntry } = validateEntryInput(input);
+  return insertEntry(executor, input, amount, entryType, partnerEntry);
+}
+
+/**
+ * Record an expense, other income, partner deposit or partner withdrawal.
+ *
+ * The number and the row commit together. A withdrawal is refused (409) when it would take out
+ * more than the partner has put in; the check runs under the partner row lock.
+ */
+export async function createFinanceEntry(input: CreateFinanceEntryInput) {
+  const { amount, entryType, partnerEntry } = validateEntryInput(input);
+
   return db.transaction(async (tx) => {
     if (partnerEntry) {
       // Lock the partner row before reading the balance. Without the lock two withdrawals of the
@@ -192,34 +283,7 @@ export async function createFinanceEntry(input: CreateFinanceEntryInput) {
       }
     }
 
-    const entryNumber = await generateFinanceEntryNumber(tx);
-
-    const [created] = await tx
-      .insert(financeEntries)
-      .values({
-        entryNumber,
-        entryType,
-        direction: directionOfFinanceEntry(entryType),
-        category: input.category.trim(),
-        description: input.description.trim(),
-        amount: amount.toFixed(2),
-        entryDate: input.entryDate,
-        paymentMethod: input.paymentMethod || "CASH",
-        reference: input.reference?.trim() || null,
-        notes: input.notes?.trim() || null,
-        partnerId: partnerEntry ? input.partnerId ?? null : null,
-        fundingKind: partnerEntry ? input.fundingKind ?? null : null,
-        status: "posted",
-        createdByUserId: input.createdByUserId,
-      })
-      .returning();
-
-    const entry = await tx.query.financeEntries.findFirst({
-      where: eq(financeEntries.id, created.id),
-      with: entryRelations,
-    });
-
-    return toFinanceEntryApiRow(entry!);
+    return insertEntry(tx, input, amount, entryType, partnerEntry);
   });
 }
 
@@ -424,6 +488,11 @@ export async function createFinancePartner(input: {
  *   - what is still owed to us, with partially paid invoices   -> receivables
  *   - how much partner money is currently in the company        -> capital balance
  *
+ * It also returns the purchase orders of the period as `purchases`: the supplier and PO number
+ * behind the "Supplier purchases" expense rows, plus a flag for orders that posted no expense.
+ * Their totals are NOT added to `expenses` again - the expense row each order wrote is already
+ * in `finance_entries` - so the block is a drill-down, never a second count.
+ *
  * Only POSTED finance entries count. Receipts count when they are not voided, by `paid_at`, so a
  * receipt dated inside the range belongs to that range no matter when it was typed in.
  *
@@ -449,8 +518,15 @@ export async function financeSummary(filters: FinanceSummaryFilters = {}) {
     lte(financeEntries.entryDate, to)
   );
 
-  const [receiptRows, entryRows, fundingRows, outstandingRows, partners, partnerTotalsRows] =
-    await Promise.all([
+  const [
+    receiptRows,
+    entryRows,
+    fundingRows,
+    outstandingRows,
+    partners,
+    partnerTotalsRows,
+    purchaseOrderRows,
+  ] = await Promise.all([
       db
         .select({
           total: sql<string>`COALESCE(SUM(${invoicePayments.amount}), 0)`,
@@ -505,6 +581,39 @@ export async function financeSummary(filters: FinanceSummaryFilters = {}) {
         ),
       db.select({ id: financePartners.id, name: financePartners.name }).from(financePartners),
       partnerTotals(db),
+      /*
+       * The purchase orders themselves, so the report can name the supplier and the PO behind the
+       * "Supplier purchases" expense heading. The expense row is matched by its reference (the PO
+       * number), which is how a cancelled order's voided entry is recognised as voided here.
+       */
+      db
+        .select({
+          id: purchaseOrders.id,
+          orderNumber: purchaseOrders.orderNumber,
+          orderDate: purchaseOrders.orderDate,
+          status: purchaseOrders.status,
+          totalAmount: purchaseOrders.totalAmount,
+          supplierName: suppliers.name,
+          expenseEntryNumber: financeEntries.entryNumber,
+          expenseStatus: financeEntries.status,
+        })
+        .from(purchaseOrders)
+        .innerJoin(suppliers, eq(suppliers.id, purchaseOrders.supplierId))
+        .leftJoin(
+          financeEntries,
+          and(
+            eq(financeEntries.reference, purchaseOrders.orderNumber),
+            eq(financeEntries.category, PURCHASE_ORDER_EXPENSE_CATEGORY)
+          )
+        )
+        .where(
+          and(
+            gte(purchaseOrders.orderDate, fromDate),
+            lte(purchaseOrders.orderDate, toDate),
+            ne(purchaseOrders.status, "cancelled")
+          )
+        )
+        .orderBy(desc(purchaseOrders.orderDate), desc(purchaseOrders.id)),
     ]);
 
   // --- Money in / money out ---------------------------------------------------------------
@@ -620,6 +729,61 @@ export async function financeSummary(filters: FinanceSummaryFilters = {}) {
 
   const capitalBalance = byFundingKind.reduce((sum, row) => sum + row.balance, 0);
 
+  // --- Purchases ----------------------------------------------------------------------------
+  /*
+   * The purchase orders behind the "Supplier purchases" expense heading. `total` is what the
+   * period's orders committed to suppliers; it is deliberately NOT added to `expenses`, because
+   * every order already posted its own expense row and adding both would count the same money
+   * twice.
+   *
+   * One order can match more than one finance entry (an operator may have typed an expense with
+   * the PO number as its reference), so rows are folded by order id, preferring a posted entry.
+   * `unrecordedCount` calls out orders with no posted expense - those created before purchase
+   * orders posted to Finance, or whose entry was voided - so the owner can see why the purchase
+   * total and the expense heading can differ.
+   */
+  const purchaseOrderList: Array<{
+    id: number;
+    orderNumber: string;
+    orderDate: string;
+    status: string;
+    supplier: string;
+    amount: number;
+    expense: { entryNumber: string; status: string | null } | null;
+  }> = [];
+  const purchaseIndexById = new Map<number, number>();
+
+  for (const row of purchaseOrderRows) {
+    const expense =
+      row.expenseEntryNumber !== null
+        ? { entryNumber: row.expenseEntryNumber, status: row.expenseStatus }
+        : null;
+    const existingIndex = purchaseIndexById.get(row.id);
+
+    if (existingIndex === undefined) {
+      purchaseIndexById.set(row.id, purchaseOrderList.length);
+      purchaseOrderList.push({
+        id: row.id,
+        orderNumber: row.orderNumber,
+        orderDate: row.orderDate.toISOString(),
+        status: row.status,
+        supplier: row.supplierName,
+        amount: numberOf(row.totalAmount),
+        expense,
+      });
+    } else if (
+      expense?.status === "posted" &&
+      purchaseOrderList[existingIndex].expense?.status !== "posted"
+    ) {
+      purchaseOrderList[existingIndex].expense = expense;
+    }
+  }
+
+  const purchasesTotal = purchaseOrderList.reduce((sum, row) => sum + row.amount, 0);
+  const recordedPurchasesTotal = purchaseOrderList
+    .filter((row) => row.expense?.status === "posted")
+    .reduce((sum, row) => sum + row.amount, 0);
+
   return {
     from,
     to,
@@ -645,6 +809,13 @@ export async function financeSummary(filters: FinanceSummaryFilters = {}) {
       byCategory: Array.from(expenseByCategory.entries())
         .map(([category, value]) => ({ category, amount: value.amount, count: value.count }))
         .sort((a, b) => b.amount - a.amount),
+    },
+    purchases: {
+      total: purchasesTotal,
+      count: purchaseOrderList.length,
+      recordedTotal: recordedPurchasesTotal,
+      unrecordedCount: purchaseOrderList.filter((row) => row.expense?.status !== "posted").length,
+      rows: purchaseOrderList,
     },
     netProfit,
     cashPosition: totalIncome + deposits - expenseTotal - withdrawals,

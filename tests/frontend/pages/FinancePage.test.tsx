@@ -60,6 +60,23 @@ function makeSummary(overrides: Record<string, unknown> = {}) {
       count: 1,
       byCategory: [{ category: 'Rent', amount: 750000, count: 1 }],
     },
+    purchases: {
+      total: 15000000,
+      count: 1,
+      recordedTotal: 15000000,
+      unrecordedCount: 0,
+      rows: [
+        {
+          id: 1,
+          orderNumber: 'PO-20261110-0001',
+          orderDate: '2026-11-10T00:00:00.000Z',
+          status: 'pending',
+          supplier: 'Langwei Technology Co., Ltd.',
+          amount: 15000000,
+          expense: { entryNumber: 'FIN-20261110-0001', status: 'posted' },
+        },
+      ],
+    },
     netProfit: -150000,
     cashPosition: 650000,
     capital: {
@@ -488,6 +505,55 @@ describe('FinancePage', () => {
       )
     );
     expect(await screen.findByText('Nguyen Van Gop')).toBeInTheDocument();
+  });
+
+  it('shows the purchase orders behind the Supplier purchases expense', async () => {
+    renderPage();
+
+    // Wait for the row, not just the card: the card exists while the report is still loading.
+    await waitFor(() => expect(screen.getByTestId('purchase-row-1')).toBeInTheDocument());
+
+    // The order is named by number and supplier, so the expense heading is traceable to a document.
+    expect(screen.getByText('Purchases (purchase orders)')).toBeInTheDocument();
+    expect(screen.getByText('PO-20261110-0001')).toBeInTheDocument();
+    expect(screen.getByText('Langwei Technology Co., Ltd.')).toBeInTheDocument();
+
+    // The entry the order posted is shown next to it, proving it is inside "Money out".
+    expect(screen.getByText('FIN-20261110-0001')).toBeInTheDocument();
+    expect(screen.getByText(/recorded as expenses/i)).toBeInTheDocument();
+    expect(screen.getAllByText(money(15000000)).length).toBeGreaterThan(0);
+    // No warning badge when every order has a posted expense.
+    expect(screen.queryByText(/not in expenses/i)).not.toBeInTheDocument();
+  });
+
+  it('flags purchase orders that never posted an expense', async () => {
+    renderPage({
+      summary: makeSummary({
+        purchases: {
+          total: 2500000,
+          count: 1,
+          recordedTotal: 0,
+          unrecordedCount: 1,
+          rows: [
+            {
+              id: 7,
+              orderNumber: 'PO-20261101-0007',
+              orderDate: '2026-11-01T00:00:00.000Z',
+              status: 'pending',
+              supplier: 'Old Supplier Co.',
+              amount: 2500000,
+              expense: null,
+            },
+          ],
+        },
+      }),
+    });
+
+    await waitFor(() => expect(screen.getByTestId('purchase-row-7')).toBeInTheDocument());
+
+    expect(screen.getByText('1 not in expenses')).toBeInTheDocument();
+    expect(screen.getByText('Not in expenses')).toBeInTheDocument();
+    expect(screen.getByText('PO-20261101-0007')).toBeInTheDocument();
   });
 });
 

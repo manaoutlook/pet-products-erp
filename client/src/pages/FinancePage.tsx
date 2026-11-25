@@ -47,6 +47,7 @@ import {
   Plus,
   Printer,
   RefreshCw,
+  ShoppingCart,
   Users,
   Wallet,
 } from "lucide-react";
@@ -78,12 +79,14 @@ import { vietnamDayOf } from "@shared/vietnam-day";
  * Finance - the money that is not a customer receipt.
  *
  * Three tabs over one book:
- *   Report   - income (invoice receipts + manual income), expenses, net profit, partner capital,
- *              and what customers still owe, with partially paid invoices called out.
- *   Entries  - the manual ledger: expenses, other income, partner deposits/withdrawals. Rows are
- *              never edited or deleted: a mistake is voided with a reason and stays visible. The
- *              tab is labelled "Manual entries" and links to the receipts register, because till
- *              sales deliberately do not appear here.
+ *   Report   - income (invoice receipts + manual income), expenses (including the expense each
+ *              purchase order posts), net profit, the purchase orders behind the supplier total,
+ *              partner capital, and what customers still owe, with partially paid invoices called
+ *              out.
+ *   Entries  - the ledger: expenses, other income, partner deposits/withdrawals. Purchase orders
+ *              add their own "Supplier purchases" entry when created. Rows are never edited or
+ *              deleted: a mistake is voided with a reason and stays visible. The tab links to the
+ *              receipts register, because till sales deliberately do not appear here.
  *   Partners - who has money in the company, and how much of it is still there.
  *
  * Invoice receipts are NOT recorded here. They belong to Receivables; this page only reads them
@@ -159,6 +162,16 @@ interface OutstandingInvoiceRow {
   store?: { id: number; name: string } | null;
 }
 
+interface PurchaseOrderFinanceRow {
+  id: number;
+  orderNumber: string;
+  orderDate: string;
+  status: string;
+  supplier: string;
+  amount: number;
+  expense: { entryNumber: string; status: string | null } | null;
+}
+
 interface FinanceSummaryResponse {
   from: string;
   to: string;
@@ -173,6 +186,18 @@ interface FinanceSummaryResponse {
     total: number;
     count: number;
     byCategory: Array<{ category: string; amount: number; count: number }>;
+  };
+  /**
+   * The purchase orders behind the "Supplier purchases" expense heading. Their totals are NOT
+   * added to `expenses` again - each order already posted its own expense entry - so this block is
+   * a drill-down by supplier and PO, plus a warning for orders with no posted entry.
+   */
+  purchases: {
+    total: number;
+    count: number;
+    recordedTotal: number;
+    unrecordedCount: number;
+    rows: PurchaseOrderFinanceRow[];
   };
   netProfit: number;
   cashPosition: number;
@@ -1050,8 +1075,8 @@ function FinancePage() {
                     Where the money went
                   </CardTitle>
                   <p className="text-xs text-muted-foreground">
-                    Every expense here is a manual entry in the ledger - nothing is inferred from
-                    purchases or payments.
+                    A purchase order posts a "Supplier purchases" entry when it is created; every
+                    other expense is a manual entry. Nothing is inferred from payments.
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-2">
@@ -1077,6 +1102,86 @@ function FinancePage() {
               </Card>
             </div>
           </div>
+
+          {/*
+            Purchase orders: the supplier and PO number behind the "Supplier purchases" expense
+            heading. The order totals are already inside "Money out" through the expense each order
+            posted when it was created, so nothing here is added to the totals a second time.
+          */}
+          <Card data-testid="purchases-card">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex flex-wrap items-center gap-2 text-sm font-medium text-muted-foreground">
+                <ShoppingCart className="h-4 w-4" />
+                Purchases (purchase orders)
+                {(summary?.purchases?.unrecordedCount ?? 0) > 0 ? (
+                  <Badge variant="warning">
+                    {summary?.purchases?.unrecordedCount} not in expenses
+                  </Badge>
+                ) : null}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                A purchase order posts a "Supplier purchases" expense for its total when it is
+                created, so it is already inside "Money out" - cancelling the order voids that
+                entry. The orders below name the supplier and PO behind that heading; their totals
+                are not added a second time.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {(summary?.purchases?.rows ?? []).length === 0 ? (
+                <p className="py-2 text-sm text-muted-foreground">
+                  No purchase orders in this period.
+                </p>
+              ) : (
+                <Table className="min-w-[820px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Purchase order</TableHead>
+                      <TableHead>Supplier</TableHead>
+                      <TableHead>Ordered</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead>Finance entry</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(summary?.purchases?.rows ?? []).map((row) => (
+                      <TableRow key={row.id} data-testid={`purchase-row-${row.id}`}>
+                        <TableCell className="font-medium">{row.orderNumber}</TableCell>
+                        <TableCell>{row.supplier}</TableCell>
+                        <TableCell>{formatDate(row.orderDate)}</TableCell>
+                        <TableCell className="capitalize">{row.status}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(row.amount)}</TableCell>
+                        <TableCell>
+                          {row.expense?.status === "posted" ? (
+                            <Badge variant="success" className="gap-1 whitespace-nowrap">
+                              <CheckCircle2 className="h-3 w-3" />
+                              {row.expense.entryNumber}
+                            </Badge>
+                          ) : (
+                            <span className="flex items-center gap-1 text-xs text-warning">
+                              <AlertCircle className="h-3.5 w-3.5" />
+                              {row.expense ? "Expense voided" : "Not in expenses"}
+                            </span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+              <Separator />
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <span className="text-muted-foreground">
+                  {summary?.purchases?.count ?? 0}{" "}
+                  {(summary?.purchases?.count ?? 0) === 1 ? "order" : "orders"} ·{" "}
+                  {formatCurrency(summary?.purchases?.recordedTotal ?? 0)} recorded as expenses
+                </span>
+                <span className="font-semibold">
+                  Total purchases: {formatCurrency(summary?.purchases?.total ?? 0)}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader className="pb-3">
@@ -1111,10 +1216,12 @@ function FinancePage() {
         {/* ----------------------------------------------------------------- Entries */}
         <TabsContent value="entries" className="space-y-4">
           <p className="text-sm text-muted-foreground" data-testid="entries-ledger-note">
-            This ledger holds <span className="font-medium text-foreground">manual</span> entries
-            only: expenses, other income, and money partners put in or take out. Till sales and
-            invoice payments are receipted in Receivables and counted in the Report's "Money in" -
-            they are never copied here, so nothing is counted twice.{" "}
+            This ledger holds expenses, other income, and money partners put in or take out.
+            Purchase orders add their own "Supplier purchases" expense when they are created -
+            cancelling an order voids it - and everything else is{" "}
+            <span className="font-medium text-foreground">manual</span>. Till sales and invoice
+            payments are receipted in Receivables and counted in the Report's "Money in" - they are
+            never copied here, so nothing is counted twice.{" "}
             <Link
               href="/receipts?tab=customer"
               className="font-medium text-primary hover:underline"

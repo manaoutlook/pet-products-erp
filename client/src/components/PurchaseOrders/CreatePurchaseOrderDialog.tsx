@@ -447,6 +447,11 @@ export function CreatePurchaseOrderDialog() {
               disabled={createPurchaseOrder.isPending}
             />
 
+            <p className="text-xs text-muted-foreground">
+              Creating this order records a "Supplier purchases" expense for its total in Finance,
+              dated today. Cancelling the order voids that entry.
+            </p>
+
             <div className="flex justify-end gap-4">
               <Button
                 type="button"

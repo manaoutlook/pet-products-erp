@@ -90,6 +90,10 @@ import {
   buildInvoicePayload,
 } from "./invoice-documents";
 import { generateInventoryBarcode, generateOrderNumber, generateTransferNumber } from "./numbering";
+import {
+  postPurchaseOrderExpense,
+  voidPurchaseOrderExpense,
+} from "./purchase-order-finance";
 import { inventoryTypeForStore } from "./inventory-type";
 import { receiveGoods } from "./goods-receipt";
 import {
@@ -488,44 +492,69 @@ export function registerRoutes(app: Express): Server {
       // Calculate total amount in VND
       const totalAmount = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
 
-      // Create purchase order
-      const [newPurchaseOrder] = await db
-        .insert(purchaseOrders)
-        .values({
-          orderNumber,
-          supplierId,
-          destinationStoreId: destinationStoreId || null,
-          deliveryDate: new Date(deliveryDate),
-          status: 'pending',
-          totalAmount: totalAmount.toString(), // Store as string for decimal
-          notes: notes || null
-        })
-        .returning();
+      const supplier = await db.query.suppliers.findFirst({
+        where: eq(suppliers.id, supplierId),
+      });
+      if (!supplier) {
+        return res.status(400).json({
+          message: "The supplier on this order no longer exists",
+          suggestion: "Choose another supplier and try again",
+        });
+      }
 
-      // Create purchase order items
-      await Promise.all(items.map(item =>
-        db.insert(purchaseOrderItems)
+      /*
+       * The order, its lines and the expense that pays for it commit together.
+       *
+       * A purchase order is money going out, so the Finance module posts its total as a
+       * "Supplier purchases" expense (reference = PO number, dated today in Vietnam). Doing it in
+       * the same transaction is what stops the report from ever seeing one without the other: a
+       * failed line insert rolls the expense back, and a failed expense rolls the order back.
+       */
+      const purchaseOrderWithDetails = await db.transaction(async (tx) => {
+        const [newPurchaseOrder] = await tx
+          .insert(purchaseOrders)
           .values({
+            orderNumber,
+            supplierId,
+            destinationStoreId: destinationStoreId || null,
+            deliveryDate: new Date(deliveryDate),
+            status: 'pending',
+            totalAmount: totalAmount.toString(), // Store as string for decimal
+            notes: notes || null
+          })
+          .returning();
+
+        // Create purchase order items
+        await tx.insert(purchaseOrderItems).values(
+          items.map(item => ({
             purchaseOrderId: newPurchaseOrder.id,
             productId: item.productId,
             quantity: item.quantity,
             unitPrice: item.unitPrice.toString(), // Store as string for decimal
             totalPrice: (item.quantity * item.unitPrice).toString(), // Store as string for decimal
             deliveredQuantity: 0
-          })
-      ));
+          }))
+        );
 
-      // Fetch the complete purchase order with items and supplier
-      const purchaseOrderWithDetails = await db.query.purchaseOrders.findFirst({
-        where: eq(purchaseOrders.id, newPurchaseOrder.id),
-        with: {
-          supplier: true,
-          items: {
-            with: {
-              product: true
+        await postPurchaseOrderExpense(tx, {
+          orderNumber,
+          supplierName: supplier.name,
+          amount: totalAmount,
+          createdByUserId: req.user!.id,
+        });
+
+        // Fetch the complete purchase order with items and supplier
+        return tx.query.purchaseOrders.findFirst({
+          where: eq(purchaseOrders.id, newPurchaseOrder.id),
+          with: {
+            supplier: true,
+            items: {
+              with: {
+                product: true
+              }
             }
           }
-        }
+        });
       });
 
       res.json({
@@ -614,14 +643,26 @@ export function registerRoutes(app: Express): Server {
             message: "Cannot cancel a delivered or already cancelled order"
           });
         }
-        // Update order status to cancelled
-        await db
-          .update(purchaseOrders)
-          .set({
-            status: 'cancelled',
-            updatedAt: new Date()
-          })
-          .where(eq(purchaseOrders.id, parseInt(id)));
+        /*
+         * Cancelling voids the "Supplier purchases" expense the order posted when it was created.
+         * Both writes share one transaction: a cancelled order must never keep money out in the
+         * Finance report, and a failed void must leave the order un-cancelled so it can be retried.
+         */
+        await db.transaction(async (tx) => {
+          await tx
+            .update(purchaseOrders)
+            .set({
+              status: 'cancelled',
+              updatedAt: new Date()
+            })
+            .where(eq(purchaseOrders.id, parseInt(id)));
+
+          await voidPurchaseOrderExpense(tx, {
+            orderNumber: purchaseOrder.orderNumber,
+            voidedByUserId: req.user!.id,
+            reason: "Purchase order cancelled",
+          });
+        });
       }
 
       // AI Agent Note: booking goods in is no longer a bare action - it has to carry the
@@ -798,7 +839,9 @@ export function registerRoutes(app: Express): Server {
       const currentPO = await db.query.purchaseOrders.findFirst({
         where: eq(purchaseOrders.id, parseInt(id)),
         with: {
-          items: true
+          items: true,
+          // The supplier names the expense row if a cancelled order is re-opened below.
+          supplier: true
         }
       });
 
@@ -809,17 +852,42 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      // Update purchase order
-      const [updatedPO] = await db
-        .update(purchaseOrders)
-        .set({
-          status,
-          ...(deliveryDate && { deliveryDate: new Date(deliveryDate) }),
-          ...(notes && { notes }),
-          updatedAt: new Date()
-        })
-        .where(eq(purchaseOrders.id, parseInt(id)))
-        .returning();
+      /*
+       * The status change and the Finance side of it commit together:
+       *   - moving to 'cancelled' voids the "Supplier purchases" expense the order posted;
+       *   - moving off 'cancelled' posts it again, because the order is live money out once more.
+       * `postPurchaseOrderExpense` is idempotent, so an order that still has a posted expense is
+       * not counted twice.
+       */
+      const [updatedPO] = await db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(purchaseOrders)
+          .set({
+            status,
+            ...(deliveryDate && { deliveryDate: new Date(deliveryDate) }),
+            ...(notes && { notes }),
+            updatedAt: new Date()
+          })
+          .where(eq(purchaseOrders.id, parseInt(id)))
+          .returning();
+
+        if (status === 'cancelled' && currentPO.status !== 'cancelled') {
+          await voidPurchaseOrderExpense(tx, {
+            orderNumber: currentPO.orderNumber,
+            voidedByUserId: req.user!.id,
+            reason: "Purchase order cancelled",
+          });
+        } else if (status !== 'cancelled' && currentPO.status === 'cancelled') {
+          await postPurchaseOrderExpense(tx, {
+            orderNumber: currentPO.orderNumber,
+            supplierName: currentPO.supplier?.name ?? "supplier",
+            amount: currentPO.totalAmount,
+            createdByUserId: req.user!.id,
+          });
+        }
+
+        return [updated];
+      });
 
       // If status changed to 'delivered', update inventory
       if (status === 'delivered' && currentPO.status !== 'delivered') {

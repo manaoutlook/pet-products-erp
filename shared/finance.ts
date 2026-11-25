@@ -14,6 +14,12 @@
  *   Partner deposit         -> capital/loan, a CREDIT (the partner puts money in)
  *   Partner withdrawal      -> capital/loan, a DEBIT  (the partner takes money back)
  *
+ * Purchase orders DO post an expense: creating one writes a posted `expense` row under the
+ * `PURCHASE_ORDER_EXPENSE_CATEGORY` heading with the PO number as its reference, because the
+ * supplier is paid for what the order buys. Cancelling the order voids that entry, so the money
+ * book and the purchase register can never drift apart. The report also lists the orders
+ * themselves ("Purchases") so the owner can see the supplier and the PO behind the total.
+ *
  * Receipts are NOT copied into `finance_entries`: `invoice_payments` is their single source of
  * truth, and the report adds the two streams together. Copying them would mean a voided receipt
  * had to be voided twice, and the two books could drift apart.
@@ -45,6 +51,16 @@ export type FinanceEntryStatus = (typeof FINANCE_ENTRY_STATUSES)[number];
 export const FUNDING_KINDS = ['capital', 'loan'] as const;
 export type FundingKind = (typeof FUNDING_KINDS)[number];
 
+/**
+ * The expense heading every purchase order posts under.
+ *
+ * The order's total is money committed to a supplier, so it is written into the money book as an
+ * expense the moment the order is created. Keeping it a fixed heading (instead of free text) is
+ * what lets the report group "where the money went" and lets the Purchases list find the entry
+ * behind each order again (it is matched by `reference = order_number`).
+ */
+export const PURCHASE_ORDER_EXPENSE_CATEGORY = 'Supplier purchases';
+
 /** Expense headings offered by the entry screen. Free text is not offered, so reports group. */
 export const EXPENSE_CATEGORIES = [
   'Rent',
@@ -56,6 +72,7 @@ export const EXPENSE_CATEGORIES = [
   'Repairs & maintenance',
   'Taxes & fees',
   'Bank charges',
+  PURCHASE_ORDER_EXPENSE_CATEGORY,
   'Other expense',
 ] as const;
 
@@ -120,6 +137,20 @@ export function categoriesForFinanceEntry(type: FinanceEntryType): readonly stri
   if (type === 'expense') return EXPENSE_CATEGORIES;
   if (type === 'income') return INCOME_CATEGORIES;
   return [];
+}
+
+/**
+ * The description a purchase order's expense carries.
+ *
+ * It names the supplier and the PO number so a ledger row can be read on its own - the operator
+ * should not have to open the purchase register to know which order the money left for.
+ */
+export function purchaseOrderExpenseDescription(
+  orderNumber: string,
+  supplierName: string,
+): string {
+  const supplier = supplierName.trim() || 'supplier';
+  return `Purchase order ${orderNumber} - ${supplier}`;
 }
 
 /** Amount with its bookkeeping sign: credits add to cash, debits subtract. */
