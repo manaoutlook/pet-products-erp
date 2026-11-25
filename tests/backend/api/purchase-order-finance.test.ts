@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { db } from '../../../db';
-import { purchaseOrders } from '../../../db/schema';
+import { financeEntries, purchaseOrders } from '../../../db/schema';
 import { cleanDatabase, resetSequences, seedTestData } from '../../helpers/test-db';
 import { financeSummary } from '../../../server/finance';
 import {
+  movePurchaseOrderExpenseDate,
   postPurchaseOrderExpense,
   voidPurchaseOrderExpense,
 } from '../../../server/purchase-order-finance';
@@ -169,6 +170,97 @@ describe('purchase orders in the finance report', () => {
       orderNumber: order.orderNumber,
       amount: 2500000,
       expense: null,
+    });
+  });
+
+  /**
+   * Correcting the order date (PUT /api/purchase-orders/:id) has to take the expense with it:
+   * an order typed in days after it was placed belongs to the day it was placed, in the register
+   * and in the money book alike.
+   */
+  describe('moving the expense to the day the order was placed', () => {
+    const correctedDay = '2026-10-15';
+
+    /** What the PUT route does: the order date and its expense move in one transaction. */
+    const correctOrderDate = (orderId: number, orderNumber: string) =>
+      db.transaction(async (tx) => {
+        await tx
+          .update(purchaseOrders)
+          .set({ orderDate: new Date(`${correctedDay}T00:00:00.000Z`) })
+          .where(eq(purchaseOrders.id, orderId));
+
+        return movePurchaseOrderExpenseDate(tx, {
+          orderNumber,
+          entryDate: correctedDay,
+        });
+      });
+
+    it('re-dates the posted expense and the report counts it in the corrected month only', async () => {
+      const order = await createOrder();
+      const entry = await postExpense(order);
+
+      const moved = await correctOrderDate(order.id, order.orderNumber);
+      expect(moved).toBe(1);
+
+      const [stored] = await db
+        .select()
+        .from(financeEntries)
+        .where(eq(financeEntries.id, entry.id));
+
+      expect(stored.entryDate).toBe(correctedDay);
+      // The number is an identifier, not a date: moving the day must not renumber the entry.
+      expect(stored.entryNumber).toBe(entry.entryNumber);
+      expect(stored.amount).toBe(entry.amount);
+      expect(stored.status).toBe('posted');
+
+      const october = await financeSummary({ from: '2026-10-01', to: '2026-10-31' });
+      expect(october.expenses.total).toBe(15000000);
+      expect(october.expenses.count).toBe(1);
+      expect(october.purchases.rows[0]).toMatchObject({
+        orderNumber: order.orderNumber,
+        amount: 15000000,
+      });
+
+      // The day it was typed in no longer carries the money.
+      const todayOnly = await financeSummary({ from: today(), to: today() });
+      expect(todayOnly.expenses.total).toBe(0);
+      expect(todayOnly.expenses.count).toBe(0);
+      expect(todayOnly.purchases.count).toBe(0);
+    });
+
+    it('moves a voided expense too, so re-opening the order lands on the corrected day', async () => {
+      const order = await createOrder();
+      await postExpense(order);
+
+      await db.transaction((tx) =>
+        voidPurchaseOrderExpense(tx, {
+          orderNumber: order.orderNumber,
+          voidedByUserId: data.users.admin.id,
+          reason: 'Purchase order cancelled',
+        })
+      );
+
+      await correctOrderDate(order.id, order.orderNumber);
+
+      const [stored] = await db
+        .select()
+        .from(financeEntries)
+        .where(eq(financeEntries.reference, order.orderNumber));
+
+      expect(stored.status).toBe('voided');
+      expect(stored.entryDate).toBe(correctedDay);
+
+      // A voided row stays out of every total, whichever month it is dated in.
+      const october = await financeSummary({ from: '2026-10-01', to: '2026-10-31' });
+      expect(october.expenses.total).toBe(0);
+    });
+
+    it('reports nothing moved for an order that never posted an expense', async () => {
+      const order = await createOrder();
+
+      const moved = await correctOrderDate(order.id, order.orderNumber);
+
+      expect(moved).toBe(0);
     });
   });
 });

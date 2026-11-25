@@ -40,6 +40,10 @@ vi.mock('@/components/PurchaseOrders/CreatePurchaseOrderDialog', () => ({
     CreatePurchaseOrderDialog: () => <button type="button">New purchase order</button>,
 }));
 
+vi.mock('@/components/PurchaseOrders/EditPurchaseOrderDialog', () => ({
+    EditPurchaseOrderDialog: () => <button type="button">Edit order dates</button>,
+}));
+
 vi.mock('@/components/PurchaseOrders/ReceiveGoodsDialog', () => ({
     ReceiveGoodsDialog: ({ disabled }: { disabled?: boolean }) => (
         <button type="button" disabled={disabled}>

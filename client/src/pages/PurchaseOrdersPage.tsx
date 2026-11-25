@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CreatePurchaseOrderDialog } from "@/components/PurchaseOrders/CreatePurchaseOrderDialog";
+import { EditPurchaseOrderDialog } from "@/components/PurchaseOrders/EditPurchaseOrderDialog";
 import { ReceiveGoodsDialog } from "@/components/PurchaseOrders/ReceiveGoodsDialog";
 import { AttachmentsButton } from "@/components/attachments/AttachmentsDialog";
 import { printPurchaseOrder } from "@/components/PurchaseOrders/PurchaseOrderPrint";
@@ -79,6 +80,8 @@ interface PurchaseOrder {
   id: number;
   orderNumber: string;
   supplier: Supplier;
+  /** The day the order was placed. Older rows have no value here; `createdAt` stands in. */
+  orderDate?: string | null;
   createdAt: string;
   /** The date the supplier promised. The actual arrival lives on the goods receipt. */
   deliveryDate: string;
@@ -203,7 +206,7 @@ function PurchaseOrdersPage() {
     const printed = printPurchaseOrder(
       {
         orderNumber: order.orderNumber,
-        orderDate: order.createdAt,
+        orderDate: order.orderDate ?? order.createdAt,
         deliveryDate: order.deliveryDate,
         status: order.status,
         supplierName: order.supplier?.name ?? "",
@@ -298,7 +301,10 @@ function PurchaseOrdersPage() {
     {
       orderNumber: (order) => order.orderNumber,
       supplier: (order) => order.supplier?.name,
-      orderDate: (order) => (order.createdAt ? new Date(order.createdAt) : null),
+      orderDate: (order) => {
+        const placedOn = order.orderDate ?? order.createdAt;
+        return placedOn ? new Date(placedOn) : null;
+      },
       deliveryDate: (order) => (order.deliveryDate ? new Date(order.deliveryDate) : null),
       totalAmount: (order) => Number(order.totalAmount),
       status: (order) => order.status,
@@ -363,7 +369,7 @@ function PurchaseOrdersPage() {
                   <TableRow key={order.id}>
                     <TableCell>{order.orderNumber}</TableCell>
                     <TableCell>{order.supplier?.name}</TableCell>
-                    <TableCell>{formatDate(order.createdAt)}</TableCell>
+                    <TableCell>{formatDate(order.orderDate ?? order.createdAt)}</TableCell>
                     <TableCell>{formatDate(order.deliveryDate)}</TableCell>
                     <TableCell>{formatNumber(order.totalAmount)}</TableCell>
                     <TableCell>
@@ -434,6 +440,11 @@ function PurchaseOrdersPage() {
                             disabledReason="Record 'Payment Sent' first"
                           />
                         )}
+
+                        {/* Correct the dates (and the note) of an order that was entered late or
+                            with the wrong promised date. Cancelled and delivered orders keep their
+                            history, but a wrong date is still a wrong date - it can be fixed. */}
+                        <EditPurchaseOrderDialog order={order} />
 
                         {/* Cancel */}
                         <Button

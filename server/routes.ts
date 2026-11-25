@@ -40,6 +40,7 @@ import {
   BACK_DATED_PURCHASE_ORDER_MESSAGE,
   isBackDatedPurchaseOrderDate,
 } from "../shared/purchase-order-dates";
+import { vietnamDayOf } from "../shared/vietnam-day";
 import { normalizeDescriptionNewlines } from "@shared/product-description";
 import { importProducts } from "./product-import";
 import { importInventory } from "./inventory-import";
@@ -91,6 +92,7 @@ import {
 } from "./invoice-documents";
 import { generateInventoryBarcode, generateOrderNumber, generateTransferNumber } from "./numbering";
 import {
+  movePurchaseOrderExpenseDate,
   postPurchaseOrderExpense,
   voidPurchaseOrderExpense,
 } from "./purchase-order-finance";
@@ -122,6 +124,21 @@ const updatePurchaseOrderSchema = z.object({
   deliveryDate: z.string().datetime().optional(),
   notes: z.string().optional(),
 });
+
+// Body of PUT /api/purchase-orders/:id - correcting the dates (and the note) of an order that
+// already exists. `orderDate` is the day the order was actually placed: it is what the list, the
+// printed order and the Finance period of the order's expense all read. Every field is optional
+// so the dialog can send just what changed, but sending none of them is a mistake worth a 400.
+const editPurchaseOrderSchema = z
+  .object({
+    orderDate: z.string().datetime().optional(),
+    deliveryDate: z.string().datetime().optional(),
+    notes: z.string().max(2000, "Note is too long").nullable().optional(),
+  })
+  .refine(
+    (value) => value.orderDate !== undefined || value.deliveryDate !== undefined || value.notes !== undefined,
+    { message: "Nothing to change" }
+  );
 
 // Body of POST /api/purchase-orders/:id/goods-receipt: the figures that only exist once the
 // goods physically arrive. Every fee is optional and defaults to 0, so a domestic delivery
@@ -814,6 +831,116 @@ export function registerRoutes(app: Express): Server {
       res.status(500).json({
         message: "Failed to fetch purchase order",
         suggestion: "Please try again later"
+      });
+    }
+  });
+
+  /*
+   * Correct the dates of an order that already exists.
+   *
+   * There is no edit screen in the app for a purchase order - the actions row can only move it
+   * through its life (print, invoice, payment, receipt, cancel). The date, however, is entered by
+   * hand and is regularly wrong (the order was placed on the phone on Monday and typed in on
+   * Thursday), so this is the one field that can be corrected afterwards.
+   *
+   * Two dates, two meanings: `orderDate` is when the order was placed and drives the Finance
+   * period of the expense the order posted, while `deliveryDate` is the date the supplier
+   * promised and drives the overdue report and every receipt's "days late". Back-dating either
+   * one is an administrator's call, exactly as at creation (`shared/purchase-order-dates.ts`).
+   */
+  app.put("/api/purchase-orders/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const result = editPurchaseOrderSchema.safeParse(req.body);
+
+      if (!result.success) {
+        return res.status(400).json({
+          message: "Invalid input",
+          errors: result.error.errors.map((err) => ({
+            field: err.path.join("."),
+            message: err.message,
+          })),
+        });
+      }
+
+      const { orderDate, deliveryDate, notes } = result.data;
+      const orderId = parseInt(id);
+
+      const currentPO = await db.query.purchaseOrders.findFirst({
+        where: eq(purchaseOrders.id, orderId),
+      });
+
+      if (!currentPO) {
+        return res.status(404).json({
+          message: "Purchase order not found",
+          suggestion: "Please verify the purchase order ID",
+        });
+      }
+
+      const nextOrderDate = orderDate ? new Date(orderDate) : null;
+      const nextDeliveryDate = deliveryDate ? new Date(deliveryDate) : null;
+
+      // Only a date that actually moves is judged: re-saving an order whose expected date is
+      // already in the past (or just editing its note) must not demand an administrator.
+      const orderDayChanged =
+        nextOrderDate !== null && vietnamDayOf(nextOrderDate) !== vietnamDayOf(currentPO.orderDate);
+      const deliveryDayChanged =
+        nextDeliveryDate !== null &&
+        (!currentPO.deliveryDate ||
+          vietnamDayOf(nextDeliveryDate) !== vietnamDayOf(currentPO.deliveryDate));
+
+      const backDating =
+        (orderDayChanged && isBackDatedPurchaseOrderDate(nextOrderDate!)) ||
+        (deliveryDayChanged && isBackDatedPurchaseOrderDate(nextDeliveryDate!));
+
+      if (backDating && !isAdminRole(req.user?.role)) {
+        return res.status(403).json({
+          message: BACK_DATED_PURCHASE_ORDER_MESSAGE,
+          suggestion: "Choose today or a later date, or ask an administrator to correct the order",
+        });
+      }
+
+      /*
+       * The order and its expense move together. The expense the order posted is dated by the
+       * order date, so back-dating the order has to re-date that row too - otherwise a November
+       * purchase corrected to October would still be counted in November's expenses.
+       */
+      const updatedPO = await db.transaction(async (tx) => {
+        await tx
+          .update(purchaseOrders)
+          .set({
+            ...(nextOrderDate && { orderDate: nextOrderDate }),
+            ...(nextDeliveryDate && { deliveryDate: nextDeliveryDate }),
+            ...(notes !== undefined && { notes }),
+            updatedAt: new Date(),
+          })
+          .where(eq(purchaseOrders.id, orderId));
+
+        if (nextOrderDate && orderDayChanged) {
+          await movePurchaseOrderExpenseDate(tx, {
+            orderNumber: currentPO.orderNumber,
+            entryDate: vietnamDayOf(nextOrderDate),
+          });
+        }
+
+        return tx.query.purchaseOrders.findFirst({
+          where: eq(purchaseOrders.id, orderId),
+          with: {
+            supplier: true,
+            items: { with: { product: true } },
+          },
+        });
+      });
+
+      res.json({
+        message: "Purchase order updated",
+        purchaseOrder: updatedPO,
+      });
+    } catch (error) {
+      console.error("Error updating purchase order:", error);
+      res.status(500).json({
+        message: "Failed to update purchase order",
+        suggestion: "Please try again later",
       });
     }
   });

@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { financeEntries } from "@db/schema";
 import type { DbClient } from "./db-types";
 import { insertPostedFinanceEntry } from "./finance";
@@ -106,4 +106,46 @@ export async function voidPurchaseOrderExpense(
     .where(eq(financeEntries.id, entry.id));
 
   return entry.id;
+}
+
+/**
+ * Move a purchase order's expense to the day the order was actually raised.
+ *
+ * The order date is bookkeeping: an order entered three days after the phone call belongs to the
+ * day it was placed, not the day it was typed in. The expense it posted has to move with it, or
+ * the money would sit in the wrong month - the Finance report groups expenses by `entry_date`.
+ * Both the posted and the voided rows are moved (`voided` keeps its date for the audit trail but
+ * is dated consistently if the order is ever re-opened).
+ *
+ * AI Agent Note - the `entry_number` is NOT renumbered. `FIN-YYYYMMDD-0001` is an identifier that
+ * the ledger and the paper trail already quote; changing it would break those references, so the
+ * number keeps the day it was allocated while `entry_date` says which day the money belongs to.
+ * Totals read `entry_date`, never the digits in the number.
+ *
+ * Returns how many entries moved (0 when the order has no finance row, e.g. it was created before
+ * purchase orders posted to Finance).
+ */
+export async function movePurchaseOrderExpenseDate(
+  executor: DbClient,
+  input: { orderNumber: string; entryDate: string }
+): Promise<number> {
+  const entries = await executor
+    .select({ id: financeEntries.id })
+    .from(financeEntries)
+    .where(
+      and(
+        eq(financeEntries.reference, input.orderNumber),
+        eq(financeEntries.category, PURCHASE_ORDER_EXPENSE_CATEGORY),
+        eq(financeEntries.entryType, "expense")
+      )
+    );
+
+  if (entries.length === 0) return 0;
+
+  await executor
+    .update(financeEntries)
+    .set({ entryDate: input.entryDate, updatedAt: new Date() })
+    .where(inArray(financeEntries.id, entries.map((entry) => entry.id)));
+
+  return entries.length;
 }
