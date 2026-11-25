@@ -204,6 +204,11 @@ interface FinanceSummaryResponse {
   };
   netProfit: number;
   cashPosition: number;
+  /**
+   * Partner capital, all-time by design: it is a balance the partners could withdraw today, so a
+   * range with no partner movement must not make it read zero. The range's own movements are in
+   * `period` and are what `cashPosition` uses.
+   */
   capital: {
     deposits: number;
     withdrawals: number;
@@ -222,6 +227,7 @@ interface FinanceSummaryResponse {
       withdrawals: number;
       balance: number;
     }>;
+    period: { deposits: number; withdrawals: number; net: number };
   };
   receivables: {
     totalOutstanding: number;
@@ -1013,7 +1019,7 @@ function FinancePage() {
                   icon={Landmark}
                   hint={`${formatCurrency(summary.capital.deposits)} in · ${formatCurrency(
                     summary.capital.withdrawals
-                  )} out`}
+                  )} out · all time`}
                   footer={
                     <StatCardLink
                       href="/finance?tab=partners"
@@ -1362,6 +1368,10 @@ function FinancePage() {
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 Partner money by kind
               </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                All time - capital is a balance the partners could take back today, so the date
+                range above does not narrow it.
+              </p>
             </CardHeader>
             <CardContent className="grid gap-3 sm:grid-cols-2">
               {(summary?.capital.byFundingKind ?? []).length === 0 ? (

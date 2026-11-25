@@ -96,6 +96,7 @@ const summary = {
         balance: 4000000,
         byPartner: [{ partnerId: 1, name: 'Nguyen Van Gop', deposits: 5000000, withdrawals: 1000000, balance: 4000000 }],
         byFundingKind: [{ fundingKind: 'capital', deposits: 5000000, withdrawals: 1000000, balance: 4000000 }],
+        period: { deposits: 5000000, withdrawals: 1000000, net: 4000000 },
     },
     receivables: {
         totalOutstanding: 0,

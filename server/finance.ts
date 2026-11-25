@@ -743,6 +743,11 @@ export async function deleteFinancePartner(partnerId: number) {
  * Only POSTED finance entries count. Receipts count when they are not voided, by `paid_at`, so a
  * receipt dated inside the range belongs to that range no matter when it was typed in.
  *
+ * The `capital` block is the one deliberate exception to the range: partner money still in the
+ * company is a balance the partners could withdraw today, so it is summed over every posted
+ * partner entry, not just the selected period. The range's own partner movements are returned
+ * separately as `capital.period` and are what `cashPosition` adds and subtracts.
+ *
  * The range is Vietnamese calendar days (`shared/vietnam-day.ts`), not UTC: a receipt taken at
  * 06:30 local is 23:30 UTC the day before, and the printed cash book already uses Vietnam days -
  * a UTC filter here would make the on-screen total and the paper disagree by one day.
@@ -867,8 +872,8 @@ export async function financeSummary(filters: FinanceSummaryFilters = {}) {
   const receipts = numberOf(receiptRows[0]?.total);
   let otherIncome = 0;
   let expenseTotal = 0;
-  let deposits = 0;
-  let withdrawals = 0;
+  let periodDeposits = 0;
+  let periodWithdrawals = 0;
 
   const incomeByCategory = new Map<string, number>();
   const expenseByCategory = new Map<string, { amount: number; count: number }>();
@@ -892,10 +897,10 @@ export async function financeSummary(filters: FinanceSummaryFilters = {}) {
         break;
       }
       case "partner_deposit":
-        deposits += amount;
+        periodDeposits += amount;
         break;
       case "partner_withdrawal":
-        withdrawals += amount;
+        periodWithdrawals += amount;
         break;
       default:
         break;
@@ -948,6 +953,13 @@ export async function financeSummary(filters: FinanceSummaryFilters = {}) {
   }
 
   // --- Partner capital --------------------------------------------------------------------
+  /*
+   * Partner capital is a BALANCE, not a period figure: it is what the partners still have in the
+   * company, so a month with no partner movement must not make it read zero next to "0 in · 0
+   * out". `byPartner`, `byFundingKind` and `balance` below are therefore all-time (posted entries
+   * only), and the money that moved inside the selected range travels separately in
+   * `capital.period` - that is the part `cashPosition` uses.
+   */
   const partnerNames = new Map(partners.map((partner) => [partner.id, partner.name]));
   const byPartner = partnerTotalsRows
     .map((row) => {
@@ -975,6 +987,8 @@ export async function financeSummary(filters: FinanceSummaryFilters = {}) {
   });
 
   const capitalBalance = byFundingKind.reduce((sum, row) => sum + row.balance, 0);
+  const capitalDeposits = byFundingKind.reduce((sum, row) => sum + row.deposits, 0);
+  const capitalWithdrawals = byFundingKind.reduce((sum, row) => sum + row.withdrawals, 0);
 
   // --- Purchases ----------------------------------------------------------------------------
   /*
@@ -1065,14 +1079,19 @@ export async function financeSummary(filters: FinanceSummaryFilters = {}) {
       rows: purchaseOrderList,
     },
     netProfit,
-    cashPosition: totalIncome + deposits - expenseTotal - withdrawals,
+    cashPosition: totalIncome + periodDeposits - expenseTotal - periodWithdrawals,
     capital: {
-      deposits,
-      withdrawals,
-      net: deposits - withdrawals,
+      deposits: capitalDeposits,
+      withdrawals: capitalWithdrawals,
+      net: capitalDeposits - capitalWithdrawals,
       balance: capitalBalance,
       byPartner,
       byFundingKind,
+      period: {
+        deposits: periodDeposits,
+        withdrawals: periodWithdrawals,
+        net: periodDeposits - periodWithdrawals,
+      },
     },
     receivables: {
       totalOutstanding,

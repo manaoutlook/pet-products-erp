@@ -90,6 +90,7 @@ function makeSummary(overrides: Record<string, unknown> = {}) {
       byFundingKind: [
         { fundingKind: 'capital', deposits: 5000000, withdrawals: 1000000, balance: 4000000 },
       ],
+      period: { deposits: 5000000, withdrawals: 1000000, net: 4000000 },
     },
     receivables: {
       totalOutstanding: 220000,
@@ -264,6 +265,9 @@ describe('FinancePage', () => {
     expect(screen.getByText('Money out')).toBeInTheDocument();
     expect(screen.getByText('Net profit')).toBeInTheDocument();
     expect(screen.getByText('Partner money held')).toBeInTheDocument();
+    // The card is a balance, so its hint must say so - the range does not narrow it.
+    expect(screen.getByText(/out · all time$/)).toBeInTheDocument();
+    expect(screen.getByText(/does not narrow it/)).toBeInTheDocument();
 
     // Receipts and hand-typed income are added for the headline, but still shown apart.
     expect(screen.getAllByText(money(600000)).length).toBeGreaterThan(0);

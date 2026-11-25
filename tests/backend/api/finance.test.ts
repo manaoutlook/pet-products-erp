@@ -480,6 +480,73 @@ describe('financial accounts', () => {
     expect(summary.capital.byFundingKind).toEqual([
       { fundingKind: 'capital', deposits: 5000000, withdrawals: 1000000, balance: 4000000 },
     ]);
+    expect(summary.capital.period).toEqual({
+      deposits: 5000000,
+      withdrawals: 1000000,
+      net: 4000000,
+    });
+  });
+
+  it('keeps the partner balance whole when the report is narrowed to a month with no partner money', async () => {
+    /*
+     * "Partner money held" is a balance, not a period total. On 25 Nov 2026 this report showed
+     * 15,159,919 held next to "0 in · 0 out", because the deposits were dated June/July and only
+     * the hint was range-scoped. Narrowing the range must not make a balance look like zero; the
+     * range's own movements belong in `capital.period`.
+     */
+    const partner = await createFinancePartner({
+      name: 'Do Thi Balance',
+      createdByUserId: data.users.admin.id,
+    });
+
+    await postEntry({
+      entryType: 'partner_deposit',
+      category: 'Partner capital',
+      description: 'Capital put in in January',
+      amount: 5000000,
+      entryDate: '2026-01-10',
+      partnerId: partner.id,
+      fundingKind: 'capital',
+    });
+    await postEntry({
+      entryType: 'partner_withdrawal',
+      category: 'Partner withdrawal',
+      description: 'Taken back in February',
+      amount: 1000000,
+      entryDate: '2026-02-10',
+      partnerId: partner.id,
+      fundingKind: 'capital',
+    });
+    await postEntry({
+      entryType: 'expense',
+      category: 'Rent',
+      description: 'March rent',
+      amount: 300000,
+      entryDate: '2026-03-05',
+    });
+
+    const summary = await financeSummary({ from: '2026-03-01', to: '2026-03-31' });
+
+    // The partners did not move a dong in March...
+    expect(summary.capital.period).toEqual({ deposits: 0, withdrawals: 0, net: 0 });
+
+    // ...so their balance must match the Partners tab, not the empty March window.
+    expect(summary.capital.deposits).toBe(5000000);
+    expect(summary.capital.withdrawals).toBe(1000000);
+    expect(summary.capital.net).toBe(4000000);
+    expect(summary.capital.balance).toBe(4000000);
+    expect(summary.capital.byPartner).toEqual([
+      {
+        partnerId: partner.id,
+        name: 'Do Thi Balance',
+        deposits: 5000000,
+        withdrawals: 1000000,
+        balance: 4000000,
+      },
+    ]);
+
+    // Cash position stays a period figure: only March's expense counts.
+    expect(summary.cashPosition).toBe(-300000);
   });
 
   it('refuses to void a deposit the partner has already withdrawn against', async () => {
