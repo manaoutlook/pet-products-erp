@@ -210,7 +210,8 @@ describe('purchase orders in the finance report', () => {
       expect(stored.entryDate).toBe(correctedDay);
       // The number is an identifier, not a date: moving the day must not renumber the entry.
       expect(stored.entryNumber).toBe(entry.entryNumber);
-      expect(stored.amount).toBe(entry.amount);
+      // `numeric` columns come back as strings; compare the money, not its representation.
+      expect(Number(stored.amount)).toBe(entry.amount);
       expect(stored.status).toBe('posted');
 
       const october = await financeSummary({ from: '2026-10-01', to: '2026-10-31' });

@@ -95,6 +95,9 @@ async function openDialog() {
 
 afterEach(() => {
     vi.unstubAllGlobals();
+    mocks.toast.mockClear();
+    permissions.isAdmin = true;
+});
 
 describe('EditPurchaseOrderDialog', () => {
     it('sends only the order date that changed and announces the update', async () => {
@@ -176,8 +179,4 @@ describe('EditPurchaseOrderDialog', () => {
             await screen.findByText(/expense in Finance will move to this order date/i),
         ).toBeInTheDocument();
     });
-});
-
-    mocks.toast.mockClear();
-    permissions.isAdmin = true;
 });
