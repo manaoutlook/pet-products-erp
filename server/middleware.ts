@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { checkHierarchicalPermission, roleCan } from '../shared/permissions';
+import { checkHierarchicalPermission, isAdminRole, roleCan } from '../shared/permissions';
 
 // Role-based middleware with permission checks
 export function requireRole(allowedRoles: string[]) {
@@ -73,6 +73,27 @@ export function requirePermission(module: string, action: 'create' | 'read' | 'u
 
     next();
   };
+}
+
+/**
+ * Administrator-only gate for the handful of actions a permission grant is not enough for.
+ *
+ * Uses the same rule as the client (`isAdminRole` in shared/permissions.ts), so a screen that
+ * hides the control and this middleware cannot drift apart. `requireRole(['admin'])` is close
+ * but misses the system-admin flag, which the admin role also carries.
+ */
+export function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!req.isAuthenticated()) {
+    return res.status(401).send('Not authenticated');
+  }
+
+  if (!req.user || !req.user.role || !isAdminRole(req.user.role)) {
+    return res.status(403).json({
+      message: 'Access denied: only an administrator can do this',
+    });
+  }
+
+  next();
 }
 
 // Hierarchical rules live in shared/permissions.ts so the client can apply the very

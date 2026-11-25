@@ -23,6 +23,7 @@ import {
   getFinanceEntry,
   listFinanceEntries,
   listFinancePartners,
+  updateFinanceEntry,
   voidFinanceEntry,
 } from '../../../server/finance';
 
@@ -257,6 +258,171 @@ describe('financial accounts', () => {
         reason: 'again',
       })
     ).rejects.toBeInstanceOf(FinanceError);
+  });
+
+  it('edits a posted entry in place and moves the totals with it', async () => {
+    const entry = await postEntry();
+    await postEntry({ amount: 250000, description: 'Electricity', category: 'Utilities' });
+
+    const updated = await updateFinanceEntry({
+      entryId: entry.id,
+      entryType: 'income',
+      category: 'Other income',
+      description: 'Scrap metal sale',
+      amount: 750000,
+      entryDate: today(),
+      paymentMethod: 'BANK_TRANSFER',
+      reference: 'SCRAP-1',
+      notes: 'Sold the old shelving',
+    });
+
+    // Same row, same number - an edit never creates a second entry.
+    expect(updated.id).toBe(entry.id);
+    expect(updated.entryNumber).toBe(entry.entryNumber);
+    expect(updated.entryType).toBe('income');
+    expect(updated.direction).toBe('credit');
+    expect(updated.directionLabel).toBe('Credit');
+    expect(updated.amount).toBe(750000);
+    expect(updated.category).toBe('Other income');
+    expect(updated.description).toBe('Scrap metal sale');
+    expect(updated.paymentMethod).toBe('BANK_TRANSFER');
+    expect(updated.reference).toBe('SCRAP-1');
+    expect(updated.notes).toBe('Sold the old shelving');
+
+    const book = await listFinanceEntries();
+    expect(book.total).toBe(2);
+    expect(book.totals.debits).toBe(250000);
+    expect(book.totals.credits).toBe(750000);
+
+    const summary = await financeSummary({ from: today(), to: today() });
+    expect(summary.expenses.total).toBe(250000);
+    expect(summary.income.otherIncome).toBe(750000);
+  });
+
+  it('refuses to edit a voided entry, a missing one, or an unfinished one', async () => {
+    const entry = await postEntry();
+    await voidFinanceEntry({
+      entryId: entry.id,
+      voidedByUserId: data.users.admin.id,
+      reason: 'Typed twice',
+    });
+
+    const voided = await updateFinanceEntry({
+      entryId: entry.id,
+      entryType: 'expense',
+      category: 'Rent',
+      description: 'Corrected rent',
+      amount: 400000,
+      entryDate: today(),
+    }).catch((error) => error);
+
+    expect(voided).toBeInstanceOf(FinanceError);
+    expect((voided as FinanceError).status).toBe(409);
+
+    const missing = await updateFinanceEntry({
+      entryId: 999999,
+      entryType: 'expense',
+      category: 'Rent',
+      description: 'Nothing here',
+      amount: 400000,
+      entryDate: today(),
+    }).catch((error) => error);
+
+    expect(missing).toBeInstanceOf(FinanceError);
+    expect((missing as FinanceError).status).toBe(404);
+
+    // The same validation the create route uses, so an edit cannot store what a POST would reject.
+    const blank = await postEntry({ description: 'Second rent bill' });
+    await expect(
+      updateFinanceEntry({
+        entryId: blank.id,
+        entryType: 'expense',
+        category: 'Rent',
+        description: '   ',
+        amount: 400000,
+        entryDate: today(),
+      })
+    ).rejects.toBeInstanceOf(FinanceError);
+
+    const untouched = await getFinanceEntry(blank.id);
+    expect(untouched.description).toBe('Second rent bill');
+    expect(untouched.amount).toBe(500000);
+  });
+
+  it('weighs a partner edit against the balance without double-counting its own amount', async () => {
+    const partner = await createFinancePartner({
+      name: 'Le Van Gop',
+      createdByUserId: data.users.admin.id,
+    });
+
+    await postEntry({
+      entryType: 'partner_deposit',
+      category: 'Partner capital',
+      description: 'Initial capital',
+      amount: 5000000,
+      partnerId: partner.id,
+      fundingKind: 'capital',
+    });
+
+    const withdrawal = await postEntry({
+      entryType: 'partner_withdrawal',
+      category: 'Partner withdrawal',
+      description: 'Draw for personal use',
+      amount: 1000000,
+      partnerId: partner.id,
+      fundingKind: 'capital',
+    });
+
+    // 5,000,000 in, 1,000,000 out leaves 4,000,000 - but this row is being rewritten, so the
+    // whole 5,000,000 is available to it.
+    const raised = await updateFinanceEntry({
+      entryId: withdrawal.id,
+      entryType: 'partner_withdrawal',
+      category: 'Partner withdrawal',
+      description: 'Draw for the shop deposit',
+      amount: 5000000,
+      entryDate: today(),
+      partnerId: partner.id,
+      fundingKind: 'capital',
+    });
+    expect(raised.amount).toBe(5000000);
+
+    let partners = await listFinancePartners();
+    expect(partners.partners[0].balance).toBe(0);
+
+    // One dong past the deposit is still refused.
+    const tooMuch = await updateFinanceEntry({
+      entryId: withdrawal.id,
+      entryType: 'partner_withdrawal',
+      category: 'Partner withdrawal',
+      description: 'One withdrawal too many',
+      amount: 5000001,
+      entryDate: today(),
+      partnerId: partner.id,
+      fundingKind: 'capital',
+    }).catch((error) => error);
+    expect(tooMuch).toBeInstanceOf(FinanceError);
+    expect((tooMuch as FinanceError).status).toBe(409);
+
+    // Shrinking a deposit below what was already taken out is refused too.
+    const deposit = (await listFinanceEntries({ entryType: 'partner_deposit' })).entries[0];
+    const depositTooSmall = await updateFinanceEntry({
+      entryId: deposit.id,
+      entryType: 'partner_deposit',
+      category: 'Partner capital',
+      description: 'Initial capital',
+      amount: 1000000,
+      entryDate: today(),
+      partnerId: partner.id,
+      fundingKind: 'capital',
+    }).catch((error) => error);
+    expect(depositTooSmall).toBeInstanceOf(FinanceError);
+    expect((depositTooSmall as FinanceError).status).toBe(409);
+
+    partners = await listFinancePartners();
+    expect(partners.partners[0].deposits).toBe(5000000);
+    expect(partners.partners[0].withdrawals).toBe(5000000);
+    expect(partners.partners[0].balance).toBe(0);
   });
 
   it('refuses a partner withdrawal larger than the money they have in the company', async () => {

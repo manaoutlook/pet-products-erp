@@ -71,6 +71,18 @@ export interface CreateFinanceEntryInput {
   createdByUserId: number;
 }
 
+/**
+ * The fields an administrator may correct on a posted entry.
+ *
+ * The entry number never changes: it is how the row is quoted in the ledger, in printed cash books
+ * and in a purchase order's reference. The type may change, because "this was an expense, not
+ * income" is a correction the owner has to be able to make; the stored direction is re-derived
+ * from it so the ledger and the report keep agreeing.
+ */
+export interface UpdateFinanceEntryInput extends Omit<CreateFinanceEntryInput, "createdByUserId"> {
+  entryId: number;
+}
+
 export interface ListFinanceEntriesFilters {
   entryType?: FinanceEntryType;
   status?: "posted" | "voided";
@@ -169,7 +181,7 @@ async function partnerTotals(executor: DbClient, partnerId?: number) {
  * posted together with its items) can reuse exactly the same rules instead of keeping a second
  * copy that drifts.
  */
-function validateEntryInput(input: CreateFinanceEntryInput) {
+function validateEntryInput(input: Omit<CreateFinanceEntryInput, "createdByUserId">) {
   const amount = roundMoney(numberOf(input.amount));
   if (amount <= 0) throw new FinanceError("Enter an amount greater than zero", 400);
   if (!input.category?.trim()) throw new FinanceError("Choose a category", 400);
@@ -284,6 +296,111 @@ export async function createFinanceEntry(input: CreateFinanceEntryInput) {
     }
 
     return insertEntry(tx, input, amount, entryType, partnerEntry);
+  });
+}
+
+/**
+ * Correct a posted entry.
+ *
+ * This is the one write that changes a row in place, and it is reserved for an administrator (the
+ * route enforces that with `requireAdmin`). Everything else in the book stays append-only: a
+ * mistake is normally voided so the history shows what was written. Editing is for fixing a typo
+ * or a wrong amount without losing the entry number the owner may already have quoted.
+ *
+ * Rules kept from creation:
+ *   - amount, date, category and description are validated exactly as on POST;
+ *   - the stored direction is re-derived from the (possibly changed) entry type;
+ *   - partner entries must name a partner and a funding kind, and no other entry may;
+ *   - a partner's balance must not go negative. The check accounts for the entry's old
+ *     contribution, so editing a withdrawal up to the balance plus what this row already took is
+ *     allowed, while turning a deposited-and-withdrawn deposit into an expense is refused.
+ *
+ * A voided entry is refused: it is history, and correcting history happens by recording the
+ * money again, not by rewriting the row.
+ */
+export async function updateFinanceEntry(input: UpdateFinanceEntryInput) {
+  const { amount, entryType, partnerEntry } = validateEntryInput(input);
+
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(financeEntries)
+      .where(eq(financeEntries.id, input.entryId))
+      .for("update");
+
+    if (!existing) throw new FinanceError("Finance entry not found", 404);
+    if (existing.status === "voided") {
+      throw new FinanceError(
+        "A voided entry cannot be edited",
+        409,
+        "Record a new entry instead - the voided row stays in the book as history."
+      );
+    }
+
+    const oldType = existing.entryType as FinanceEntryType;
+    const oldPartnerId = isPartnerEntryType(oldType) ? existing.partnerId : null;
+    const oldAmount = numberOf(existing.amount);
+    const newPartnerId = partnerEntry ? input.partnerId ?? null : null;
+
+    // Lock every partner whose balance this edit can move, in id order so two edits cannot
+    // deadlock each other. The balance is read under the lock, like a withdrawal at creation.
+    const affectedPartnerIds = Array.from(
+      new Set([oldPartnerId, newPartnerId].filter((id): id is number => typeof id === "number"))
+    ).sort((a, b) => a - b);
+
+    for (const partnerId of affectedPartnerIds) {
+      const locked = (await tx.execute(
+        sql`SELECT id FROM finance_partners WHERE id = ${partnerId} FOR UPDATE`
+      )) as unknown as { id: number }[];
+      if (locked.length === 0) throw new FinanceError("Partner not found", 404);
+
+      const [totals] = await partnerTotals(tx, partnerId);
+      const balance = partnerBalanceOf(totals?.deposits, totals?.withdrawals);
+
+      // Take this row's current effect out of the balance, then apply the edited effect.
+      const oldContribution =
+        oldPartnerId === partnerId
+          ? oldType === "partner_deposit"
+            ? oldAmount
+            : -oldAmount
+          : 0;
+      const newContribution =
+        newPartnerId === partnerId ? (entryType === "partner_deposit" ? amount : -amount) : 0;
+      const balanceAfter = balance - oldContribution + newContribution;
+
+      if (balanceAfter < 0) {
+        throw new FinanceError(
+          "This change would leave the partner with a negative balance",
+          409,
+          "A partner can only take out money they have put in. Reduce the amount, or record a deposit first."
+        );
+      }
+    }
+
+    await tx
+      .update(financeEntries)
+      .set({
+        entryType,
+        direction: directionOfFinanceEntry(entryType),
+        category: input.category.trim(),
+        description: input.description.trim(),
+        amount: amount.toFixed(2),
+        entryDate: input.entryDate,
+        paymentMethod: input.paymentMethod || "CASH",
+        reference: input.reference?.trim() || null,
+        notes: input.notes?.trim() || null,
+        partnerId: newPartnerId,
+        fundingKind: partnerEntry ? input.fundingKind ?? null : null,
+        updatedAt: new Date(),
+      })
+      .where(eq(financeEntries.id, existing.id));
+
+    const updated = await tx.query.financeEntries.findFirst({
+      where: eq(financeEntries.id, existing.id),
+      with: entryRelations,
+    });
+
+    return toFinanceEntryApiRow(updated!);
   });
 }
 

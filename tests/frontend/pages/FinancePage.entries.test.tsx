@@ -13,7 +13,11 @@ import { formatCurrency } from '@/utils/format';
  * twice, and adding a partner before money can be booked against them.
  */
 
-const mocks = vi.hoisted(() => ({ toast: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+    toast: vi.fn(),
+    // Admin by default; one test flips this off to check the edit button follows the role gate.
+    isAdmin: { value: true },
+}));
 
 vi.mock('@/hooks/use-permissions', () => ({
     usePermissions: () => ({
@@ -21,7 +25,7 @@ vi.mock('@/hooks/use-permissions', () => ({
         can: () => true,
         getModulePermissions: () => null,
         getAllowedModules: () => [],
-        isAdmin: true,
+        isAdmin: mocks.isAdmin.value,
         isLoading: false,
     }),
 }));
@@ -121,7 +125,7 @@ function renderEntries(
         entries?: Record<string, unknown>[];
         total?: number;
         partners?: Record<string, unknown>[];
-        onPost?: (url: string, body: unknown) => unknown;
+        onPost?: (url: string, body: unknown, method: string) => unknown;
     } = {},
 ) {
     const entries = options.entries ?? [
@@ -141,8 +145,15 @@ function renderEntries(
     const stub = vi.fn(async (url: string, init?: RequestInit) => {
         const path = String(url).split('?')[0];
 
-        if (init?.method === 'POST' && options.onPost) {
-            return json(options.onPost(path, init.body ? JSON.parse(String(init.body)) : null));
+        // POST creates, PATCH corrects - both go through the same stub so a test can tell them apart.
+        if ((init?.method === 'POST' || init?.method === 'PATCH') && options.onPost) {
+            return json(
+                options.onPost(
+                    path,
+                    init.body ? JSON.parse(String(init.body)) : null,
+                    init.method,
+                ),
+            );
         }
 
         if (path === '/api/finance/summary') return json(summary);
@@ -195,6 +206,7 @@ async function openEntriesTab() {
 
 afterEach(() => {
     vi.unstubAllGlobals();
+    mocks.isAdmin.value = true;
     window.history.replaceState(null, '', '/');
 });
 
@@ -394,6 +406,79 @@ describe('FinancePage - recording and voiding entries', () => {
                 expect.objectContaining({ title: 'The entry was not recorded' }),
             ),
         );
+    });
+});
+
+describe('FinancePage - correcting an entry', () => {
+    it('opens the edit dialog filled in from the row and saves with PATCH', async () => {
+        const patches: { path: string; body: Record<string, unknown> }[] = [];
+        renderEntries({
+            onPost: (path, body, method) => {
+                if (method === 'PATCH') {
+                    patches.push({ path, body: body as Record<string, unknown> });
+                    return { entry: makeEntry({ amount: 800000 }) };
+                }
+                return { entry: makeEntry() };
+            },
+        });
+
+        const user = await openEntriesTab();
+        // One edit button per posted row.
+        const editButtons = await screen.findAllByRole('button', { name: /edit entry/i });
+        expect(editButtons).toHaveLength(2);
+        await user.click(editButtons[0]);
+
+        const dialog = await screen.findByRole('dialog');
+        expect(within(dialog).getByText('Edit entry FIN-20261119-0001')).toBeInTheDocument();
+
+        // The form starts from what was stored, not empty.
+        const amount = within(dialog).getByLabelText('Amount');
+        expect(amount).toHaveValue(750000);
+        expect(within(dialog).getByLabelText('Description')).toHaveValue('Shop rent');
+        expect(within(dialog).getByLabelText('Reference')).toHaveValue('INV-LANDLORD-9');
+        // The date field is a plain YYYY-MM-DD, exactly what the API returns.
+        expect(within(dialog).getByLabelText('Date')).toHaveValue('2026-11-19');
+        // Voucher pictures are filed on create; an edit has nothing queued to upload.
+        expect(
+            within(dialog).queryByText(/receipt \/ bank-transfer pictures/i),
+        ).not.toBeInTheDocument();
+
+        await user.clear(amount);
+        await user.type(amount, '800000');
+        await user.click(within(dialog).getByRole('button', { name: /save changes/i }));
+
+        await waitFor(() => expect(patches).toHaveLength(1));
+        expect(patches[0]).toMatchObject({
+            path: '/api/finance/entries/1',
+            body: {
+                entryType: 'expense',
+                category: 'Rent',
+                description: 'Shop rent',
+                amount: 800000,
+                entryDate: '2026-11-19',
+                partnerId: null,
+                fundingKind: null,
+            },
+        });
+        await waitFor(() =>
+            expect(mocks.toast).toHaveBeenCalledWith(
+                expect.objectContaining({ title: 'Expense FIN-20261119-0001 updated' }),
+            ),
+        );
+        // The dialog closes and the ledger/report are refreshed.
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    });
+
+    it('does not offer editing to a bookkeeper without the administrator role', async () => {
+        mocks.isAdmin.value = false;
+        renderEntries();
+
+        await openEntriesTab();
+        expect(await screen.findByText('FIN-20261119-0001')).toBeInTheDocument();
+
+        expect(screen.queryByRole('button', { name: /edit entry/i })).not.toBeInTheDocument();
+        // Voiding stays available: finance update is enough to reverse a mistake, not rewrite it.
+        expect(screen.getAllByRole('button', { name: /void/i }).length).toBeGreaterThan(0);
     });
 });
 

@@ -44,6 +44,7 @@ import {
   Clock,
   Landmark,
   Loader2,
+  Pencil,
   Plus,
   Printer,
   RefreshCw,
@@ -309,6 +310,43 @@ function emptyEntryForm(): EntryFormState {
   };
 }
 
+/**
+ * The edit dialog starts from the stored row rather than an empty form.
+ *
+ * `entryDate` comes back as `YYYY-MM-DD` (a date column, not a timestamp), which is exactly what
+ * `<input type="date">` wants; the slice keeps it safe if the API ever returns an ISO timestamp.
+ */
+function entryToForm(entry: FinanceEntryRow): EntryFormState {
+  return {
+    entryType: entry.entryType,
+    category: entry.category,
+    description: entry.description,
+    amount: String(entry.amount),
+    entryDate: entry.entryDate.slice(0, 10),
+    paymentMethod: entry.paymentMethod,
+    reference: entry.reference ?? "",
+    notes: entry.notes ?? "",
+    partnerId: entry.partnerId !== null ? String(entry.partnerId) : "",
+    fundingKind: entry.fundingKind ?? "capital",
+  };
+}
+
+/** The body both POST and PATCH send - one shape, validated by the same route schema. */
+function entryPayload(form: EntryFormState) {
+  return {
+    entryType: form.entryType,
+    category: form.category,
+    description: form.description.trim(),
+    amount: Number(form.amount),
+    entryDate: form.entryDate,
+    paymentMethod: form.paymentMethod,
+    reference: form.reference.trim() || null,
+    notes: form.notes.trim() || null,
+    partnerId: isPartnerEntryType(form.entryType) ? Number(form.partnerId) : null,
+    fundingKind: isPartnerEntryType(form.entryType) ? form.fundingKind : null,
+  };
+}
+
 function StatCard({
   title,
   value,
@@ -400,10 +438,16 @@ function StatCardLink({
 function FinancePage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { hasPermission } = usePermissions();
+  const { hasPermission, isAdmin } = usePermissions();
   const canRead = hasPermission("finance", "read");
   const canCreate = hasPermission("finance", "create");
   const canVoid = hasPermission("finance", "update");
+  /**
+   * Editing rewrites a posted row, so it is stricter than voiding: the administrator role is
+   * required on top of the `finance.update` grant, and the API enforces the same rule
+   * (`requireAdmin` on PATCH /api/finance/entries/:id).
+   */
+  const canEdit = isAdmin && hasPermission("finance", "update");
 
   const [tab, setTab] = useState("report");
   const [from, setFrom] = useState(monthStartIso());
@@ -419,6 +463,8 @@ function FinancePage() {
   const limit = 25;
 
   const [entryDialogOpen, setEntryDialogOpen] = useState(false);
+  /** The posted entry being corrected; null while recording a new one. */
+  const [editing, setEditing] = useState<FinanceEntryRow | null>(null);
   // The receipt/voucher pictures picked while the entry is being typed. Uploaded once the POST
   // returns the entry id - until then there is nothing in the database to attach them to.
   const [entryDocuments, setEntryDocuments] = useState<File[]>([]);
@@ -511,24 +557,29 @@ function FinancePage() {
     queryClient.invalidateQueries({ queryKey: ["/api/finance"] });
   };
 
+  /** Close the entry dialog and forget both the typing and which row was being corrected. */
+  const closeEntryDialog = () => {
+    setEntryDialogOpen(false);
+    setEditing(null);
+    setEntryDocuments([]);
+    setForm(emptyEntryForm());
+  };
+
+  /** Open the same dialog empty (new entry) or filled in (correcting a posted one). */
+  const openEntryDialog = (entry: FinanceEntryRow | null = null) => {
+    setEditing(entry);
+    setEntryDocuments([]);
+    setForm(entry ? entryToForm(entry) : emptyEntryForm());
+    setEntryDialogOpen(true);
+  };
+
   const createEntry = useMutation({
     mutationFn: async () => {
       const response = await fetch("/api/finance/entries", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          entryType: form.entryType,
-          category: form.category,
-          description: form.description.trim(),
-          amount: Number(form.amount),
-          entryDate: form.entryDate,
-          paymentMethod: form.paymentMethod,
-          reference: form.reference.trim() || null,
-          notes: form.notes.trim() || null,
-          partnerId: isPartnerEntryType(form.entryType) ? Number(form.partnerId) : null,
-          fundingKind: isPartnerEntryType(form.entryType) ? form.fundingKind : null,
-        }),
+        body: JSON.stringify(entryPayload(form)),
       });
       return readJson(response);
     },
@@ -554,14 +605,45 @@ function FinancePage() {
         });
       }
 
-      setEntryDialogOpen(false);
-      setEntryDocuments([]);
-      setForm(emptyEntryForm());
+      closeEntryDialog();
       refreshMoney();
     },
     onError: (error: Error & { suggestion?: string }) => {
       toast({
         title: "The entry was not recorded",
+        description: error.suggestion ? `${error.message} - ${error.suggestion}` : error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  /**
+   * Save a corrected entry. PATCH, not POST: the entry number stays, the totals drop the old
+   * amount and pick up the new one in the same refresh.
+   */
+  const updateEntry = useMutation({
+    mutationFn: async () => {
+      if (!editing) throw new Error("Choose an entry to edit");
+      const response = await fetch(`/api/finance/entries/${editing.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(entryPayload(form)),
+      });
+      return readJson(response);
+    },
+    onSuccess: (result: { entry: FinanceEntryRow }) => {
+      toast({
+        title: `${FINANCE_ENTRY_TYPE_LABELS[result.entry.entryType]} ${result.entry.entryNumber} updated`,
+        description: formatCurrency(result.entry.amount),
+        variant: "success",
+      });
+      closeEntryDialog();
+      refreshMoney();
+    },
+    onError: (error: Error & { suggestion?: string }) => {
+      toast({
+        title: "The entry was not updated",
         description: error.suggestion ? `${error.message} - ${error.suggestion}` : error.message,
         variant: "destructive",
       });
@@ -629,9 +711,22 @@ function FinancePage() {
     },
   });
 
+  /**
+   * Pre-flight the partner balance before submitting. When editing a withdrawal, its own amount is
+   * still deducted from the partner balance, so it is added back here - matching what the server
+   * does (it removes the old contribution before applying the new one).
+   */
   const withdrawalCheck: { valid: boolean; error?: string; suggestion?: string } =
     form.entryType === "partner_withdrawal" && selectedPartner
-      ? validatePartnerWithdrawal(Number(form.amount) || 0, selectedPartner.balance)
+      ? validatePartnerWithdrawal(
+          Number(form.amount) || 0,
+          selectedPartner.balance +
+            (editing &&
+            editing.entryType === "partner_withdrawal" &&
+            editing.partnerId === selectedPartner.id
+              ? editing.amount
+              : 0)
+        )
       : { valid: true };
 
   const categories = isPartnerEntryType(form.entryType)
@@ -639,7 +734,7 @@ function FinancePage() {
     : categoriesForFinanceEntry(form.entryType);
 
   const canSubmitEntry =
-    canCreate &&
+    (editing ? canEdit : canCreate) &&
     form.amount.trim() !== "" &&
     Number(form.amount) > 0 &&
     form.description.trim() !== "" &&
@@ -702,13 +797,7 @@ function FinancePage() {
             </Link>
           </Button>
           {canCreate ? (
-            <Button
-              size="sm"
-              onClick={() => {
-                setForm(emptyEntryForm());
-                setEntryDialogOpen(true);
-              }}
-            >
+            <Button size="sm" onClick={() => openEntryDialog()}>
               <Plus className="mr-2 h-4 w-4" />
               New entry
             </Button>
@@ -1297,13 +1386,7 @@ function FinancePage() {
               className="w-40"
             />
             {canCreate ? (
-              <Button
-                className="ml-auto"
-                onClick={() => {
-                  setForm(emptyEntryForm());
-                  setEntryDialogOpen(true);
-                }}
-              >
+              <Button className="ml-auto" onClick={() => openEntryDialog()}>
                 <Plus className="mr-2 h-4 w-4" />
                 New entry
               </Button>
@@ -1432,6 +1515,22 @@ function FinancePage() {
                               entityId={entry.id}
                               label={`Entry ${entry.entryNumber}`}
                             />
+                            {/*
+                              Correcting a posted row is administrator-only; voiding stays open to
+                              anyone with finance update, so a non-admin bookkeeper can still reverse
+                              a mistake without rewriting it.
+                            */}
+                            {canEdit && !entry.voided ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                aria-label={`Edit entry ${entry.entryNumber}`}
+                                onClick={() => openEntryDialog(entry)}
+                              >
+                                <Pencil className="mr-1 h-4 w-4" />
+                                Edit
+                              </Button>
+                            ) : null}
                             {canVoid && !entry.voided ? (
                               <Button
                                 variant="ghost"
@@ -1589,22 +1688,26 @@ function FinancePage() {
 
 
 
-      {/* ------------------------------------------------------------- New entry */}
+      {/* ------------------------------------------- New entry / correct an entry */}
       <Dialog
         open={entryDialogOpen}
         onOpenChange={(open) => {
-          setEntryDialogOpen(open);
-          if (!open) {
-            setForm(emptyEntryForm());
-            setEntryDocuments([]);
+          if (open) {
+            setEntryDialogOpen(true);
+          } else {
+            closeEntryDialog();
           }
         }}
       >
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Record an entry</DialogTitle>
+            <DialogTitle>
+              {editing ? `Edit entry ${editing.entryNumber}` : "Record an entry"}
+            </DialogTitle>
             <DialogDescription>
-              {FINANCE_ENTRY_TYPE_DESCRIPTIONS[form.entryType]}
+              {editing
+                ? "Correct what was recorded. The entry number stays the same and the ledger totals update when you save."
+                : FINANCE_ENTRY_TYPE_DESCRIPTIONS[form.entryType]}
             </DialogDescription>
           </DialogHeader>
 
@@ -1803,25 +1906,34 @@ function FinancePage() {
               />
             </div>
 
-            <PendingAttachmentPicker
-              files={entryDocuments}
-              onFilesChange={setEntryDocuments}
-              label="Receipt / bank-transfer pictures"
-              description="Photograph the paper receipt or screenshot the bank transfer for this entry - up to 10 pictures, 5 MB each. They are filed with the entry when you record it."
-              disabled={createEntry.isPending}
-            />
+            {/*
+              Voucher pictures are filed when the entry is first recorded. On an edit the pictures
+              already filed stay attached and can be managed from the row's attachments button, so
+              the picker would only confuse - there is nothing queued to upload.
+            */}
+            {editing ? null : (
+              <PendingAttachmentPicker
+                files={entryDocuments}
+                onFilesChange={setEntryDocuments}
+                label="Receipt / bank-transfer pictures"
+                description="Photograph the paper receipt or screenshot the bank transfer for this entry - up to 10 pictures, 5 MB each. They are filed with the entry when you record it."
+                disabled={createEntry.isPending}
+              />
+            )}
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEntryDialogOpen(false)}>
+            <Button variant="outline" onClick={closeEntryDialog}>
               Cancel
             </Button>
             <Button
-              onClick={() => createEntry.mutate()}
-              disabled={!canSubmitEntry || createEntry.isPending}
+              onClick={() => (editing ? updateEntry.mutate() : createEntry.mutate())}
+              disabled={!canSubmitEntry || createEntry.isPending || updateEntry.isPending}
             >
-              {createEntry.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Record entry
+              {createEntry.isPending || updateEntry.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              {editing ? "Save changes" : "Record entry"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,6 +1,6 @@
 import type { Express, Response } from "express";
 import { z } from "zod";
-import { requireAuth, requirePermission } from "../middleware";
+import { requireAdmin, requireAuth, requirePermission } from "../middleware";
 import { idParamSchema, validateBody, validateParams, validateQuery } from "../validate";
 import { FINANCE_ENTRY_TYPES, FUNDING_KINDS } from "../../shared/finance";
 import { PAYMENT_METHODS } from "../../shared/invoice-payment";
@@ -12,6 +12,7 @@ import {
   getFinanceEntry,
   listFinanceEntries,
   listFinancePartners,
+  updateFinanceEntry,
   voidFinanceEntry,
 } from "../finance";
 import { listInvoices } from "../invoices";
@@ -27,6 +28,7 @@ import { resolveScope, scopeStoreIds } from "../scoping";
  * GET  /api/finance/ledger/customers - customers a statement can be printed for
  * GET  /api/finance/entries     - the manual money book (filterable)
  * POST /api/finance/entries     - record expense / income / partner deposit / withdrawal
+ * PATCH /api/finance/entries/:id - correct a posted entry (administrators only)
  * POST /api/finance/entries/:id/void - void an entry (reason required, row kept)
  * GET  /api/finance/partners    - partners with their live capital balance
  * POST /api/finance/partners    - add a partner
@@ -313,6 +315,36 @@ export function registerFinanceRoutes(app: Express) {
         return res.status(201).json({ entry });
       } catch (error) {
         return respondWithError(res, error, "Failed to record the finance entry");
+      }
+    }
+  );
+
+  /**
+   * Correct a posted entry.
+   *
+   * This is the only finance write that is gated on the administrator role itself, not just on the
+   * `finance.update` grant: editing changes a row the ledger already quotes, while voiding (which
+   * any finance updater may do) keeps the original visible. The body is the same shape as POST, so
+   * the screen reuses one form and the validation rules cannot drift.
+   */
+  app.patch(
+    "/api/finance/entries/:id",
+    requireAuth,
+    requireAdmin,
+    requirePermission("finance", "update"),
+    validateParams(idParamSchema),
+    validateBody(
+      createEntryBodySchema,
+      "Check the entry type, amount, date and description and try again"
+    ),
+    async (req, res) => {
+      try {
+        const { id } = req.params as unknown as z.infer<typeof idParamSchema>;
+        const body = req.body as z.infer<typeof createEntryBodySchema>;
+        const entry = await updateFinanceEntry({ entryId: id, ...body });
+        return res.json({ entry, message: "Entry updated" });
+      } catch (error) {
+        return respondWithError(res, error, "Failed to update the finance entry");
       }
     }
   );
