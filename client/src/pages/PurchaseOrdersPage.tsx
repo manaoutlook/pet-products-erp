@@ -43,6 +43,7 @@ import { AttachmentsButton } from "@/components/attachments/AttachmentsDialog";
 import { printPurchaseOrder } from "@/components/PurchaseOrders/PurchaseOrderPrint";
 import { useCompanyInfo } from "@/hooks/use-company";
 import { companyHeaderMissingFields } from "@/components/company/CompanyHeader";
+import { PAYMENT_METHOD_LABELS } from "@shared/invoice-payment";
 import { companyHeaderProblemMessage } from "@shared/company";
 
 interface Supplier {
@@ -87,6 +88,8 @@ interface PurchaseOrder {
   deliveryDate: string;
   totalAmount: number;
   status: 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled';
+  /** How the supplier is paid; the order's Finance expense carries the same method. */
+  paymentMethod?: string | null;
   actions?: PurchaseOrderAction[];
   items?: PurchaseOrderItem[];
   notes?: string;
@@ -496,6 +499,12 @@ function PurchaseOrdersPage() {
                                       <div><strong>Status:</strong> <span className="capitalize">{selectedOrderDetails.status}</span></div>
                                       <div><strong>Order Date:</strong> {formatDate(selectedOrderDetails.createdAt)}</div>
                                       <div><strong>Expected Delivery Date:</strong> {formatDate(selectedOrderDetails.deliveryDate)}</div>
+                                      <div>
+                                        <strong>Paid by:</strong>{" "}
+                                        {PAYMENT_METHOD_LABELS[selectedOrderDetails.paymentMethod ?? "CASH"] ??
+                                          selectedOrderDetails.paymentMethod ??
+                                          "Cash"}
+                                      </div>
                                       {selectedOrderDetails.notes && (
                                         <div><strong>Notes:</strong> {selectedOrderDetails.notes}</div>
                                       )}

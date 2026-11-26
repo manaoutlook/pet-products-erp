@@ -84,6 +84,7 @@ function makeSummary(overrides: Record<string, unknown> = {}) {
       total: 4600000,
       moneyIn: 5800000,
       moneyOut: 1200000,
+      openingBalance: 1000000,
       byMethod: [
         { method: 'CASH', label: 'Cash', moneyIn: 5500000, moneyOut: 1200000, balance: 4300000 },
         {
@@ -312,6 +313,13 @@ describe('FinancePage', () => {
     const bank = within(card).getByTestId('money-on-hand-bank_transfer');
     expect(within(bank).getByText('Bank transfer')).toBeInTheDocument();
     expect(within(bank).getByText(money(300000))).toBeInTheDocument();
+
+    // Money the shop already had when the books opened is named, so the balance is not read as
+    // profit earned since.
+    const opening = within(card).getByTestId('money-on-hand-opening');
+    expect(opening).toHaveTextContent(/opening balance/i);
+    // The figure is Intl-formatted (its own spacing), so compare on the digits alone.
+    expect((opening.textContent ?? '').replace(/[^\d]/g, '')).toContain('1000000');
   });
 
   it('calls out partially paid invoices instead of lumping them in with unpaid ones', async () => {

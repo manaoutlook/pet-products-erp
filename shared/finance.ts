@@ -13,6 +13,13 @@
  *   Manual expenses         -> expense, a DEBIT  (money goes out)
  *   Partner deposit         -> capital/loan, a CREDIT (the partner puts money in)
  *   Partner withdrawal      -> capital/loan, a DEBIT  (the partner takes money back)
+ *   Opening balance         -> a CREDIT (money the business already had on day one)
+ *
+ * The opening balance is deliberately NOT income: it is not money the shop earned this period, so
+ * it must not inflate profit. It exists so "money on hand" can start from the truth instead of
+ * zero - a till that already held 5,000,000 when the system was adopted would otherwise read
+ * 5,000,000 short forever. It is dated on the day the books start, so a period report before that
+ * day never sees it.
  *
  * Purchase orders DO post an expense: creating one writes a posted `expense` row under the
  * `PURCHASE_ORDER_EXPENSE_CATEGORY` heading with the PO number as its reference, because the
@@ -38,6 +45,7 @@ export const FINANCE_ENTRY_TYPES = [
   'expense',
   'partner_deposit',
   'partner_withdrawal',
+  'opening_balance',
 ] as const;
 export type FinanceEntryType = (typeof FINANCE_ENTRY_TYPES)[number];
 
@@ -60,6 +68,15 @@ export type FundingKind = (typeof FUNDING_KINDS)[number];
  * behind each order again (it is matched by `reference = order_number`).
  */
 export const PURCHASE_ORDER_EXPENSE_CATEGORY = 'Supplier purchases';
+
+/**
+ * The heading an opening-balance row carries.
+ *
+ * It is fixed (not offered as a choice) so the report and the cash book can call the figure out by
+ * name: money on hand is `everything recorded` minus `the opening balance`, and the owner can see
+ * which part of the balance the shop already had before it started using the system.
+ */
+export const OPENING_BALANCE_CATEGORY = 'Opening balance';
 
 /** Expense headings offered by the entry screen. Free text is not offered, so reports group. */
 export const EXPENSE_CATEGORIES = [
@@ -89,6 +106,7 @@ export const FINANCE_ENTRY_TYPE_LABELS: Record<FinanceEntryType, string> = {
   expense: 'Expense',
   partner_deposit: 'Partner deposit',
   partner_withdrawal: 'Partner withdrawal',
+  opening_balance: 'Opening balance',
 };
 
 export const FINANCE_ENTRY_TYPE_DESCRIPTIONS: Record<FinanceEntryType, string> = {
@@ -96,6 +114,8 @@ export const FINANCE_ENTRY_TYPE_DESCRIPTIONS: Record<FinanceEntryType, string> =
   expense: 'Money paid out by the company (debit).',
   partner_deposit: 'A partner puts capital or a temporary loan into the company (credit).',
   partner_withdrawal: 'A partner takes back money they previously put in (debit).',
+  opening_balance:
+    'Money the business already had when the books opened (credit). It sets what the till and the bank start from, and is not counted as income or profit.',
 };
 
 export const FUNDING_KIND_LABELS: Record<FundingKind, string> = {
@@ -124,15 +144,15 @@ export function isPartnerEntryType(type: FinanceEntryType): boolean {
 /**
  * The accounting side of an entry.
  *
- * Income and partner deposits bring money in (credit); expenses and partner withdrawals take it
- * out (debit). The stored direction is checked against this function by a database constraint, so
- * a row can never claim an expense is a credit.
+ * Income, partner deposits and the opening balance bring money in (credit); expenses and partner
+ * withdrawals take it out (debit). The stored direction is checked against this function by a
+ * database constraint, so a row can never claim an expense is a credit.
  */
 export function directionOfFinanceEntry(type: FinanceEntryType): FinanceDirection {
-  return type === 'income' || type === 'partner_deposit' ? 'credit' : 'debit';
+  return type === 'expense' || type === 'partner_withdrawal' ? 'debit' : 'credit';
 }
 
-/** Expense headings for an expense, income headings for income; [] for partner entries. */
+/** Expense headings for an expense, income headings for income; [] for partner and opening rows. */
 export function categoriesForFinanceEntry(type: FinanceEntryType): readonly string[] {
   if (type === 'expense') return EXPENSE_CATEGORIES;
   if (type === 'income') return INCOME_CATEGORIES;

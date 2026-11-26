@@ -33,6 +33,12 @@ export interface PostPurchaseOrderExpenseInput {
   createdByUserId: number;
   /** Defaults to today in Vietnam - the day the order was raised and the money committed. */
   entryDate?: string;
+  /**
+   * How the supplier is paid (a `PAYMENT_METHODS` value). The report reads it per method, so this
+   * is what decides whether the bill lands in the till or in the bank line of "money on hand".
+   * Defaults to CASH for callers that predate the column.
+   */
+  paymentMethod?: string;
 }
 
 /**
@@ -60,7 +66,7 @@ export async function postPurchaseOrderExpense(
     description: purchaseOrderExpenseDescription(input.orderNumber, input.supplierName),
     amount: input.amount,
     entryDate: input.entryDate ?? vietnamDayOf(new Date()),
-    paymentMethod: "CASH",
+    paymentMethod: input.paymentMethod ?? "CASH",
     reference: input.orderNumber,
     notes: "Recorded automatically when the purchase order was created.",
     createdByUserId: input.createdByUserId,
@@ -145,6 +151,41 @@ export async function movePurchaseOrderExpenseDate(
   await executor
     .update(financeEntries)
     .set({ entryDate: input.entryDate, updatedAt: new Date() })
+    .where(inArray(financeEntries.id, entries.map((entry) => entry.id)));
+
+  return entries.length;
+}
+
+/**
+ * Change how a purchase order was paid, on the order and on the expense it posted.
+ *
+ * The expense row's `payment_method` is what splits "money on hand" into cash and bank, so a bill
+ * typed as cash that was actually transferred has to be corrected on both sides - otherwise the
+ * till would read high and the bank low forever. Like the date move, this touches the voided rows
+ * too: they stay in the book as history, but must not contradict the order they belong to.
+ *
+ * Returns how many entries changed (0 when the order has no finance row).
+ */
+export async function setPurchaseOrderExpensePaymentMethod(
+  executor: DbClient,
+  input: { orderNumber: string; paymentMethod: string }
+): Promise<number> {
+  const entries = await executor
+    .select({ id: financeEntries.id })
+    .from(financeEntries)
+    .where(
+      and(
+        eq(financeEntries.reference, input.orderNumber),
+        eq(financeEntries.category, PURCHASE_ORDER_EXPENSE_CATEGORY),
+        eq(financeEntries.entryType, "expense")
+      )
+    );
+
+  if (entries.length === 0) return 0;
+
+  await executor
+    .update(financeEntries)
+    .set({ paymentMethod: input.paymentMethod, updatedAt: new Date() })
     .where(inArray(financeEntries.id, entries.map((entry) => entry.id)));
 
   return entries.length;

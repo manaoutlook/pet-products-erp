@@ -57,12 +57,68 @@ function dashboardPayload(lowStock: LowStock[], orders = 1) {
     };
 }
 
-function renderDashboard(lowStock: LowStock[] = [], orders = 1, fail = false) {
+/** The cash its own endpoint returns - mirrors `CashOnHand` in server/finance.ts. */
+const cashPayload = {
+    asOf: '2026-05-02',
+    total: 4600000,
+    moneyIn: 5800000,
+    moneyOut: 1200000,
+    openingBalance: 1000000,
+    byMethod: [
+        { method: 'CASH', label: 'Cash', moneyIn: 5500000, moneyOut: 1200000, balance: 4300000 },
+        {
+            method: 'BANK_TRANSFER',
+            label: 'Bank transfer',
+            moneyIn: 300000,
+            moneyOut: 0,
+            balance: 300000,
+        },
+    ],
+};
+
+interface RenderOptions {
+    /** Treat the session as a role that may read Finance (so the money card is offered). */
+    canReadFinance?: boolean;
+    /** Make the money-on-hand request fail. */
+    failCash?: boolean;
+}
+
+function renderDashboard(
+    lowStock: LowStock[] = [],
+    orders = 1,
+    fail = false,
+    options: RenderOptions = {},
+) {
     const queryClient = new QueryClient({
         defaultOptions: {
             queries: {
                 // Serve canned data instead of hitting the API.
                 queryFn: async ({ queryKey }: any) => {
+                    if (queryKey[0] === '/api/user') {
+                        return options.canReadFinance
+                            ? {
+                                  id: 1,
+                                  username: 'admin',
+                                  role: {
+                                      id: 1,
+                                      name: 'Administrator',
+                                      isSystemAdmin: true,
+                                      permissions: {
+                                          finance: {
+                                              create: true,
+                                              read: true,
+                                              update: true,
+                                              delete: true,
+                                          },
+                                      },
+                                  },
+                              }
+                            : null;
+                    }
+                    if (queryKey[0] === '/api/finance/cash-on-hand') {
+                        if (options.failCash) throw new Error('network down');
+                        return cashPayload;
+                    }
                     if (queryKey[0] !== '/api/dashboard') return null;
                     if (fail) throw new Error('network down');
                     return dashboardPayload(lowStock, orders);
@@ -142,6 +198,35 @@ describe('DashboardPage charts', () => {
 
         expect(await screen.findByText('The dashboard could not be loaded')).toBeInTheDocument();
         expect(screen.getByText(/unavailable, not zero/)).toBeInTheDocument();
+    });
+
+    it('shows the money still on hand, split by how it was paid', async () => {
+        renderDashboard([], 1, false, { canReadFinance: true });
+
+        const card = await screen.findByTestId('dashboard-money-on-hand');
+        // The figures are Intl-formatted (their own spacing), so compare on the digits alone.
+        const digits = (element: HTMLElement) => (element.textContent ?? '').replace(/[^\d]/g, '');
+
+        expect(digits(screen.getByTestId('dashboard-money-on-hand-total'))).toContain('4600000');
+
+        const cash = screen.getByTestId('dashboard-money-on-hand-cash');
+        expect(cash).toHaveTextContent('Cash');
+        expect(digits(cash)).toContain('4300000');
+
+        const bank = screen.getByTestId('dashboard-money-on-hand-bank_transfer');
+        expect(bank).toHaveTextContent('Bank transfer');
+        expect(digits(bank)).toContain('300000');
+
+        // A balance that starts from money the shop already had says so - it is not profit.
+        expect(card).toHaveTextContent(/opening balance/i);
+        expect(digits(card)).toContain('1000000');
+    });
+
+    it('keeps money on hand away from roles that cannot read Finance', async () => {
+        renderDashboard();
+
+        expect(await screen.findByTestId('stats-cards')).toBeInTheDocument();
+        expect(screen.queryByTestId('dashboard-money-on-hand')).not.toBeInTheDocument();
     });
 });
 

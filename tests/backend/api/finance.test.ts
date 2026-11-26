@@ -17,6 +17,7 @@ import { cashBookLedger, customerStatementLedger } from '../../../server/ledger'
 import { vietnamDayOf } from '../../../shared/vietnam-day';
 import {
   FinanceError,
+  cashOnHandAsOf,
   createFinanceEntry,
   createFinancePartner,
   deleteFinancePartner,
@@ -28,6 +29,7 @@ import {
   updateFinancePartner,
   voidFinanceEntry,
 } from '../../../server/finance';
+import { OPENING_BALANCE_CATEGORY } from '../../../shared/finance';
 
 /**
  * Financial accounts - the manual money book next to the invoice receipts.
@@ -205,6 +207,50 @@ describe('financial accounts', () => {
     expect(now.cashOnHand.moneyOut).toBe(500000);
     expect(now.cashOnHand.total).toBe(-80000);
   });
+
+  it('starts the books from an opening balance without reading it as income or profit', async () => {
+    // What the shop already had on the day it started using the system: 5,000,000 in the till.
+    const opening = await postEntry({
+      entryType: 'opening_balance',
+      // The heading is fixed server-side, so a wrong one cannot split the report.
+      category: 'Something else',
+      description: 'Cash in the till on the day the books opened',
+      amount: 5000000,
+      paymentMethod: 'CASH',
+      entryDate: '2026-01-01',
+    });
+
+    expect(opening.entryType).toBe('opening_balance');
+    expect(opening.direction).toBe('credit');
+    expect(opening.category).toBe(OPENING_BALANCE_CATEGORY);
+
+    await postEntry({ amount: 500000, description: 'January rent', entryDate: '2026-01-10' });
+
+    const january = await financeSummary({ from: '2026-01-01', to: '2026-01-31' });
+
+    // It is a starting position, not money earned or moved: income, profit and cash position all
+    // ignore it, while money on hand starts from it.
+    expect(january.income.total).toBe(0);
+    expect(january.netProfit).toBe(-500000);
+    expect(january.cashPosition).toBe(-500000);
+    expect(january.cashOnHand.openingBalance).toBe(5000000);
+    expect(january.cashOnHand.total).toBe(4500000);
+    expect(january.cashOnHand.byMethod[0]).toMatchObject({
+      method: 'CASH',
+      moneyIn: 5000000,
+      moneyOut: 500000,
+      balance: 4500000,
+    });
+
+    // The Dashboard reads the same balance from its own entry point; the two must not drift.
+    expect(await cashOnHandAsOf('2026-01-31')).toEqual(january.cashOnHand);
+
+    // A report that ends before the books opened never sees the money.
+    const before = await financeSummary({ from: '2025-12-01', to: '2025-12-31' });
+    expect(before.cashOnHand.total).toBe(0);
+    expect(before.cashOnHand.openingBalance).toBe(0);
+  });
+
 
   it('treats other income as a credit and groups it by category', async () => {
     await postEntry({

@@ -6,6 +6,7 @@ import { FINANCE_ENTRY_TYPES, FUNDING_KINDS } from "../../shared/finance";
 import { PAYMENT_METHODS } from "../../shared/invoice-payment";
 import {
   FinanceError,
+  cashOnHandAsOf,
   createFinanceEntry,
   createFinancePartner,
   deleteFinancePartner,
@@ -25,6 +26,7 @@ import { resolveScope, scopeStoreIds } from "../scoping";
  * Financial Accounts endpoints.
  *
  * GET  /api/finance/summary     - income / expenses / capital / outstanding receivables report
+ * GET  /api/finance/cash-on-hand - money on hand per payment method (a balance, for the Dashboard)
  * GET  /api/finance/outstanding - the receivable rows behind the report, partially paid included
  * GET  /api/finance/ledger      - the printable cash book / customer statement (read model)
  * GET  /api/finance/ledger/customers - customers a statement can be printed for
@@ -190,6 +192,24 @@ export function registerFinanceRoutes(app: Express) {
         return res.json(await financeSummary({ from, to }));
       } catch (error) {
         return respondWithError(res, error, "Failed to build the financial report");
+      }
+    }
+  );
+
+  /**
+   * Money on hand, as a balance, for screens that only need "how much is left?" (the Dashboard).
+   * Same money as `summary.cashOnHand`, from the same builder, so the two screens cannot disagree.
+   * No `from`: a balance describes the till today, not a period.
+   */
+  app.get(
+    "/api/finance/cash-on-hand",
+    requireAuth,
+    requirePermission("finance", "read"),
+    async (_req, res) => {
+      try {
+        return res.json(await cashOnHandAsOf());
+      } catch (error) {
+        return respondWithError(res, error, "Failed to read the money on hand");
       }
     }
   );

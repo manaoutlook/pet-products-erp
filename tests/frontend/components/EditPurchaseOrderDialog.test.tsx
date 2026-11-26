@@ -152,12 +152,17 @@ describe('EditPurchaseOrderDialog', () => {
 
     it('refuses a back-dated order date for a non-administrator without calling the API', async () => {
         permissions.isAdmin = false;
-        const stub = renderDialog();
+        // Fixed dates: "yesterday" would be the same Vietnamese day as a stored date of today, and
+        // the dialog would then report "nothing changed" instead of a back-dated order.
+        const stub = renderDialog(
+            makeOrder({
+                orderDate: '2026-01-15T02:00:00.000Z',
+                createdAt: '2026-01-15T02:00:00.000Z',
+            }),
+        );
         const { user, orderDate } = await openDialog();
 
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        fireEvent.change(orderDate, { target: { value: toInputValue(yesterday) } });
+        fireEvent.change(orderDate, { target: { value: '2026-01-10T09:00' } });
         await user.click(screen.getByRole('button', { name: /save changes/i }));
 
         expect(await screen.findByText(BACK_DATED_PURCHASE_ORDER_MESSAGE)).toBeInTheDocument();

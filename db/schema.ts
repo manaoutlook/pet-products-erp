@@ -202,6 +202,11 @@ export const purchaseOrders = pgTable("purchase_orders", {
   deliveryDate: timestamp("delivery_date"),
   status: varchar("status", { length: 20 }).notNull().default('pending'),
   totalAmount: decimal("total_amount", { precision: 15, scale: 2 }).notNull(), // VND amount
+  // How the supplier is (or will be) paid. The order's "Supplier purchases" expense carries the
+  // same method, so a bill paid by bank transfer lands in the bank line of "money on hand" instead
+  // of the till. Defaulted to CASH so orders created before the column existed keep their old
+  // meaning.
+  paymentMethod: varchar("payment_method", { length: 20 }).notNull().default("CASH"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -787,14 +792,14 @@ export const financeEntries = pgTable("finance_entries", {
   amountPositive: check("finance_entries_amount_positive", sql`${table.amount} > 0`),
   directionMatchesType: check(
     "finance_entries_direction_matches_type",
-    sql`(${table.entryType} IN ('income', 'partner_deposit') AND ${table.direction} = 'credit')
+    sql`(${table.entryType} IN ('income', 'partner_deposit', 'opening_balance') AND ${table.direction} = 'credit')
       OR (${table.entryType} IN ('expense', 'partner_withdrawal') AND ${table.direction} = 'debit')`
   ),
   partnerConsistency: check(
     "finance_entries_partner_consistency",
     sql`(${table.entryType} IN ('partner_deposit', 'partner_withdrawal')
           AND ${table.partnerId} IS NOT NULL AND ${table.fundingKind} IS NOT NULL)
-      OR (${table.entryType} IN ('income', 'expense')
+      OR (${table.entryType} IN ('income', 'expense', 'opening_balance')
           AND ${table.partnerId} IS NULL AND ${table.fundingKind} IS NULL)`
   ),
 }));

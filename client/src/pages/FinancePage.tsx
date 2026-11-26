@@ -67,6 +67,7 @@ import {
   FUNDING_KINDS,
   FUNDING_KIND_LABELS,
   INCOME_CATEGORIES,
+  OPENING_BALANCE_CATEGORY,
   categoriesForFinanceEntry,
   isFinanceEntryType,
   isPartnerEntryType,
@@ -86,7 +87,9 @@ import { vietnamDayOf } from "@shared/vietnam-day";
  *              purchase order posts), net profit, the purchase orders behind the supplier total,
  *              partner capital, and what customers still owe, with partially paid invoices called
  *              out.
- *   Entries  - the ledger: expenses, other income, partner deposits/withdrawals. Purchase orders
+ *   Entries  - the ledger: expenses, other income, partner deposits/withdrawals and the opening
+ *              balance (the money the shop already had when the books opened - money on hand
+ *              starts from it, but it is never income or profit). Purchase orders
  *              add their own "Supplier purchases" entry when created. Rows are never edited or
  *              deleted: a mistake is voided with a reason and stays visible. The tab links to the
  *              receipts register, because till sales deliberately do not appear here.
@@ -215,6 +218,8 @@ interface FinanceSummaryResponse {
     total: number;
     moneyIn: number;
     moneyOut: number;
+    /** The part of `total` entered as the books' starting position, not as movement. */
+    openingBalance: number;
     byMethod: Array<{
       method: string;
       label: string;
@@ -276,6 +281,9 @@ const ENTRY_TYPE_BADGE: Record<FinanceEntryType, "success" | "destructive" | "in
   expense: "destructive",
   partner_deposit: "info",
   partner_withdrawal: "warning",
+  // The starting position: money in, but not earned - the "info" colour reads as "this is not
+  // profit" next to the green income badge.
+  opening_balance: "info",
 };
 
 const INVOICE_STATUS_BADGE: Record<
@@ -856,9 +864,19 @@ function FinancePage() {
     setForm((current) => ({
       ...current,
       entryType,
-      category: isPartnerEntryType(entryType)
-        ? FINANCE_ENTRY_TYPE_LABELS[entryType]
-        : categoriesForFinanceEntry(entryType)[0],
+      // The opening balance's heading is fixed (the server enforces it too), so it is not offered
+      // as a choice - and the description gets a sensible starting sentence, because "what was
+      // this money for" has only one true answer for a starting position.
+      category:
+        entryType === "opening_balance"
+          ? OPENING_BALANCE_CATEGORY
+          : isPartnerEntryType(entryType)
+            ? FINANCE_ENTRY_TYPE_LABELS[entryType]
+            : categoriesForFinanceEntry(entryType)[0],
+      description:
+        entryType === "opening_balance" && !current.description.trim()
+          ? "Money already in the business when the books opened"
+          : current.description,
       partnerId: isPartnerEntryType(entryType) ? current.partnerId : "",
     }));
   };
@@ -1104,10 +1122,16 @@ function FinancePage() {
                       ))}
                     </div>
                   )}
+                  {(summary.cashOnHand?.openingBalance ?? 0) > 0 ? (
+                    <p className="text-xs text-muted-foreground" data-testid="money-on-hand-opening">
+                      Includes {formatCurrency(summary.cashOnHand.openingBalance)} recorded as the
+                      opening balance - the money the shop already had when the books opened.
+                    </p>
+                  ) : null}
                   <p className="text-xs text-muted-foreground">
-                    Counts only money recorded here and in Receipts. Supplier purchases are booked
-                    as cash, and the books open at zero - money the shop already had before it
-                    started using this system needs an opening entry to appear.
+                    Counts only money recorded here and in Receipts. Each purchase order carries the
+                    method its supplier was paid by, and money the shop already had when it started
+                    using this system appears once you record an opening balance entry.
                   </p>
                 </CardContent>
               </Card>
@@ -2009,6 +2033,16 @@ function FinancePage() {
                   </Select>
                 </div>
               </div>
+            ) : form.entryType === "opening_balance" ? (
+              <div className="space-y-1">
+                <Label htmlFor="entry-category">Category</Label>
+                <Input id="entry-category" value={OPENING_BALANCE_CATEGORY} readOnly disabled />
+                <p className="text-xs text-muted-foreground">
+                  Fixed heading. Date this entry the day the books start (for example the day you
+                  began using this system) and set the amount to what the till and bank already
+                  held. It counts towards money on hand, never as income or profit.
+                </p>
+              </div>
             ) : (
               <div className="space-y-1">
                 <Label htmlFor="entry-category">Category</Label>
@@ -2038,7 +2072,9 @@ function FinancePage() {
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1">
-                <Label htmlFor="entry-method">Paid by</Label>
+                <Label htmlFor="entry-method">
+                  {form.entryType === "opening_balance" ? "Held in" : "Paid by"}
+                </Label>
                 <Select
                   value={form.paymentMethod}
                   onValueChange={(value) =>

@@ -271,6 +271,30 @@ describe('CreatePurchaseOrderDialog back-dated orders', () => {
         expect(screen.queryByText('Enter a valid delivery date')).toBeNull();
     });
 
+    it('sends how the supplier is paid, so the expense lands in the right till or bank line', async () => {
+        const { user } = setup();
+        await fillOrder(user, `${todayInVietnam()}T08:00`);
+
+        // Cash is the default, because that is what every order meant before the field existed.
+        await user.click(screen.getByRole('combobox', { name: /paid by/i }));
+        await chooseOption(user, 'Bank transfer');
+
+        submitForm();
+
+        await waitFor(() => expect(submittedBody()).toBeTruthy());
+        expect(submittedBody().paymentMethod).toBe('BANK_TRANSFER');
+    });
+
+    it('sends cash when the method is left at its default', async () => {
+        const { user } = setup();
+        await fillOrder(user, `${todayInVietnam()}T08:00`);
+
+        submitForm();
+
+        await waitFor(() => expect(submittedBody()).toBeTruthy());
+        expect(submittedBody().paymentMethod).toBe('CASH');
+    });
+
     it('refuses a back-dated order from a user who is not an administrator', async () => {
         permissions.isAdmin = false;
 

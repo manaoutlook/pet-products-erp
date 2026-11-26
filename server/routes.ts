@@ -41,6 +41,7 @@ import {
   isBackDatedPurchaseOrderDate,
 } from "../shared/purchase-order-dates";
 import { vietnamDayOf } from "../shared/vietnam-day";
+import { PAYMENT_METHODS } from "../shared/invoice-payment";
 import { normalizeDescriptionNewlines } from "@shared/product-description";
 import { importProducts } from "./product-import";
 import { importInventory } from "./inventory-import";
@@ -94,6 +95,7 @@ import { generateInventoryBarcode, generateOrderNumber, generateTransferNumber }
 import {
   movePurchaseOrderExpenseDate,
   postPurchaseOrderExpense,
+  setPurchaseOrderExpensePaymentMethod,
   voidPurchaseOrderExpense,
 } from "./purchase-order-finance";
 import { inventoryTypeForStore } from "./inventory-type";
@@ -111,6 +113,10 @@ const createPurchaseOrderSchema = z.object({
   // AI Agent Note: destinationStoreId is the specific Warehouse (Store Type WAREHOUSE) receiving the goods.
   destinationStoreId: z.number().positive("Destination Warehouse is required").optional(),
   deliveryDate: z.string().datetime("Valid delivery date is required"),
+  // How the supplier is paid. It decides which line of "money on hand" the order's expense lands
+  // in, so it belongs on the order rather than being assumed. Old clients omit it; CASH is what
+  // every order meant before the field existed.
+  paymentMethod: z.enum(PAYMENT_METHODS).default("CASH"),
   notes: z.string().optional(),
   items: z.array(z.object({
     productId: z.number().positive("Product ID is required"),
@@ -133,10 +139,17 @@ const editPurchaseOrderSchema = z
   .object({
     orderDate: z.string().datetime().optional(),
     deliveryDate: z.string().datetime().optional(),
+    // Correcting how the order was paid also corrects the expense that posted for it, so the
+    // cash/bank split of "money on hand" keeps matching the order.
+    paymentMethod: z.enum(PAYMENT_METHODS).optional(),
     notes: z.string().max(2000, "Note is too long").nullable().optional(),
   })
   .refine(
-    (value) => value.orderDate !== undefined || value.deliveryDate !== undefined || value.notes !== undefined,
+    (value) =>
+      value.orderDate !== undefined ||
+      value.deliveryDate !== undefined ||
+      value.paymentMethod !== undefined ||
+      value.notes !== undefined,
     { message: "Nothing to change" }
   );
 
@@ -490,7 +503,8 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { supplierId, destinationStoreId, deliveryDate, notes, items } = result.data;
+      const { supplierId, destinationStoreId, deliveryDate, paymentMethod, notes, items } =
+        result.data;
 
       // AI Agent Note: entering an order after the fact is bookkeeping, but it is the
       // administrator's call - the expected date drives the register's overdue count and every
@@ -537,6 +551,7 @@ export function registerRoutes(app: Express): Server {
             deliveryDate: new Date(deliveryDate),
             status: 'pending',
             totalAmount: totalAmount.toString(), // Store as string for decimal
+            paymentMethod,
             notes: notes || null
           })
           .returning();
@@ -557,6 +572,7 @@ export function registerRoutes(app: Express): Server {
           orderNumber,
           supplierName: supplier.name,
           amount: totalAmount,
+          paymentMethod,
           createdByUserId: req.user!.id,
         });
 
@@ -863,7 +879,7 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      const { orderDate, deliveryDate, notes } = result.data;
+      const { orderDate, deliveryDate, paymentMethod, notes } = result.data;
       const orderId = parseInt(id);
 
       const currentPO = await db.query.purchaseOrders.findFirst({
@@ -903,7 +919,9 @@ export function registerRoutes(app: Express): Server {
       /*
        * The order and its expense move together. The expense the order posted is dated by the
        * order date, so back-dating the order has to re-date that row too - otherwise a November
-       * purchase corrected to October would still be counted in November's expenses.
+       * purchase corrected to October would still be counted in November's expenses. The same
+       * applies to the payment method: the expense is what splits money on hand into cash and
+       * bank, so correcting it here keeps the till and the bank honest.
        */
       const updatedPO = await db.transaction(async (tx) => {
         await tx
@@ -911,6 +929,7 @@ export function registerRoutes(app: Express): Server {
           .set({
             ...(nextOrderDate && { orderDate: nextOrderDate }),
             ...(nextDeliveryDate && { deliveryDate: nextDeliveryDate }),
+            ...(paymentMethod && { paymentMethod }),
             ...(notes !== undefined && { notes }),
             updatedAt: new Date(),
           })
@@ -920,6 +939,13 @@ export function registerRoutes(app: Express): Server {
           await movePurchaseOrderExpenseDate(tx, {
             orderNumber: currentPO.orderNumber,
             entryDate: vietnamDayOf(nextOrderDate),
+          });
+        }
+
+        if (paymentMethod && paymentMethod !== currentPO.paymentMethod) {
+          await setPurchaseOrderExpensePaymentMethod(tx, {
+            orderNumber: currentPO.orderNumber,
+            paymentMethod,
           });
         }
 
@@ -1009,6 +1035,7 @@ export function registerRoutes(app: Express): Server {
             orderNumber: currentPO.orderNumber,
             supplierName: currentPO.supplier?.name ?? "supplier",
             amount: currentPO.totalAmount,
+            paymentMethod: currentPO.paymentMethod,
             createdByUserId: req.user!.id,
           });
         }

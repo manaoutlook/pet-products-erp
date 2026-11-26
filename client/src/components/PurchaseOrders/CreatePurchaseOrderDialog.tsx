@@ -18,6 +18,7 @@ import {
   isBackDatedPurchaseOrderDate,
   todayInVietnam,
 } from "@shared/purchase-order-dates";
+import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS } from "@shared/invoice-payment";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 
 // Schema for the purchase order form
@@ -33,6 +34,9 @@ const purchaseOrderSchema = z.object({
     .string()
     .min(1, "Delivery date is required")
     .refine((date) => !Number.isNaN(new Date(date).getTime()), "Enter a valid delivery date"),
+  // How the supplier is paid. It also decides whether the expense the order posts counts as cash
+  // or as bank money in Finance, so it is part of the order rather than an afterthought.
+  paymentMethod: z.string().min(1, "Choose how the supplier is paid"),
   notes: z.string().optional(),
   items: z.array(z.object({
     productId: z.string().min(1, "Product is required"),
@@ -92,6 +96,7 @@ export function CreatePurchaseOrderDialog() {
       items: [{ productId: "", quantity: "", unitPrice: "" }],
       deliveryDate: defaultDeliveryDate,
       destinationStoreId: "", // Default empty
+      paymentMethod: "CASH",
     },
   });
 
@@ -133,6 +138,7 @@ export function CreatePurchaseOrderDialog() {
           supplierId: parseInt(data.supplierId),
           destinationStoreId: parseInt(data.destinationStoreId), // New field for multi-DC support
           deliveryDate: new Date(data.deliveryDate).toISOString(),
+          paymentMethod: data.paymentMethod,
           notes: data.notes,
           items: data.items.map(item => ({
             productId: parseInt(item.productId),
@@ -183,6 +189,7 @@ export function CreatePurchaseOrderDialog() {
       form.reset({
         items: [{ productId: "", quantity: "", unitPrice: "" }],
         deliveryDate: defaultDeliveryDate,
+        paymentMethod: "CASH",
       });
     },
     onError: (error: Error) => {
@@ -322,6 +329,35 @@ export function CreatePurchaseOrderDialog() {
 
             <FormField
               control={form.control}
+              name="paymentMethod"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Paid by</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="How the supplier is paid" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {PAYMENT_METHODS.map((method) => (
+                        <SelectItem key={method} value={method}>
+                          {PAYMENT_METHOD_LABELS[method] ?? method}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>
+                    Cash comes out of the till, bank transfer out of the bank - Finance keeps them
+                    apart in "money on hand".
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
               name="notes"
               render={({ field }) => (
                 <FormItem>
@@ -449,7 +485,8 @@ export function CreatePurchaseOrderDialog() {
 
             <p className="text-xs text-muted-foreground">
               Creating this order records a "Supplier purchases" expense for its total in Finance,
-              dated today. Cancelling the order voids that entry.
+              dated today and paid by the method chosen above. Cancelling the order voids that
+              entry.
             </p>
 
             <div className="flex justify-end gap-4">

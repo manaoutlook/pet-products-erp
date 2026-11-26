@@ -22,6 +22,7 @@ import {
 import type { InvoiceStatus } from "../shared/invoice-payment";
 import type { FinanceEntryType, FundingKind } from "../shared/finance";
 import {
+  OPENING_BALANCE_CATEGORY,
   PURCHASE_ORDER_EXPENSE_CATEGORY,
   directionOfFinanceEntry,
   isPartnerEntryType,
@@ -188,7 +189,11 @@ async function partnerTotals(executor: DbClient, partnerId?: number) {
 function validateEntryInput(input: Omit<CreateFinanceEntryInput, "createdByUserId">) {
   const amount = roundMoney(numberOf(input.amount));
   if (amount <= 0) throw new FinanceError("Enter an amount greater than zero", 400);
-  if (!input.category?.trim()) throw new FinanceError("Choose a category", 400);
+  // The opening balance's heading is fixed by the server, so a client that leaves it blank is not
+  // making a mistake - every other type still has to choose one.
+  if (!input.category?.trim() && input.entryType !== "opening_balance") {
+    throw new FinanceError("Choose a category", 400);
+  }
   if (!input.description?.trim()) throw new FinanceError("Describe what the money was for", 400);
   assertDate(input.entryDate, "Entry date");
 
@@ -229,7 +234,10 @@ async function insertEntry(
       entryNumber,
       entryType,
       direction: directionOfFinanceEntry(entryType),
-      category: input.category.trim(),
+      // An opening balance always carries its fixed heading: the report, the card and the cash book
+      // find that row by it, so it is not the operator's to rename.
+      category:
+        entryType === "opening_balance" ? OPENING_BALANCE_CATEGORY : input.category.trim(),
       description: input.description.trim(),
       amount: amount.toFixed(2),
       entryDate: input.entryDate,
@@ -386,7 +394,8 @@ export async function updateFinanceEntry(input: UpdateFinanceEntryInput) {
       .set({
         entryType,
         direction: directionOfFinanceEntry(entryType),
-        category: input.category.trim(),
+        category:
+          entryType === "opening_balance" ? OPENING_BALANCE_CATEGORY : input.category.trim(),
         description: input.description.trim(),
         amount: amount.toFixed(2),
         entryDate: input.entryDate,
@@ -728,6 +737,150 @@ export async function deleteFinancePartner(partnerId: number) {
   return deleted;
 }
 
+export interface CashOnHandByMethod {
+  method: string;
+  label: string;
+  moneyIn: number;
+  moneyOut: number;
+  balance: number;
+}
+
+export interface CashOnHand {
+  /** The day the balance is stated for (`YYYY-MM-DD`, Vietnam days). */
+  asOf: string;
+  total: number;
+  moneyIn: number;
+  moneyOut: number;
+  /** The part of `total` that was entered as the books' starting position, not as movement. */
+  openingBalance: number;
+  byMethod: CashOnHandByMethod[];
+}
+
+interface CashOnHandInput {
+  asOf: string;
+  /** Non-voided receipts grouped by method - they only ever bring money in. */
+  receipts: { paymentMethod: string | null; total: string | number }[];
+  /** Posted entries grouped by method, split into credits and debits. */
+  entries: {
+    paymentMethod: string | null;
+    moneyIn: string | number;
+    moneyOut: string | number;
+  }[];
+  openingBalance: number;
+}
+
+/**
+ * Fold the two streams into one balance per payment method.
+ *
+ * Receipts and entries are grouped separately by the database and merged here, because a receipt
+ * only ever adds money while an entry can go either way - one shared SQL grouping would have to
+ * pretend receipts are credits and then unwind it. Methods are normalised (trim + upper case) so a
+ * hand-typed " cash " cannot be shown as a second till.
+ */
+function buildCashOnHand(input: CashOnHandInput): CashOnHand {
+  const byMethod = new Map<string, { moneyIn: number; moneyOut: number }>();
+  const bucketFor = (method: string) => {
+    const current = byMethod.get(method) ?? { moneyIn: 0, moneyOut: 0 };
+    byMethod.set(method, current);
+    return current;
+  };
+  const methodKeyOf = (value: string | null | undefined) =>
+    (value ?? "").trim().toUpperCase() || "UNSPECIFIED";
+
+  for (const row of input.receipts) {
+    bucketFor(methodKeyOf(row.paymentMethod)).moneyIn += numberOf(row.total);
+  }
+  for (const row of input.entries) {
+    const bucket = bucketFor(methodKeyOf(row.paymentMethod));
+    bucket.moneyIn += numberOf(row.moneyIn);
+    bucket.moneyOut += numberOf(row.moneyOut);
+  }
+
+  const rows = Array.from(byMethod.entries())
+    .map(([method, totals]) => ({
+      method,
+      label: PAYMENT_METHOD_LABELS[method] ?? method,
+      moneyIn: totals.moneyIn,
+      moneyOut: totals.moneyOut,
+      balance: totals.moneyIn - totals.moneyOut,
+    }))
+    // `PAYMENT_METHODS` order (Cash, Bank transfer, ...) so the till is always the first line; an
+    // unexpected method sorts last, by name, rather than disappearing.
+    .sort((a, b) => {
+      const rank = (method: string) => {
+        const index = PAYMENT_METHODS.indexOf(method as (typeof PAYMENT_METHODS)[number]);
+        return index === -1 ? PAYMENT_METHODS.length : index;
+      };
+      return rank(a.method) - rank(b.method) || a.method.localeCompare(b.method);
+    });
+
+  const moneyIn = rows.reduce((sum, row) => sum + row.moneyIn, 0);
+  const moneyOut = rows.reduce((sum, row) => sum + row.moneyOut, 0);
+
+  return {
+    asOf: input.asOf,
+    total: moneyIn - moneyOut,
+    moneyIn,
+    moneyOut,
+    openingBalance: input.openingBalance,
+    byMethod: rows,
+  };
+}
+
+/**
+ * Money on hand as at a day - a balance, not a period figure.
+ *
+ * This is `financeSummary().cashOnHand` without the rest of the report, for screens that only need
+ * "how much is left?" (the Dashboard). Both go through `buildCashOnHand`, so the two screens can
+ * never disagree. It reads every non-voided receipt and every posted entry up to the end of the
+ * day; `from` does not exist here on purpose.
+ */
+export async function cashOnHandAsOf(asOfInput?: string): Promise<CashOnHand> {
+  const asOf = assertDate(
+    asOfInput ?? (vietnamDayOf(new Date()) || new Date().toISOString().slice(0, 10)),
+    "As-of date"
+  );
+  const toDate = endOfVietnamDay(asOf);
+
+  const [receipts, entries, openingRows] = await Promise.all([
+    db
+      .select({
+        paymentMethod: invoicePayments.paymentMethod,
+        total: sql<string>`COALESCE(SUM(${invoicePayments.amount}), 0)`,
+      })
+      .from(invoicePayments)
+      .where(and(isNull(invoicePayments.voidedAt), lte(invoicePayments.paidAt, toDate)))
+      .groupBy(invoicePayments.paymentMethod),
+    db
+      .select({
+        paymentMethod: financeEntries.paymentMethod,
+        moneyIn: sql<string>`COALESCE(SUM(CASE WHEN ${financeEntries.direction} = 'credit' THEN ${financeEntries.amount} ELSE 0 END), 0)`,
+        moneyOut: sql<string>`COALESCE(SUM(CASE WHEN ${financeEntries.direction} = 'debit' THEN ${financeEntries.amount} ELSE 0 END), 0)`,
+      })
+      .from(financeEntries)
+      .where(and(eq(financeEntries.status, "posted"), lte(financeEntries.entryDate, asOf)))
+      .groupBy(financeEntries.paymentMethod),
+    db
+      .select({ total: sql<string>`COALESCE(SUM(${financeEntries.amount}), 0)` })
+      .from(financeEntries)
+      .where(
+        and(
+          eq(financeEntries.status, "posted"),
+          eq(financeEntries.entryType, "opening_balance"),
+          lte(financeEntries.entryDate, asOf)
+        )
+      ),
+  ]);
+
+  return buildCashOnHand({
+    asOf,
+    receipts,
+    entries,
+    openingBalance: numberOf(openingRows[0]?.total),
+  });
+}
+
+
 /**
  * The financial report for a date range.
  *
@@ -785,6 +938,7 @@ export async function financeSummary(filters: FinanceSummaryFilters = {}) {
     partnerTotalsRows,
     receiptMethodRows,
     entryMethodRows,
+    openingBalanceRows,
     purchaseOrderRows,
   ] = await Promise.all([
       db
@@ -864,6 +1018,20 @@ export async function financeSummary(filters: FinanceSummaryFilters = {}) {
         .from(financeEntries)
         .where(and(eq(financeEntries.status, "posted"), lte(financeEntries.entryDate, to)))
         .groupBy(financeEntries.paymentMethod),
+      /*
+       * How much of the balance above the shop already had when it started using this system. The
+       * card calls it out so nobody reads a 20,000,000 till as 20,000,000 earned.
+       */
+      db
+        .select({ total: sql<string>`COALESCE(SUM(${financeEntries.amount}), 0)` })
+        .from(financeEntries)
+        .where(
+          and(
+            eq(financeEntries.status, "posted"),
+            eq(financeEntries.entryType, "opening_balance"),
+            lte(financeEntries.entryDate, to)
+          )
+        ),
       /*
        * The purchase orders themselves, so the report can name the supplier and the PO behind the
        * "Supplier purchases" expense heading. The expense row is matched by its reference (the PO
@@ -1032,50 +1200,18 @@ export async function financeSummary(filters: FinanceSummaryFilters = {}) {
    * It matches the printed cash book's closing balance for the same end date, for the same reason
    * the cash book carries an opening figure: the two must never disagree on paper and screen.
    *
-   * Two limits are stated on the card rather than hidden:
-   *   - purchases post as CASH (`postPurchaseOrderExpense`), so a supplier bill paid from the bank
-   *     still counts under cash until the order records how it was paid;
-   *   - the books open at zero, so money the shop already had before it started using this system
-   *     needs an opening entry (partner deposit, other income) to appear here.
+   * How the supplier was paid travels with the purchase order (`purchase_orders.payment_method`)
+   * and lands on the expense it posts, so a bank transfer does not read as cash. A shop that
+   * started with money already in the till enters it once as an `opening_balance` entry; that row
+   * is counted here (it is a credit) but never as income or profit, and `openingBalance` below
+   * says how much of the total it is.
    */
-  const cashByMethod = new Map<string, { moneyIn: number; moneyOut: number }>();
-  const cashBucket = (method: string) => {
-    const current = cashByMethod.get(method) ?? { moneyIn: 0, moneyOut: 0 };
-    cashByMethod.set(method, current);
-    return current;
-  };
-  // Stored upper-case already, but a hand-typed entry can arrive with spaces or lower case and must
-  // not split "Cash" into two lines.
-  const methodKeyOf = (value: string | null | undefined) =>
-    (value ?? "").trim().toUpperCase() || "UNSPECIFIED";
-
-  for (const row of receiptMethodRows) {
-    cashBucket(methodKeyOf(row.paymentMethod)).moneyIn += numberOf(row.total);
-  }
-  for (const row of entryMethodRows) {
-    const bucket = cashBucket(methodKeyOf(row.paymentMethod));
-    bucket.moneyIn += numberOf(row.moneyIn);
-    bucket.moneyOut += numberOf(row.moneyOut);
-  }
-
-  const cashByMethodList = Array.from(cashByMethod.entries())
-    .map(([method, totals]) => ({
-      method,
-      label: PAYMENT_METHOD_LABELS[method] ?? method,
-      moneyIn: totals.moneyIn,
-      moneyOut: totals.moneyOut,
-      balance: totals.moneyIn - totals.moneyOut,
-    }))
-    .sort((a, b) => {
-      const rank = (method: string) => {
-        const index = PAYMENT_METHODS.indexOf(method as (typeof PAYMENT_METHODS)[number]);
-        return index === -1 ? PAYMENT_METHODS.length : index;
-      };
-      return rank(a.method) - rank(b.method) || a.method.localeCompare(b.method);
-    });
-
-  const cashMoneyIn = cashByMethodList.reduce((sum, row) => sum + row.moneyIn, 0);
-  const cashMoneyOut = cashByMethodList.reduce((sum, row) => sum + row.moneyOut, 0);
+  const cashOnHand = buildCashOnHand({
+    asOf: to,
+    receipts: receiptMethodRows,
+    entries: entryMethodRows,
+    openingBalance: numberOf(openingBalanceRows[0]?.total),
+  });
 
   // --- Purchases ----------------------------------------------------------------------------
   /*
@@ -1170,15 +1306,10 @@ export async function financeSummary(filters: FinanceSummaryFilters = {}) {
     /**
      * Money actually on hand, per payment method, as at the end of `to` - a balance, like
      * `capital`, so `from` does not narrow it. `total` is what the till and the bank hold
-     * together according to the books.
+     * together according to the books; `openingBalance` is the part entered as the starting
+     * position rather than as movement.
      */
-    cashOnHand: {
-      asOf: to,
-      total: cashMoneyIn - cashMoneyOut,
-      moneyIn: cashMoneyIn,
-      moneyOut: cashMoneyOut,
-      byMethod: cashByMethodList,
-    },
+    cashOnHand,
     capital: {
       deposits: capitalDeposits,
       withdrawals: capitalWithdrawals,

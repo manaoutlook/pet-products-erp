@@ -1,11 +1,12 @@
 import { Link } from "wouter";
-import { AlertCircle, PackageSearch, RefreshCw } from "lucide-react";
+import { AlertCircle, Banknote, PackageSearch, RefreshCw } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import StatsCards, { type DashboardStats } from "@/components/Dashboard/StatsCards";
 import { chartTheme } from "@/lib/chart-theme";
+import { usePermissions } from "@/hooks/use-permissions";
 import { formatCompactCurrency, formatCurrency, formatNumber } from "@/utils/format";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -30,6 +31,22 @@ interface OrderTrendPoint {
 interface DashboardResponse {
   stats: DashboardStats;
   trend: OrderTrendPoint[];
+}
+
+/** Mirrors `CashOnHand` in server/finance.ts (`GET /api/finance/cash-on-hand`). */
+interface CashOnHand {
+  asOf: string;
+  total: number;
+  moneyIn: number;
+  moneyOut: number;
+  openingBalance: number;
+  byMethod: Array<{
+    method: string;
+    label: string;
+    moneyIn: number;
+    moneyOut: number;
+    balance: number;
+  }>;
 }
 
 /**
@@ -76,6 +93,21 @@ function DashboardPage() {
     queryKey: ["/api/dashboard"],
   });
 
+  // Money on hand comes from Finance, so the card is only asked for (and only shown) when the
+  // role may read Finance - otherwise the request would be a 403 drawn as a broken dashboard.
+  // The figure is a balance: no date range, same builder as the Finance report's card.
+  const { hasPermission } = usePermissions();
+  const canReadFinance = hasPermission("finance", "read");
+  const cashQuery = useQuery<CashOnHand>({
+    queryKey: ["/api/finance/cash-on-hand"],
+    enabled: canReadFinance,
+  });
+
+  const refreshAll = () => {
+    refetch();
+    if (canReadFinance) cashQuery.refetch();
+  };
+
   const stats = data?.stats;
   const trend = data?.trend ?? [];
   const hasActivity = trend.some((point) => point.orders > 0 || point.revenue > 0);
@@ -93,7 +125,7 @@ function DashboardPage() {
               : "Last 30 days"}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+        <Button variant="outline" size="sm" onClick={refreshAll} disabled={isFetching}>
           <RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
           Refresh
         </Button>
@@ -112,6 +144,71 @@ function DashboardPage() {
       <StatsCards stats={stats} isLoading={isLoading} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {canReadFinance ? (
+          <Card className="p-6" data-testid="dashboard-money-on-hand">
+            <div className="mb-4 flex items-baseline justify-between gap-3">
+              <div>
+                <h2 className="flex items-center gap-2 text-lg font-semibold">
+                  <Banknote className="h-4 w-4" />
+                  Money on hand
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Till and bank per the books, as at{" "}
+                  {cashQuery.data ? dayLabel(cashQuery.data.asOf) : "today"}
+                </p>
+              </div>
+              <Link href="/finance" className="text-sm font-medium text-primary hover:underline">
+                Finance
+              </Link>
+            </div>
+
+            {cashQuery.isError ? (
+              <p className="py-10 text-center text-sm text-muted-foreground">
+                Money figures unavailable
+              </p>
+            ) : cashQuery.isLoading ? (
+              <div className="space-y-3">
+                {[0, 1, 2].map((index) => (
+                  <Skeleton key={index} className="h-10 w-full" />
+                ))}
+              </div>
+            ) : (
+              <>
+                <div
+                  className="text-2xl font-semibold"
+                  data-testid="dashboard-money-on-hand-total"
+                >
+                  {formatCurrency(cashQuery.data?.total ?? 0)}
+                </div>
+                {(cashQuery.data?.byMethod ?? []).length === 0 ? (
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    Nothing has been recorded yet, so there is no money to show.
+                  </p>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {(cashQuery.data?.byMethod ?? []).map((row) => (
+                      <div
+                        key={row.method}
+                        data-testid={`dashboard-money-on-hand-${row.method.toLowerCase()}`}
+                        className="flex flex-wrap items-baseline justify-between gap-x-3 rounded-md border border-border px-3 py-2"
+                      >
+                        <span className="text-sm">{row.label}</span>
+                        <span className="text-sm font-medium">{formatCurrency(row.balance)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {(cashQuery.data?.openingBalance ?? 0) > 0 && (
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    Includes {formatCurrency(cashQuery.data!.openingBalance)} recorded as the
+                    opening balance.
+                  </p>
+                )}
+              </>
+            )}
+          </Card>
+        ) : null}
+
         <Card className="p-6">
           <div className="mb-4 flex items-baseline justify-between gap-3">
             <div>

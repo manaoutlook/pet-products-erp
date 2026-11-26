@@ -7,6 +7,7 @@ import { financeSummary } from '../../../server/finance';
 import {
   movePurchaseOrderExpenseDate,
   postPurchaseOrderExpense,
+  setPurchaseOrderExpensePaymentMethod,
   voidPurchaseOrderExpense,
 } from '../../../server/purchase-order-finance';
 import { PURCHASE_ORDER_EXPENSE_CATEGORY } from '../../../shared/finance';
@@ -60,12 +61,17 @@ describe('purchase orders in the finance report', () => {
   };
 
   /** Post the order's expense the way POST /api/purchase-orders does: in one transaction. */
-  const postExpense = (order: typeof purchaseOrders.$inferSelect, amount?: number | string) =>
+  const postExpense = (
+    order: typeof purchaseOrders.$inferSelect,
+    amount?: number | string,
+    paymentMethod?: string
+  ) =>
     db.transaction((tx) =>
       postPurchaseOrderExpense(tx, {
         orderNumber: order.orderNumber,
         supplierName: data.suppliers.supplier.name,
         amount: amount ?? order.totalAmount,
+        paymentMethod: paymentMethod ?? order.paymentMethod,
         createdByUserId: data.users.admin.id,
       })
     );
@@ -108,6 +114,61 @@ describe('purchase orders in the finance report', () => {
       status: 'pending',
       expense: { entryNumber: entry.entryNumber, status: 'posted' },
     });
+  });
+
+  it('books the order under the method the supplier was paid by, so bank bills leave the bank', async () => {
+    const order = await createOrder({ paymentMethod: 'BANK_TRANSFER' });
+    const entry = await postExpense(order);
+
+    expect(entry.paymentMethod).toBe('BANK_TRANSFER');
+
+    const summary = await financeSummary();
+
+    // The money left the bank, so the till must not be charged for it and vice versa.
+    expect(summary.cashOnHand.byMethod).toEqual([
+      {
+        method: 'BANK_TRANSFER',
+        label: 'Bank transfer',
+        moneyIn: 0,
+        moneyOut: 15000000,
+        balance: -15000000,
+      },
+    ]);
+    expect(summary.cashOnHand.total).toBe(-15000000);
+  });
+
+  it('moves the posted expense when the order’s payment method is corrected', async () => {
+    const order = await createOrder(); // defaults to CASH
+    await postExpense(order);
+
+    const changed = await db.transaction((tx) =>
+      setPurchaseOrderExpensePaymentMethod(tx, {
+        orderNumber: order.orderNumber,
+        paymentMethod: 'BANK_TRANSFER',
+      })
+    );
+
+    expect(changed).toBe(1);
+
+    const [entry] = await db
+      .select({ paymentMethod: financeEntries.paymentMethod })
+      .from(financeEntries)
+      .where(eq(financeEntries.reference, order.orderNumber));
+
+    expect(entry.paymentMethod).toBe('BANK_TRANSFER');
+
+    const summary = await financeSummary();
+    expect(summary.cashOnHand.byMethod.map((row) => row.method)).toEqual(['BANK_TRANSFER']);
+
+    // An order with no finance row at all reports zero changed instead of throwing.
+    await expect(
+      db.transaction((tx) =>
+        setPurchaseOrderExpensePaymentMethod(tx, {
+          orderNumber: 'PO-DOES-NOT-EXIST',
+          paymentMethod: 'CASH',
+        })
+      )
+    ).resolves.toBe(0);
   });
 
   it('does not post the same order twice, so re-opening a cancelled order cannot double count', async () => {

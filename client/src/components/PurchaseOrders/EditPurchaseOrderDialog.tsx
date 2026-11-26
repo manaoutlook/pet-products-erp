@@ -7,12 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
 import {
   BACK_DATED_PURCHASE_ORDER_MESSAGE,
   isBackDatedPurchaseOrderDate,
 } from "@shared/purchase-order-dates";
+import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS } from "@shared/invoice-payment";
 import { vietnamDayOf } from "@shared/vietnam-day";
 import { Loader2, Pencil } from "lucide-react";
 
@@ -57,6 +59,9 @@ const editPurchaseOrderSchema = z.object({
     .string()
     .min(1, "Delivery date is required")
     .refine((value) => !Number.isNaN(new Date(value).getTime()), "Enter a valid delivery date"),
+  // Correcting how the order was paid also corrects the expense it posted, which is what splits
+  // "money on hand" into cash and bank.
+  paymentMethod: z.string().min(1, "Choose how the supplier is paid"),
   notes: z.string().max(2000, "Note is too long").optional(),
 });
 
@@ -70,6 +75,8 @@ export interface EditablePurchaseOrder {
   createdAt: string;
   /** The date the supplier promised. */
   deliveryDate?: string | null;
+  /** How the supplier is paid. Rows created before the column was filled were all cash. */
+  paymentMethod?: string | null;
   notes?: string | null;
 }
 
@@ -95,6 +102,7 @@ export function EditPurchaseOrderDialog({ order }: EditPurchaseOrderDialogProps)
     deliveryDate: storedDeliveryDate
       ? toLocalInputValue(new Date(storedDeliveryDate))
       : tomorrowInput(),
+    paymentMethod: order.paymentMethod ?? "CASH",
     notes: order.notes ?? "",
   });
 
@@ -111,7 +119,12 @@ export function EditPurchaseOrderDialog({ order }: EditPurchaseOrderDialogProps)
 
   /** Only what actually changed is sent; an untouched field stays out of the request. */
   const buildPayload = (data: FormData) => {
-    const payload: { orderDate?: string; deliveryDate?: string; notes?: string | null } = {};
+    const payload: {
+      orderDate?: string;
+      deliveryDate?: string;
+      paymentMethod?: string;
+      notes?: string | null;
+    } = {};
 
     if (vietnamDayOf(new Date(data.orderDate)) !== vietnamDayOf(new Date(storedOrderDate))) {
       payload.orderDate = new Date(data.orderDate).toISOString();
@@ -121,6 +134,9 @@ export function EditPurchaseOrderDialog({ order }: EditPurchaseOrderDialogProps)
       vietnamDayOf(new Date(data.deliveryDate)) !== vietnamDayOf(new Date(storedDeliveryDate))
     ) {
       payload.deliveryDate = new Date(data.deliveryDate).toISOString();
+    }
+    if (data.paymentMethod !== (order.paymentMethod ?? "CASH")) {
+      payload.paymentMethod = data.paymentMethod;
     }
     if ((data.notes ?? "") !== (order.notes ?? "")) {
       payload.notes = data.notes?.trim() ? data.notes : null;
@@ -217,8 +233,8 @@ export function EditPurchaseOrderDialog({ order }: EditPurchaseOrderDialogProps)
         <DialogHeader>
           <DialogTitle>Edit Purchase Order {order.orderNumber}</DialogTitle>
           <DialogDescription>
-            Only the dates and the note can be changed. The supplier, the lines and the amounts stay
-            as they were ordered.
+            The dates, how the supplier was paid, and the note can be changed. The supplier, the
+            lines and the amounts stay as they were ordered.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -257,6 +273,35 @@ export function EditPurchaseOrderDialog({ order }: EditPurchaseOrderDialogProps)
                   </FormControl>
                   <FormDescription>
                     The date the supplier promised. Late deliveries are measured against it.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="paymentMethod"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Paid by</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="How the supplier is paid" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {PAYMENT_METHODS.map((method) => (
+                        <SelectItem key={method} value={method}>
+                          {PAYMENT_METHOD_LABELS[method] ?? method}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>
+                    The order's expense in Finance moves to this method, so cash and bank stay
+                    right in "money on hand".
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
