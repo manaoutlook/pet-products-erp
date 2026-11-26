@@ -153,6 +153,59 @@ describe('financial accounts', () => {
     expect(summary.cashPosition).toBe(-750000);
   });
 
+  it('keeps money on hand whole, and splits it by the method each payment used', async () => {
+    // Other income into the till, a rent bill paid from the bank, and a sale receipted today.
+    await postEntry({
+      entryType: 'income',
+      category: 'Other income',
+      description: 'Scrap cardboard sold',
+      amount: 200000,
+      paymentMethod: 'CASH',
+      entryDate: '2026-01-10',
+    });
+    await postEntry({
+      amount: 500000,
+      description: 'January rent',
+      paymentMethod: 'BANK_TRANSFER',
+      entryDate: '2026-01-15',
+    });
+    await sellTwoUnits(); // 220,000 taken in cash today
+
+    /*
+     * March has nothing in it at all, which is exactly the case that made the old report
+     * unreadable: the money is still in the till, so the balance must not fall to zero just
+     * because the dates leave every transaction outside them.
+     */
+    const march = await financeSummary({ from: '2026-03-01', to: '2026-03-31' });
+    expect(march.income.total).toBe(0);
+    expect(march.expenses.total).toBe(0);
+    expect(march.cashOnHand.asOf).toBe('2026-03-31');
+    expect(march.cashOnHand.byMethod).toEqual([
+      { method: 'CASH', label: 'Cash', moneyIn: 200000, moneyOut: 0, balance: 200000 },
+      {
+        method: 'BANK_TRANSFER',
+        label: 'Bank transfer',
+        moneyIn: 0,
+        moneyOut: 500000,
+        balance: -500000,
+      },
+    ]);
+    expect(march.cashOnHand.total).toBe(-300000);
+
+    // Run to today, the same balance picks up the receipt: money in the till, not in the bank.
+    const now = await financeSummary({ from: today(), to: today() });
+    expect(now.cashOnHand.byMethod[0]).toEqual({
+      method: 'CASH',
+      label: 'Cash',
+      moneyIn: 420000,
+      moneyOut: 0,
+      balance: 420000,
+    });
+    expect(now.cashOnHand.moneyIn).toBe(420000);
+    expect(now.cashOnHand.moneyOut).toBe(500000);
+    expect(now.cashOnHand.total).toBe(-80000);
+  });
+
   it('treats other income as a credit and groups it by category', async () => {
     await postEntry({
       entryType: 'income',

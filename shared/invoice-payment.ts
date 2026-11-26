@@ -51,6 +51,20 @@ export const PAYMENT_METHODS = [
 ] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
+/**
+ * How each stored method is written on screen and on paper.
+ *
+ * Shared so the Finance report's money-on-hand split names a method the same way the receipt
+ * screens do; a method nobody listed falls back to its stored value.
+ */
+export const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  CASH: 'Cash',
+  BANK_TRANSFER: 'Bank transfer',
+  CARD: 'Card',
+  DIGITAL_WALLET: 'Digital wallet',
+  OTHER: 'Other',
+};
+
 export interface AgingBucket {
   key: 'current' | '1_30' | '31_60' | '61_90' | 'over_90';
   label: string;

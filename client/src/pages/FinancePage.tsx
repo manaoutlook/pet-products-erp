@@ -40,6 +40,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   Ban,
+  Banknote,
   CheckCircle2,
   Clock,
   Landmark,
@@ -204,6 +205,24 @@ interface FinanceSummaryResponse {
   };
   netProfit: number;
   cashPosition: number;
+  /**
+   * Money actually on hand, per payment method, as at the end of `to`. A balance like `capital`,
+   * so the date range does not narrow it - this is what the till and the bank hold now, according
+   * to the receipts and entries recorded.
+   */
+  cashOnHand: {
+    asOf: string;
+    total: number;
+    moneyIn: number;
+    moneyOut: number;
+    byMethod: Array<{
+      method: string;
+      label: string;
+      moneyIn: number;
+      moneyOut: number;
+      balance: number;
+    }>;
+  };
   /**
    * Partner capital, all-time by design: it is a balance the partners could withdraw today, so a
    * range with no partner movement must not make it read zero. The range's own movements are in
@@ -1037,6 +1056,61 @@ function FinancePage() {
                   {formatCurrency(summary.cashPosition)}
                 </span>
               </p>
+
+              {/*
+                The one figure that answers "how much money is left?". It is a BALANCE, so the
+                From/To dates above deliberately do not narrow it - money still in the till is
+                still in the till whether or not it moved this month. Split by the payment method
+                recorded on each receipt and entry, because the owner asked for cash and bank as
+                two numbers. `cashPosition` above stays the period figure: what moved.
+              */}
+              <Card data-testid="money-on-hand-card">
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                    <Banknote className="h-4 w-4" />
+                    Money on hand
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    Till and bank per the books, as at {formatDate(summary.cashOnHand?.asOf ?? summary.to)}.
+                    Every receipt and entry from the start of the books is counted, so the date
+                    range above does not narrow it.
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div
+                    className="text-2xl font-semibold"
+                    data-testid="money-on-hand-total"
+                  >
+                    {formatCurrency(summary.cashOnHand?.total ?? 0)}
+                  </div>
+                  {(summary.cashOnHand?.byMethod ?? []).length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      Nothing has been recorded yet, so there is no money to show.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {(summary.cashOnHand?.byMethod ?? []).map((row) => (
+                        <div
+                          key={row.method}
+                          data-testid={`money-on-hand-${row.method.toLowerCase()}`}
+                          className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 rounded-md border border-border px-3 py-2"
+                        >
+                          <span className="text-sm">{row.label}</span>
+                          <span className="text-sm font-medium">{formatCurrency(row.balance)}</span>
+                          <span className="w-full text-xs text-muted-foreground sm:w-auto">
+                            {formatCurrency(row.moneyIn)} in · {formatCurrency(row.moneyOut)} out
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Counts only money recorded here and in Receipts. Supplier purchases are booked
+                    as cash, and the books open at zero - money the shop already had before it
+                    started using this system needs an opening entry to appear.
+                  </p>
+                </CardContent>
+              </Card>
             </>
           ) : null}
 

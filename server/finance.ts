@@ -14,6 +14,8 @@ import { deleteAttachmentFile } from "./attachment-files";
 import { generateFinanceEntryNumber } from "./finance-counter";
 import {
   AGING_BUCKETS,
+  PAYMENT_METHODS,
+  PAYMENT_METHOD_LABELS,
   agingBucketOf,
   displayInvoiceStatus,
 } from "../shared/invoice-payment";
@@ -748,6 +750,10 @@ export async function deleteFinancePartner(partnerId: number) {
  * partner entry, not just the selected period. The range's own partner movements are returned
  * separately as `capital.period` and are what `cashPosition` adds and subtracts.
  *
+ * `cashOnHand` is the other exception, and the answer to "how much money is left?": a balance per
+ * payment method, from the start of the books to the end of `to`, so the owner can read the till
+ * and the bank separately. `cashPosition` stays a period figure - it is money that moved.
+ *
  * The range is Vietnamese calendar days (`shared/vietnam-day.ts`), not UTC: a receipt taken at
  * 06:30 local is 23:30 UTC the day before, and the printed cash book already uses Vietnam days -
  * a UTC filter here would make the on-screen total and the paper disagree by one day.
@@ -777,6 +783,8 @@ export async function financeSummary(filters: FinanceSummaryFilters = {}) {
     outstandingRows,
     partners,
     partnerTotalsRows,
+    receiptMethodRows,
+    entryMethodRows,
     purchaseOrderRows,
   ] = await Promise.all([
       db
@@ -833,6 +841,29 @@ export async function financeSummary(filters: FinanceSummaryFilters = {}) {
         ),
       db.select({ id: financePartners.id, name: financePartners.name }).from(financePartners),
       partnerTotals(db),
+      /*
+       * Money on hand is summed by `payment_method` up to the end of `to`, with no lower bound:
+       * a balance describes what is in the till today, so `from` must not narrow it. Receipts and
+       * entries are grouped separately here and merged below, because a receipt only ever brings
+       * money in while an entry can go either way.
+       */
+      db
+        .select({
+          paymentMethod: invoicePayments.paymentMethod,
+          total: sql<string>`COALESCE(SUM(${invoicePayments.amount}), 0)`,
+        })
+        .from(invoicePayments)
+        .where(and(isNull(invoicePayments.voidedAt), lte(invoicePayments.paidAt, toDate)))
+        .groupBy(invoicePayments.paymentMethod),
+      db
+        .select({
+          paymentMethod: financeEntries.paymentMethod,
+          moneyIn: sql<string>`COALESCE(SUM(CASE WHEN ${financeEntries.direction} = 'credit' THEN ${financeEntries.amount} ELSE 0 END), 0)`,
+          moneyOut: sql<string>`COALESCE(SUM(CASE WHEN ${financeEntries.direction} = 'debit' THEN ${financeEntries.amount} ELSE 0 END), 0)`,
+        })
+        .from(financeEntries)
+        .where(and(eq(financeEntries.status, "posted"), lte(financeEntries.entryDate, to)))
+        .groupBy(financeEntries.paymentMethod),
       /*
        * The purchase orders themselves, so the report can name the supplier and the PO behind the
        * "Supplier purchases" expense heading. The expense row is matched by its reference (the PO
@@ -990,6 +1021,62 @@ export async function financeSummary(filters: FinanceSummaryFilters = {}) {
   const capitalDeposits = byFundingKind.reduce((sum, row) => sum + row.deposits, 0);
   const capitalWithdrawals = byFundingKind.reduce((sum, row) => sum + row.withdrawals, 0);
 
+  // --- Money on hand --------------------------------------------------------------------------
+  /*
+   * The second deliberate exception to the range, and the answer to "how much cash is left?".
+   * Money on hand is a BALANCE: every non-voided receipt and every posted entry from the start of
+   * the books up to the end of `to`, summed per `payment_method` so cash in the till and money in
+   * the bank are two lines instead of one. `from` is ignored - narrowing the report to a quiet
+   * week must not make the till read empty.
+   *
+   * It matches the printed cash book's closing balance for the same end date, for the same reason
+   * the cash book carries an opening figure: the two must never disagree on paper and screen.
+   *
+   * Two limits are stated on the card rather than hidden:
+   *   - purchases post as CASH (`postPurchaseOrderExpense`), so a supplier bill paid from the bank
+   *     still counts under cash until the order records how it was paid;
+   *   - the books open at zero, so money the shop already had before it started using this system
+   *     needs an opening entry (partner deposit, other income) to appear here.
+   */
+  const cashByMethod = new Map<string, { moneyIn: number; moneyOut: number }>();
+  const cashBucket = (method: string) => {
+    const current = cashByMethod.get(method) ?? { moneyIn: 0, moneyOut: 0 };
+    cashByMethod.set(method, current);
+    return current;
+  };
+  // Stored upper-case already, but a hand-typed entry can arrive with spaces or lower case and must
+  // not split "Cash" into two lines.
+  const methodKeyOf = (value: string | null | undefined) =>
+    (value ?? "").trim().toUpperCase() || "UNSPECIFIED";
+
+  for (const row of receiptMethodRows) {
+    cashBucket(methodKeyOf(row.paymentMethod)).moneyIn += numberOf(row.total);
+  }
+  for (const row of entryMethodRows) {
+    const bucket = cashBucket(methodKeyOf(row.paymentMethod));
+    bucket.moneyIn += numberOf(row.moneyIn);
+    bucket.moneyOut += numberOf(row.moneyOut);
+  }
+
+  const cashByMethodList = Array.from(cashByMethod.entries())
+    .map(([method, totals]) => ({
+      method,
+      label: PAYMENT_METHOD_LABELS[method] ?? method,
+      moneyIn: totals.moneyIn,
+      moneyOut: totals.moneyOut,
+      balance: totals.moneyIn - totals.moneyOut,
+    }))
+    .sort((a, b) => {
+      const rank = (method: string) => {
+        const index = PAYMENT_METHODS.indexOf(method as (typeof PAYMENT_METHODS)[number]);
+        return index === -1 ? PAYMENT_METHODS.length : index;
+      };
+      return rank(a.method) - rank(b.method) || a.method.localeCompare(b.method);
+    });
+
+  const cashMoneyIn = cashByMethodList.reduce((sum, row) => sum + row.moneyIn, 0);
+  const cashMoneyOut = cashByMethodList.reduce((sum, row) => sum + row.moneyOut, 0);
+
   // --- Purchases ----------------------------------------------------------------------------
   /*
    * The purchase orders behind the "Supplier purchases" expense heading. `total` is what the
@@ -1080,6 +1167,18 @@ export async function financeSummary(filters: FinanceSummaryFilters = {}) {
     },
     netProfit,
     cashPosition: totalIncome + periodDeposits - expenseTotal - periodWithdrawals,
+    /**
+     * Money actually on hand, per payment method, as at the end of `to` - a balance, like
+     * `capital`, so `from` does not narrow it. `total` is what the till and the bank hold
+     * together according to the books.
+     */
+    cashOnHand: {
+      asOf: to,
+      total: cashMoneyIn - cashMoneyOut,
+      moneyIn: cashMoneyIn,
+      moneyOut: cashMoneyOut,
+      byMethod: cashByMethodList,
+    },
     capital: {
       deposits: capitalDeposits,
       withdrawals: capitalWithdrawals,

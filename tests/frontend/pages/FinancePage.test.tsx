@@ -79,6 +79,22 @@ function makeSummary(overrides: Record<string, unknown> = {}) {
     },
     netProfit: -150000,
     cashPosition: 650000,
+    cashOnHand: {
+      asOf: '2026-11-19',
+      total: 4600000,
+      moneyIn: 5800000,
+      moneyOut: 1200000,
+      byMethod: [
+        { method: 'CASH', label: 'Cash', moneyIn: 5500000, moneyOut: 1200000, balance: 4300000 },
+        {
+          method: 'BANK_TRANSFER',
+          label: 'Bank transfer',
+          moneyIn: 300000,
+          moneyOut: 0,
+          balance: 300000,
+        },
+      ],
+    },
     capital: {
       deposits: 5000000,
       withdrawals: 1000000,
@@ -267,7 +283,7 @@ describe('FinancePage', () => {
     expect(screen.getByText('Partner money held')).toBeInTheDocument();
     // The card is a balance, so its hint must say so - the range does not narrow it.
     expect(screen.getByText(/out · all time$/)).toBeInTheDocument();
-    expect(screen.getByText(/does not narrow it/)).toBeInTheDocument();
+    expect(screen.getAllByText(/does not narrow it/).length).toBeGreaterThan(0);
 
     // Receipts and hand-typed income are added for the headline, but still shown apart.
     expect(screen.getAllByText(money(600000)).length).toBeGreaterThan(0);
@@ -277,6 +293,25 @@ describe('FinancePage', () => {
     expect(screen.getByText('Other income')).toBeInTheDocument();
     expect(screen.getByText('Total money in')).toBeInTheDocument();
     expect(screen.getByText('Total expenses')).toBeInTheDocument();
+  });
+
+  it('shows the money still on hand, split by how it was paid', async () => {
+    renderPage();
+
+    await waitFor(() => expect(screen.getByTestId('money-on-hand-card')).toBeInTheDocument());
+
+    const card = screen.getByTestId('money-on-hand-card');
+    // The headline is cash plus bank, and it is a balance: the dates above do not narrow it.
+    expect(within(card).getByTestId('money-on-hand-total')).toHaveTextContent(money(4600000));
+    expect(within(card).getByText(/does not narrow it/)).toBeInTheDocument();
+
+    const cash = within(card).getByTestId('money-on-hand-cash');
+    expect(within(cash).getByText('Cash')).toBeInTheDocument();
+    expect(within(cash).getByText(money(4300000))).toBeInTheDocument();
+
+    const bank = within(card).getByTestId('money-on-hand-bank_transfer');
+    expect(within(bank).getByText('Bank transfer')).toBeInTheDocument();
+    expect(within(bank).getByText(money(300000))).toBeInTheDocument();
   });
 
   it('calls out partially paid invoices instead of lumping them in with unpaid ones', async () => {

@@ -89,6 +89,15 @@ const summary = {
     expenses: { total: 750000, count: 1, byCategory: [{ category: 'Rent', amount: 750000, count: 1 }] },
     netProfit: -250000,
     cashPosition: 250000,
+    cashOnHand: {
+        asOf: '2026-11-19',
+        total: 4600000,
+        moneyIn: 5800000,
+        moneyOut: 1200000,
+        byMethod: [
+            { method: 'CASH', label: 'Cash', moneyIn: 5500000, moneyOut: 1200000, balance: 4300000 },
+        ],
+    },
     capital: {
         deposits: 5000000,
         withdrawals: 1000000,
