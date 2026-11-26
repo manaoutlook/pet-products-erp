@@ -30,6 +30,8 @@ interface Permissions {
   receipts: Permission;
   finance: Permission;
   customerProfiles: Permission;
+  /** Pushing ERP stock to the WooCommerce shops - separate from Inventory on purpose. */
+  websiteSync: Permission;
 }
 
 interface Role {

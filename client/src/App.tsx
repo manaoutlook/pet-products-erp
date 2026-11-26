@@ -40,6 +40,7 @@ const RegionPage = lazy(() => import("./pages/RegionPage"));
 const CompanyProfilePage = lazy(() => import("./pages/CompanyProfilePage"));
 const VatCompaniesPage = lazy(() => import("./pages/VatCompaniesPage"));
 const VatMarginCalculatorPage = lazy(() => import("./pages/VatMarginCalculatorPage"));
+const WebsiteSyncPage = lazy(() => import("./pages/WebsiteSyncPage"));
 
 function RouteFallback() {
   return (
@@ -144,6 +145,11 @@ function App() {
                 Its own module, so it can be granted without handing over all of Orders. */}
             <Route path="/vat-margin">
               <RequirePermission module="vatMargin" action="read"><VatMarginCalculatorPage /></RequirePermission>
+            </Route>
+            {/* Website Stock Sync: one-way push of ERP stock to the WooCommerce shops. Its own
+                module, because a run changes what customers can buy on a live site. */}
+            <Route path="/website-sync">
+              <RequirePermission module="websiteSync" action="read"><WebsiteSyncPage /></RequirePermission>
             </Route>
             <Route path="/customers">
               <RequirePermission module="customerProfiles" action="read"><CustomerProfilesPage /></RequirePermission>

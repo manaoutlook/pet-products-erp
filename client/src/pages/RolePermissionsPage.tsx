@@ -41,6 +41,8 @@ interface Permissions {
   receipts: Permission;
   finance: Permission;
   customerProfiles: Permission;
+  /** Website stock sync (WooCommerce) - its own module, never implied by Inventory. */
+  websiteSync: Permission;
 }
 
 type ModuleKey = keyof Permissions;
@@ -170,6 +172,9 @@ function RolePermissionsPage() {
     { key: 'receipts' as const, label: 'Receipts Module' },
     { key: 'finance' as const, label: 'Financial Accounts Module' },
     { key: 'customerProfiles' as const, label: 'Customer Profiles Module' },
+    // Pushing stock to a live WooCommerce shop. View opens the screen and the preview, Edit runs
+    // the sync and changes the channel, Create adds a website, Delete removes it and its history.
+    { key: 'websiteSync' as const, label: 'Website Stock Sync Module' },
   ];
 
   const permissions = [

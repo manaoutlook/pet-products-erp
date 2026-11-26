@@ -12,6 +12,7 @@ import { registerDeliveryNoteRoutes } from "./routes/delivery-notes";
 import { registerFinanceRoutes } from "./routes/finance";
 import { registerAttachmentRoutes } from "./routes/attachments";
 import { registerVatMarginRoutes } from "./routes/vat-margin";
+import { registerWebsiteSyncRoutes } from "./routes/website-sync";
 import { db } from "@db";
 import {
   buildProductDeletionError,
@@ -443,6 +444,11 @@ export function registerRoutes(app: Express): Server {
   // invoice. Registered after the order documents because it prices their lines from the
   // Product module and never writes any of them.
   registerVatMarginRoutes(app);
+
+  // Website stock sync: pushes ERP stock to the WooCommerce shops. Registered last among the
+  // read/write screens because it owns its own /api/website-sync namespace and writes nothing the
+  // rest of the app reads - the shops are downstream copies, never a source.
+  registerWebsiteSyncRoutes(app);
 
   // Purchase Orders endpoints
   app.get("/api/purchase-orders", requireAuth, async (req, res) => {

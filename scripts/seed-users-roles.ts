@@ -102,6 +102,8 @@ async function seedUsersAndRoles() {
           pos: { create: true, read: true, update: true, delete: true },
           receipts: { create: true, read: true, update: true, delete: true },
           finance: { create: true, read: true, update: true, delete: false },
+          // A regional manager may push stock to the shops they oversee, but not add a website.
+          websiteSync: { create: false, read: true, update: true, delete: false },
         }
       },
       {
@@ -122,7 +124,8 @@ async function seedUsersAndRoles() {
           pos: { create: true, read: true, update: true, delete: true },
           receipts: { create: true, read: true, update: true, delete: true },
           finance: { create: true, read: true, update: true, delete: true },
-          customerProfiles: { create: true, read: true, update: true, delete: true }
+          customerProfiles: { create: true, read: true, update: true, delete: true },
+          websiteSync: { create: true, read: true, update: true, delete: true }
         }
       }
     ];

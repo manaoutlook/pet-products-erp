@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, date, varchar, decimal, index, check, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, date, varchar, decimal, index, check, uniqueIndex, primaryKey, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -27,6 +27,9 @@ type Permissions = {
   pos: { create: boolean; read: boolean; update: boolean; delete: boolean };
   receipts: { create: boolean; read: boolean; update: boolean; delete: boolean };
   finance: { create: boolean; read: boolean; update: boolean; delete: boolean };
+  // Pushing ERP stock to the WooCommerce shops. Granted on its own because a run writes to live
+  // shops: holding Inventory access must not be enough to change what customers can buy.
+  websiteSync: { create: boolean; read: boolean; update: boolean; delete: boolean };
 };
 
 // Roles table with proper JSONB handling and hierarchy levels
@@ -1727,3 +1730,144 @@ export const insertCompanySchema = createInsertSchema(company);
 export const selectCompanySchema = createSelectSchema(company);
 export type InsertCompany = typeof company.$inferInsert;
 export type SelectCompany = typeof company.$inferSelect;
+
+// ---------------------------------------------------------------------------------------------
+// Website stock sync (WooCommerce)
+// ---------------------------------------------------------------------------------------------
+//
+// The ERP owns stock; the two WooCommerce shops (www / b2b) only receive it. These tables keep
+// what a push needs and nothing else:
+//
+//   website_channels           one row per shop: address, encrypted API key, and the rules this
+//                              shop is synced under (scope, clamping, backorders).
+//   website_product_links      sku <-> WooCommerce product id, per channel. A push is driven by
+//                              THIS table, never by a live SKU lookup, so a product that is
+//                              missing on the site is reported instead of silently skipped.
+//   website_stock_sync_runs    one row per click of "Sync now", with the counts.
+//   website_stock_sync_items   one row per product in that run, including the site's own error.
+//   website_stock_state        the last quantity each shop accepted, so a delta run only sends
+//                              what changed and a failed line is retried next time.
+
+export const websiteChannels = pgTable("website_channels", {
+  id: serial("id").primaryKey(),
+  // "SmartLife Retail", "SmartLife B2B" - what the operator picks in the sync screen.
+  name: text("name").notNull(),
+  // Origin only ("https://www.smartlife-vn.com"); `/wp-json/wc/v3` is appended by the client.
+  baseUrl: text("base_url").notNull().unique(),
+  // AES-256-GCM (`v1:<iv>:<tag>:<ciphertext>`, see server/integration-secrets.ts). The API key
+  // can write to a live shop, so it is never stored - or returned - in plain text.
+  consumerKeyEnc: text("consumer_key_enc").notNull(),
+  consumerSecretEnc: text("consumer_secret_enc").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  // Which inventory rows feed this shop: ALL (DC + every store), DC only, or selected stores.
+  stockScope: text("stock_scope").notNull().default("ALL"),
+  // A negative ERP total (an over-sold batch) must reach the shop as 0, never "-3".
+  clampNegative: boolean("clamp_negative").notNull().default(true),
+  // "Allow backorders?" on the shop. The business answer is false: sell to 0, then stop.
+  allowBackorders: boolean("allow_backorders").notNull().default(false),
+  // When true, the sync also ticks "Track stock quantity for this product" on the site. Off by
+  // default: it changes how the shop behaves, so it is reported instead of forced.
+  forceManageStock: boolean("force_manage_stock").notNull().default(false),
+  // 0 = manual only (the current decision). Kept so a scheduled push can be switched on later
+  // without a schema change; nothing reads it while it is 0.
+  syncIntervalMinutes: integer("sync_interval_minutes").notNull().default(0),
+  lastSyncAt: timestamp("last_sync_at"),
+  lastSyncStatus: text("last_sync_status"),
+  lastSyncMessage: text("last_sync_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  stockScopeCheck: check(
+    "website_channels_stock_scope_check",
+    sql`${table.stockScope} IN ('ALL', 'DC', 'STORES')`
+  ),
+}));
+
+export const websiteProductLinks = pgTable("website_product_links", {
+  id: serial("id").primaryKey(),
+  channelId: integer("channel_id").notNull().references(() => websiteChannels.id, { onDelete: "cascade" }),
+  productId: integer("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  // The WooCommerce object this SKU resolves to. A variation is addressed through its parent.
+  wooId: integer("woo_id").notNull(),
+  wooType: text("woo_type").notNull().default("simple"),
+  wooParentId: integer("woo_parent_id"),
+  sku: text("sku").notNull(),
+  // The operator can park a product without unlinking it (e.g. a promo line managed by hand).
+  syncEnabled: boolean("sync_enabled").notNull().default(true),
+  // What the site said at the last catalogue refresh. `wooManageStock = false` means WooCommerce
+  // will ignore our quantity - the sync reports it instead of pretending it was written.
+  wooManageStock: boolean("woo_manage_stock").notNull().default(false),
+  wooStockQuantity: integer("woo_stock_quantity"),
+  wooStockStatus: text("woo_stock_status"),
+  matchedBy: text("matched_by").notNull().default("sku"),
+  lastSeenAt: timestamp("last_seen_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  // One ERP product per shop, and one shop object per row: a refresh replaces the mapping, these
+  // two indexes are what make a duplicated SKU fail loudly instead of fanning out.
+  channelProductIdx: uniqueIndex("website_product_links_channel_product_idx").on(table.channelId, table.productId),
+  channelWooIdx: uniqueIndex("website_product_links_channel_woo_idx").on(table.channelId, table.wooId, table.wooType),
+}));
+
+export const websiteStockSyncRuns = pgTable("website_stock_sync_runs", {
+  id: serial("id").primaryKey(),
+  channelId: integer("channel_id").notNull().references(() => websiteChannels.id, { onDelete: "cascade" }),
+  // 'manual' today; kept as text so a scheduled run can be told apart later.
+  trigger: text("trigger").notNull().default("manual"),
+  // 'changed' (delta) or 'all' (repair). The mode is stored because the counts mean different
+  // things: 3000 changed items is normal for `all` and alarming for `changed`.
+  mode: text("mode").notNull().default("changed"),
+  // 'running' | 'success' | 'partial' | 'failed'
+  status: text("status").notNull().default("running"),
+  totalItems: integer("total_items").notNull().default(0),
+  changedItems: integer("changed_items").notNull().default(0),
+  succeeded: integer("succeeded").notNull().default(0),
+  failed: integer("failed").notNull().default(0),
+  skipped: integer("skipped").notNull().default(0),
+  message: text("message"),
+  startedAt: timestamp("started_at").defaultNow(),
+  finishedAt: timestamp("finished_at"),
+  triggeredByUserId: integer("triggered_by_user_id").references(() => users.id),
+}, (table) => ({
+  channelStartedIdx: index("website_stock_sync_runs_channel_idx").on(table.channelId, table.startedAt),
+}));
+
+export const websiteStockSyncItems = pgTable("website_stock_sync_items", {
+  id: serial("id").primaryKey(),
+  runId: integer("run_id").notNull().references(() => websiteStockSyncRuns.id, { onDelete: "cascade" }),
+  // `set null`: the audit line survives the product being deleted.
+  productId: integer("product_id").references(() => products.id, { onDelete: "set null" }),
+  sku: text("sku").notNull(),
+  wooId: integer("woo_id"),
+  wooType: text("woo_type").notNull().default("simple"),
+  quantitySent: integer("quantity_sent"),
+  wooQuantityBefore: integer("woo_quantity_before"),
+  wooQuantityAfter: integer("woo_quantity_after"),
+  // 'success' | 'failed' | 'skipped'
+  status: text("status").notNull().default("success"),
+  httpStatus: integer("http_status"),
+  message: text("message"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  runIdx: index("website_stock_sync_items_run_idx").on(table.runId),
+}));
+
+export const websiteStockState = pgTable("website_stock_state", {
+  channelId: integer("channel_id").notNull().references(() => websiteChannels.id, { onDelete: "cascade" }),
+  productId: integer("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  // The quantity the shop last accepted. Written ONLY after a confirmed success, so a failed
+  // line keeps its old value and is retried by the next delta run.
+  lastSyncedQuantity: integer("last_synced_quantity").notNull(),
+  lastSyncedStockStatus: text("last_synced_stock_status"),
+  lastSyncedAt: timestamp("last_synced_at").defaultNow(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.channelId, table.productId] }),
+}));
+
+export type WebsiteChannel = typeof websiteChannels.$inferSelect;
+export type InsertWebsiteChannel = typeof websiteChannels.$inferInsert;
+export type WebsiteProductLink = typeof websiteProductLinks.$inferSelect;
+export type WebsiteStockSyncRun = typeof websiteStockSyncRuns.$inferSelect;
+export type WebsiteStockSyncItem = typeof websiteStockSyncItems.$inferSelect;
+export type WebsiteStockState = typeof websiteStockState.$inferSelect;
+

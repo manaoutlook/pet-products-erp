@@ -123,6 +123,7 @@ export async function setupAdmin() {
           pos: { create: true, read: true, update: true, delete: true },
           receipts: { create: true, read: true, update: true, delete: true },
           finance: { create: true, read: true, update: true, delete: true },
+          websiteSync: { create: true, read: true, update: true, delete: true },
         },
       })
       .onConflictDoNothing()

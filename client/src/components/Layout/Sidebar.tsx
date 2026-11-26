@@ -37,6 +37,7 @@ import {
   MapPin,
   Lock,
   UserCheck,
+  Globe,
 } from "lucide-react";
 
 /**
@@ -71,7 +72,8 @@ type NavModule =
   | 'pos'
   | 'receipts'
   | 'finance'
-  | 'customerProfiles';
+  | 'customerProfiles'
+  | 'websiteSync';
 
 interface NavItem {
   name: string;
@@ -184,6 +186,9 @@ const navigationSections: NavSection[] = [
       // The profit split agreed with the VAT company that issued an invoice. It reads the order's
       // lines, but the split is partner-only information - hence its own `vatMargin` module.
       { name: "VAT Margin Calculator", href: "/vat-margin", icon: Calculator, module: 'vatMargin', action: 'read' },
+      // One-way push of ERP stock to the WooCommerce shops. Administration, not Inventory: it
+      // writes to a live site, so holding stock access must not imply it.
+      { name: "Website Stock Sync", href: "/website-sync", icon: Globe, module: 'websiteSync', action: 'read' },
       { name: "Users", href: "/users", icon: Users, module: 'users', action: 'read' },
       { name: "Roles", href: "/roles", icon: ShieldCheck, adminOnly: true },
       { name: "Permissions", href: "/role-permissions", icon: Lock, adminOnly: true },
