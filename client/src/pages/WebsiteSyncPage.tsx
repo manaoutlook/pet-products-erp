@@ -675,9 +675,31 @@ export default function WebsiteSyncPage() {
                       WooCommerce ignores the quantity.
                     </p>
                     <p>
-                      Tick "Track stock quantity for this product" in the shop, or switch on "Force
-                      stock tracking" on this channel. These products are never counted as synced.
+                      Tick "Track stock quantity for this product" in the shop, then press Refresh
+                      catalogue - this list is what the shop reported when the catalogue was last
+                      read, so a box ticked since then still shows here and the run keeps skipping
+                      the product. Or switch on "Force stock tracking" on this channel. These
+                      products are never counted as synced.
                     </p>
+                    {/* The step people miss: the flag above is stored per link at the last
+                        catalogue read, so a fresh tick in wp-admin changes nothing until this
+                        runs. Offered here rather than only on the channel card. */}
+                    <div className="pt-1">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 border-amber-300 bg-white text-xs text-amber-900 hover:bg-amber-100"
+                        disabled={!canUpdate || busyChannelId === preview.channel.id}
+                        onClick={() => refreshCatalogueMutation.mutate(preview.channel.id)}
+                      >
+                        {refreshCatalogueMutation.isPending ? (
+                          <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                        ) : (
+                          <Link2 className="mr-2 h-3 w-3" />
+                        )}
+                        Refresh catalogue
+                      </Button>
+                    </div>
                     <p className="font-mono">
                       {preview.notTracking
                         .slice(0, 12)

@@ -142,6 +142,13 @@ Those products are listed in the preview under **not tracking stock** and are ne
 synced. Two ways out: tick the box in the shop, or switch on **Force stock tracking** on the
 channel (the sync then sends `manage_stock: true` with the quantity).
 
+The flag is **stored per link** (`website_product_links.woo_manage_stock`) at the moment the
+catalogue is read, because the preview and the run both work from the database and never call the
+shop. A box ticked in wp-admin after the last read therefore changes nothing yet: press **Refresh
+catalogue** (the button in the warning does this too) and the product moves from *not tracking
+stock* into *to send*. Until then the run skips it, on purpose - writing a quantity WooCommerce
+ignores and reporting success would be a lie.
+
 ## Modes
 
 - **Changed only** (default) - the delta described above. This is the daily click.
@@ -188,7 +195,7 @@ channel, *Create* adds a website, *Delete* removes it with its history. On an ex
 | `refused the API key (401/403), in both the Authorization header and the query string` | The key really is refused: it belongs to another shop, was created Read-only, or its user has no `manage_woocommerce`. Re-enter both halves on the channel. If only the header attempt failed, the ERP retries in the query string by itself — see [a server that drops the Authorization header](#a-server-that-drops-the-authorization-header). |
 | `has no WooCommerce REST API: both /wp-json/wc/v3 and ?rest_route=/wc/v3 returned 404` | WooCommerce deactivated, a security plugin blocking the REST API, or the address is not the WordPress site. Not a permalinks problem - that is handled. |
 | `Could not reach …` | DNS/TLS/firewall, or the shop is in maintenance mode. |
-| Products under **not tracking stock** | `manage_stock` unchecked in the shop (see above). |
+| Products under **not tracking stock** | `manage_stock` unchecked in the shop (see above). If it was ticked after the last catalogue read, the flag is stale - press **Refresh catalogue** and it moves to *to send*. |
 | Unmapped SKUs after a refresh | SKU differs between the ERP and the shop, or the product is a *grouped*/*external* type (it has no stock of its own). |
 | A run says **partial** | Some lines were refused - open the run to read the shop's own message per SKU. Failed lines keep their old state, so the next run retries them. |
 | `The API key … could not be decrypted` | `INTEGRATION_SECRET_KEY` changed. Re-enter the key and secret on the channel. |
