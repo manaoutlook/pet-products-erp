@@ -786,7 +786,7 @@ export default function WebsiteSyncPage() {
       )}
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editing ? `Edit ${editing.name}` : "Add a website"}</DialogTitle>
             <DialogDescription>
@@ -795,7 +795,8 @@ export default function WebsiteSyncPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
+          {/* Two columns so the whole website form fits without scrolling. */}
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="website-name">Name</Label>
               <Input
@@ -819,32 +820,30 @@ export default function WebsiteSyncPage() {
               </p>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="website-key">Consumer key</Label>
-                <Input
-                  id="website-key"
-                  type="password"
-                  autoComplete="off"
-                  value={form.consumerKey}
-                  placeholder={editing?.hasCredentials ? "Leave blank to keep" : "ck_…"}
-                  onChange={(event) => setForm({ ...form, consumerKey: event.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="website-secret">Consumer secret</Label>
-                <Input
-                  id="website-secret"
-                  type="password"
-                  autoComplete="off"
-                  value={form.consumerSecret}
-                  placeholder={editing?.hasCredentials ? "Leave blank to keep" : "cs_…"}
-                  onChange={(event) => setForm({ ...form, consumerSecret: event.target.value })}
-                />
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="website-key">Consumer key</Label>
+              <Input
+                id="website-key"
+                type="password"
+                autoComplete="off"
+                value={form.consumerKey}
+                placeholder={editing?.hasCredentials ? "Leave blank to keep" : "ck_…"}
+                onChange={(event) => setForm({ ...form, consumerKey: event.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="website-secret">Consumer secret</Label>
+              <Input
+                id="website-secret"
+                type="password"
+                autoComplete="off"
+                value={form.consumerSecret}
+                placeholder={editing?.hasCredentials ? "Leave blank to keep" : "cs_…"}
+                onChange={(event) => setForm({ ...form, consumerSecret: event.target.value })}
+              />
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 sm:col-span-2">
               <Label>Which stock feeds this shop</Label>
               <Select
                 value={form.stockScope}
@@ -866,7 +865,7 @@ export default function WebsiteSyncPage() {
               </p>
             </div>
 
-            <div className="space-y-3 rounded-md border p-3">
+            <div className="space-y-3 rounded-md border p-3 sm:col-span-2">
               <SwitchRow
                 label="Channel active"
                 description="A switched-off channel cannot be synced."

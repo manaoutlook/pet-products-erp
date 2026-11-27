@@ -796,7 +796,7 @@ function ReceivablesPage() {
           }
         }}
       >
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Record a payment</DialogTitle>
             <DialogDescription>
@@ -808,7 +808,8 @@ function ReceivablesPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3">
+          {/* Two columns so the receipt form fits without scrolling. */}
+          <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <Label htmlFor="receivable-amount">Amount received</Label>
               <Input
@@ -823,31 +824,29 @@ function ReceivablesPage() {
                 Never more than the outstanding balance - collect the rest with another receipt.
               </p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <Label>Method</Label>
-                <Select value={method} onValueChange={(value) => setMethod(value as PaymentMethod)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PAYMENT_METHODS.map((value) => (
-                      <SelectItem key={value} value={value}>
-                        {PAYMENT_METHOD_LABELS[value] ?? value}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="receivable-paid-at">Received on</Label>
-                <Input
-                  id="receivable-paid-at"
-                  type="date"
-                  value={paidAt}
-                  onChange={(event) => setPaidAt(event.target.value)}
-                />
-              </div>
+            <div>
+              <Label>Method</Label>
+              <Select value={method} onValueChange={(value) => setMethod(value as PaymentMethod)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAYMENT_METHODS.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {PAYMENT_METHOD_LABELS[value] ?? value}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="receivable-paid-at">Received on</Label>
+              <Input
+                id="receivable-paid-at"
+                type="date"
+                value={paidAt}
+                onChange={(event) => setPaidAt(event.target.value)}
+              />
             </div>
             <div>
               <Label htmlFor="receivable-reference">Reference</Label>
@@ -858,14 +857,16 @@ function ReceivablesPage() {
                 onChange={(event) => setReference(event.target.value)}
               />
             </div>
-            <PendingAttachmentPicker
-              files={paymentDocuments}
-              onFilesChange={setPaymentDocuments}
-              label="Payment proof"
-              description="Screenshot the bank transfer or photograph the signed receipt - up to 10 pictures, 5 MB each. They are filed with this receipt when you record it."
-              disabled={recordPayment.isPending}
-            />
-            <div>
+            <div className="sm:col-span-2">
+              <PendingAttachmentPicker
+                files={paymentDocuments}
+                onFilesChange={setPaymentDocuments}
+                label="Payment proof"
+                description="Screenshot the bank transfer or photograph the signed receipt - up to 10 pictures, 5 MB each. They are filed with this receipt when you record it."
+                disabled={recordPayment.isPending}
+              />
+            </div>
+            <div className="sm:col-span-2">
               <Label htmlFor="receivable-notes">Notes</Label>
               <Textarea
                 id="receivable-notes"

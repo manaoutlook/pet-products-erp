@@ -2485,7 +2485,7 @@ function FinancePage() {
           }
         }}
       >
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>
               {editing ? `Edit entry ${editing.entryNumber}` : "Record an entry"}
@@ -2497,7 +2497,8 @@ function FinancePage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3">
+          {/* Two columns so the whole entry fits on screen without scrolling. */}
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label htmlFor="entry-type">Type</Label>
               <Select
@@ -2517,37 +2518,35 @@ function FinancePage() {
               </Select>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="entry-date">Date</Label>
-                <Input
-                  id="entry-date"
-                  type="date"
-                  value={form.entryDate}
-                  max={todayIso()}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, entryDate: event.target.value }))
-                  }
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="entry-amount">Amount</Label>
-                <Input
-                  id="entry-amount"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.amount}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, amount: event.target.value }))
-                  }
-                  placeholder="0"
-                />
-              </div>
+            <div className="space-y-1">
+              <Label htmlFor="entry-date">Date</Label>
+              <Input
+                id="entry-date"
+                type="date"
+                value={form.entryDate}
+                max={todayIso()}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, entryDate: event.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="entry-amount">Amount</Label>
+              <Input
+                id="entry-amount"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.amount}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, amount: event.target.value }))
+                }
+                placeholder="0"
+              />
             </div>
 
             {isPartnerEntryType(form.entryType) ? (
-              <div className="grid gap-3 sm:grid-cols-2">
+              <>
                 <div className="space-y-1">
                   <Label htmlFor="entry-partner">Partner</Label>
                   <Select
@@ -2599,9 +2598,9 @@ function FinancePage() {
                     </SelectContent>
                   </Select>
                 </div>
-              </div>
+              </>
             ) : form.entryType === "opening_balance" ? (
-              <div className="space-y-1">
+              <div className="space-y-1 sm:col-span-2">
                 <Label htmlFor="entry-category">Category</Label>
                 <Input id="entry-category" value={OPENING_BALANCE_CATEGORY} readOnly disabled />
                 <p className="text-xs text-muted-foreground">
@@ -2634,44 +2633,42 @@ function FinancePage() {
             )}
 
             {!withdrawalCheck.valid && form.entryType === "partner_withdrawal" && form.amount ? (
-              <p className="text-sm text-destructive">{withdrawalCheck.error}</p>
+              <p className="text-sm text-destructive sm:col-span-2">{withdrawalCheck.error}</p>
             ) : null}
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="entry-method">
-                  {form.entryType === "opening_balance" ? "Held in" : "Paid by"}
-                </Label>
-                <Select
-                  value={form.paymentMethod}
-                  onValueChange={(value) =>
-                    setForm((current) => ({ ...current, paymentMethod: value }))
-                  }
-                >
-                  <SelectTrigger id="entry-method">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PAYMENT_METHODS.map((value) => (
-                      <SelectItem key={value} value={value}>
-                        {PAYMENT_METHOD_LABELS[value] ?? value}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="entry-reference">Reference</Label>
-                <Input
-                  id="entry-reference"
-                  value={form.reference}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, reference: event.target.value }))
-                  }
-                  placeholder="Receipt or voucher number"
-                  maxLength={100}
-                />
-              </div>
+            <div className="space-y-1">
+              <Label htmlFor="entry-method">
+                {form.entryType === "opening_balance" ? "Held in" : "Paid by"}
+              </Label>
+              <Select
+                value={form.paymentMethod}
+                onValueChange={(value) =>
+                  setForm((current) => ({ ...current, paymentMethod: value }))
+                }
+              >
+                <SelectTrigger id="entry-method">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAYMENT_METHODS.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {PAYMENT_METHOD_LABELS[value] ?? value}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="entry-reference">Reference</Label>
+              <Input
+                id="entry-reference"
+                value={form.reference}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, reference: event.target.value }))
+                }
+                placeholder="Receipt or voucher number"
+                maxLength={100}
+              />
             </div>
 
             <div className="space-y-1">
@@ -2710,13 +2707,15 @@ function FinancePage() {
               the picker would only confuse - there is nothing queued to upload.
             */}
             {editing ? null : (
-              <PendingAttachmentPicker
-                files={entryDocuments}
-                onFilesChange={setEntryDocuments}
-                label="Receipt / bank-transfer pictures"
-                description="Photograph the paper receipt or screenshot the bank transfer for this entry - up to 10 pictures, 5 MB each. They are filed with the entry when you record it."
-                disabled={createEntry.isPending}
-              />
+              <div className="sm:col-span-2">
+                <PendingAttachmentPicker
+                  files={entryDocuments}
+                  onFilesChange={setEntryDocuments}
+                  label="Receipt / bank-transfer pictures"
+                  description="Photograph the paper receipt or screenshot the bank transfer for this entry - up to 10 pictures, 5 MB each. They are filed with the entry when you record it."
+                  disabled={createEntry.isPending}
+                />
+              </div>
             )}
           </div>
 
