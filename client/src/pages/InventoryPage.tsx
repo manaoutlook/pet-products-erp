@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { SearchInput } from "@/components/ui/search-input";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
 import { useTableControls } from "@/hooks/use-table-controls";
 import { Button } from "@/components/ui/button";
@@ -41,7 +42,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Plus, Pencil, Trash2, Download, Upload, History } from "lucide-react";
 import { useForm, FormProvider } from "react-hook-form";
@@ -183,6 +184,18 @@ function InventoryPage() {
 
   // The supplier shown in the create/edit dialog is the product's, not a field the
   // user can set here. Changing it belongs on the Products page.
+  // Searching by name and SKU matters here: the list holds every product, and a
+  // plain Select makes the right row hard to find once the catalogue grows.
+  const productOptions = useMemo(
+    () =>
+      (products ?? []).map((product) => ({
+        value: product.id.toString(),
+        label: product.name,
+        description: product.sku,
+      })),
+    [products]
+  );
+
   const selectedProduct = products?.find(
     (product) => product.id.toString() === form.watch('productId')
   );
@@ -529,24 +542,17 @@ function InventoryPage() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Product</FormLabel>
-                            <Select
-                              value={field.value}
-                              onValueChange={field.onChange}
-                              defaultValue={field.value}
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select a product" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {products?.map((product) => (
-                                  <SelectItem key={product.id} value={product.id.toString()}>
-                                    {product.name} ({product.sku})
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            <FormControl>
+                              <SearchableSelect
+                                value={field.value || null}
+                                onChange={(value) => field.onChange(value ?? "")}
+                                options={productOptions}
+                                placeholder="Select a product"
+                                searchPlaceholder="Search by name or SKU..."
+                                emptyMessage="No products found."
+                                aria-label="Product"
+                              />
+                            </FormControl>
                             <FormMessage />
                           </FormItem>
                         )}
