@@ -104,10 +104,16 @@ export const SearchableSelect = React.forwardRef<
         </PopoverTrigger>
         <PopoverContent
           align="start"
-          className="w-[var(--radix-popover-trigger-width)] p-0"
+          // The list is never narrower than the field it belongs to, but it also never
+          // collapses to that field's width: in a three column row (transfers, purchase
+          // order lines) the trigger is ~220px, which squeezes "SmartLife ... (SKU)" until
+          // both halves are unreadable - and the search box with them.
+          className="w-[var(--radix-popover-trigger-width)] min-w-[18rem] p-0"
         >
           <Command>
-            <CommandInput placeholder={searchPlaceholder} />
+            {/* Land in the search box, not on the first row: the point of opening this
+                list is to type, and a long catalogue cannot be scrolled by hand. */}
+            <CommandInput placeholder={searchPlaceholder} autoFocus />
             <CommandList>
               <CommandEmpty>{emptyMessage}</CommandEmpty>
               <CommandGroup>
