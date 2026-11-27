@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Table,
   TableBody,
@@ -107,6 +108,18 @@ export default function LedgerPage() {
 
   const needsCustomer = kind === "customer_statement";
   const rangeValid = Boolean(from) && Boolean(to) && from <= to;
+
+  // The customer list is a full ledger lookup and grows with the customer book, so
+  // it is searchable rather than a plain Select.
+  const customerOptions = useMemo(
+    () =>
+      (customersQuery.data?.customers ?? []).map((customer) => ({
+        value: String(customer.id),
+        label: customer.name,
+        description: `${customer.invoiceCount} invoice${customer.invoiceCount === 1 ? "" : "s"}`,
+      })),
+    [customersQuery.data]
+  );
 
   const ledgerQuery = useQuery<LedgerResponse>({
     queryKey: ["/api/finance/ledger", kind, from, to, customerId],
@@ -235,23 +248,19 @@ export default function LedgerPage() {
                 <Label htmlFor="ledger-customer" className="text-xs text-muted-foreground">
                   Customer
                 </Label>
-                <Select value={customerId} onValueChange={setCustomerId}>
-                  <SelectTrigger id="ledger-customer" className="w-72">
-                    <SelectValue
-                      placeholder={
-                        customersQuery.isLoading ? "Loading customers…" : "Choose a customer"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(customersQuery.data?.customers ?? []).map((customer) => (
-                      <SelectItem key={customer.id} value={String(customer.id)}>
-                        {customer.name} · {customer.invoiceCount} invoice
-                        {customer.invoiceCount === 1 ? "" : "s"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  id="ledger-customer"
+                  className="w-72"
+                  value={customerId || null}
+                  onChange={(value) => setCustomerId(value ?? "")}
+                  options={customerOptions}
+                  placeholder={
+                    customersQuery.isLoading ? "Loading customers…" : "Choose a customer"
+                  }
+                  searchPlaceholder="Search by customer name..."
+                  emptyMessage="No customers found."
+                  aria-label="Customer"
+                />
               </div>
             ) : null}
 

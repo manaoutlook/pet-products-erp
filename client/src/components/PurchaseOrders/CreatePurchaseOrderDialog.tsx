@@ -104,6 +104,11 @@ export function CreatePurchaseOrderDialog() {
     queryKey: ['/api/suppliers'],
   });
 
+  const supplierOptions = useMemo(
+    () => suppliers.map((supplier) => ({ value: supplier.id.toString(), label: supplier.name })),
+    [suppliers]
+  );
+
   const { data: products = [] } = useQuery<ProductOption[]>({
     queryKey: ['/api/products'],
   });
@@ -251,23 +256,17 @@ export function CreatePurchaseOrderDialog() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Supplier</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select supplier" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {suppliers.map((supplier) => (
-                        <SelectItem key={supplier.id} value={supplier.id.toString()}>
-                          {supplier.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FormControl>
+                    <SearchableSelect
+                      value={field.value || null}
+                      onChange={(value) => field.onChange(value ?? "")}
+                      options={supplierOptions}
+                      placeholder="Select supplier"
+                      searchPlaceholder="Search suppliers..."
+                      emptyMessage="No suppliers found."
+                      aria-label="Supplier"
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, FormProvider } from "react-hook-form";
 import { z } from "zod";
@@ -18,13 +18,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -67,6 +61,15 @@ export function QuickAddProduct() {
   const { data: categories } = useQuery<Category[]>({
     queryKey: ['/api/categories'],
   });
+
+  const categoryOptions = useMemo(
+    () =>
+      (categories ?? []).map((category) => ({
+        value: category.id.toString(),
+        label: category.name,
+      })),
+    [categories]
+  );
 
   const createProductMutation = useMutation({
     mutationFn: async (data: ProductFormValues) => {
@@ -176,23 +179,17 @@ export function QuickAddProduct() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel required>Category</FormLabel>
-                  <Select
-                    value={field.value}
-                    onValueChange={field.onChange}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a category" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {categories?.map((category) => (
-                        <SelectItem key={category.id} value={category.id.toString()}>
-                          {category.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FormControl>
+                    <SearchableSelect
+                      value={field.value || null}
+                      onChange={(value) => field.onChange(value ?? "")}
+                      options={categoryOptions}
+                      placeholder="Select a category"
+                      searchPlaceholder="Search categories..."
+                      emptyMessage="No categories found."
+                      aria-label="Category"
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}

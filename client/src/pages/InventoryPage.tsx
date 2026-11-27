@@ -196,6 +196,17 @@ function InventoryPage() {
     [products]
   );
 
+  const supplierFilterOptions = useMemo(
+    () => [
+      { value: "all", label: "All Suppliers" },
+      ...(suppliers ?? []).map((supplier) => ({
+        value: supplier.id.toString(),
+        label: supplier.name,
+      })),
+    ],
+    [suppliers]
+  );
+
   const selectedProduct = products?.find(
     (product) => product.id.toString() === form.watch('productId')
   );
@@ -751,27 +762,21 @@ function InventoryPage() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Supplier</FormLabel>
-                            <Select
-                              value={field.value}
-                              onValueChange={(value) => {
-                                field.onChange(value);
-                                handleFilterChange('supplierId', value);
-                              }}
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="All Suppliers" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                <SelectItem value="all">All Suppliers</SelectItem>
-                                {suppliers?.map((supplier) => (
-                                  <SelectItem key={supplier.id} value={supplier.id.toString()}>
-                                    {supplier.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            <FormControl>
+                              <SearchableSelect
+                                value={field.value || "all"}
+                                onChange={(value) => {
+                                  const next = value ?? "all";
+                                  field.onChange(next);
+                                  handleFilterChange('supplierId', next);
+                                }}
+                                options={supplierFilterOptions}
+                                placeholder="All Suppliers"
+                                searchPlaceholder="Search suppliers..."
+                                emptyMessage="No suppliers found."
+                                aria-label="Supplier filter"
+                              />
+                            </FormControl>
                           </FormItem>
                         )}
                       />
