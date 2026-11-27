@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { SearchInput } from "@/components/ui/search-input";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ColumnHeader, TableControlsBar } from "@/components/ui/table-controls";
 import { useTableControls } from "@/hooks/use-table-controls";
 import { Button } from "@/components/ui/button";
@@ -33,7 +34,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Plus, Eye, CheckCircle, XCircle, Clock, ArrowRight, Package } from "lucide-react";
 import { useForm, FormProvider } from "react-hook-form";
@@ -170,6 +171,18 @@ function TransferPage() {
     },
     enabled: !!form.watch('fromStoreId'),
   });
+
+  // AI Agent Note: the catalogue is longer than a native select can be scanned (names are
+  // long and several variants share the "SmartLife ..." prefix), so the row picker is a
+  // searchable combobox. The SKU is indexed too, not just the product name.
+  const productOptions = useMemo(() => {
+    const source = availableProducts && availableProducts.length > 0 ? availableProducts : products;
+    return (source ?? []).map((product) => ({
+      value: String(product.id),
+      label: product.name,
+      description: product.sku ?? null,
+    }));
+  }, [availableProducts, products]);
 
   const createTransferMutation = useMutation({
     mutationFn: async (data: CreateTransferFormValues) => {
@@ -604,23 +617,17 @@ function TransferPage() {
                                 render={({ field }) => (
                                   <FormItem>
                                     <FormLabel>Product</FormLabel>
-                                    <Select
-                                      value={field.value}
-                                      onValueChange={field.onChange}
-                                    >
-                                      <FormControl>
-                                        <SelectTrigger>
-                                          <SelectValue placeholder="Select product" />
-                                        </SelectTrigger>
-                                      </FormControl>
-                                      <SelectContent>
-                                        {(availableProducts && availableProducts.length > 0 ? availableProducts : products)?.map((product) => (
-                                          <SelectItem key={product.id} value={product.id.toString()}>
-                                            {product.name} ({product.sku})
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
+                                    <FormControl>
+                                      <SearchableSelect
+                                        value={field.value || null}
+                                        onChange={(value) => field.onChange(value ?? "")}
+                                        options={productOptions}
+                                        placeholder="Select product"
+                                        searchPlaceholder="Search by name or SKU..."
+                                        emptyMessage="No products found."
+                                        aria-label={`Product ${index + 1}`}
+                                      />
+                                    </FormControl>
                                     <FormMessage />
                                   </FormItem>
                                 )}
