@@ -2,7 +2,13 @@ import type { Express, Response } from "express";
 import { z } from "zod";
 import { requireAdmin, requireAuth, requirePermission } from "../middleware";
 import { idParamSchema, validateBody, validateParams, validateQuery } from "../validate";
-import { FINANCE_ENTRY_TYPES, FUNDING_KINDS } from "../../shared/finance";
+import {
+  FINANCE_DIRECTIONS,
+  FINANCE_ENTRY_SORT_DIRECTIONS,
+  FINANCE_ENTRY_SORT_KEYS,
+  FINANCE_ENTRY_TYPES,
+  FUNDING_KINDS,
+} from "../../shared/finance";
 import { PAYMENT_METHODS } from "../../shared/invoice-payment";
 import {
   FinanceError,
@@ -52,16 +58,36 @@ const summaryQuerySchema = z.object({
   to: dateString.optional(),
 });
 
-const entriesQuerySchema = z.object({
-  entryType: z.enum(FINANCE_ENTRY_TYPES).optional(),
-  status: z.enum(["posted", "voided"]).optional(),
-  partnerId: z.coerce.number().int().positive().optional(),
-  search: z.string().trim().max(100).optional(),
-  from: dateString.optional(),
-  to: dateString.optional(),
-  limit: z.coerce.number().int().min(1).max(200).default(50),
-  offset: z.coerce.number().int().min(0).default(0),
-});
+const entriesQuerySchema = z
+  .object({
+    entryType: z.enum(FINANCE_ENTRY_TYPES).optional(),
+    status: z.enum(["posted", "voided"]).optional(),
+    partnerId: z.coerce.number().int().positive().optional(),
+    fundingKind: z.enum(FUNDING_KINDS).optional(),
+    paymentMethod: z.enum(PAYMENT_METHODS).optional(),
+    category: z.string().trim().max(80).optional(),
+    direction: z.enum(FINANCE_DIRECTIONS).optional(),
+    amountMin: z.coerce.number().nonnegative("The minimum amount cannot be negative").optional(),
+    amountMax: z.coerce.number().nonnegative("The maximum amount cannot be negative").optional(),
+    search: z.string().trim().max(100).optional(),
+    from: dateString.optional(),
+    to: dateString.optional(),
+    // Sorting is applied server side because the ledger is paged server side: a client-side sort
+    // would only reorder the current page and make the pager lie.
+    sortBy: z.enum(FINANCE_ENTRY_SORT_KEYS).default("entryDate"),
+    sortDir: z.enum(FINANCE_ENTRY_SORT_DIRECTIONS).default("desc"),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+    offset: z.coerce.number().int().min(0).default(0),
+  })
+  .superRefine((value, ctx) => {
+    if (value.amountMin !== undefined && value.amountMax !== undefined && value.amountMin > value.amountMax) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["amountMax"],
+        message: "The minimum amount cannot be greater than the maximum",
+      });
+    }
+  });
 
 const outstandingQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(100),

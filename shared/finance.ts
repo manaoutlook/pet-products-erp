@@ -55,6 +55,28 @@ export type FinanceDirection = (typeof FINANCE_DIRECTIONS)[number];
 export const FINANCE_ENTRY_STATUSES = ['posted', 'voided'] as const;
 export type FinanceEntryStatus = (typeof FINANCE_ENTRY_STATUSES)[number];
 
+/**
+ * The ledger columns the entries screen can be sorted by.
+ *
+ * The list is shared by the API query schema and the table header so a column the screen can sort
+ * on is always a column the server knows how to order, and a bad value is a 400 instead of a
+ * silently ignored parameter. `partner` is sorted by the partner's name, not their id.
+ */
+export const FINANCE_ENTRY_SORT_KEYS = [
+  'entryDate',
+  'entryNumber',
+  'entryType',
+  'category',
+  'partner',
+  'paymentMethod',
+  'amount',
+  'status',
+] as const;
+export type FinanceEntrySortKey = (typeof FINANCE_ENTRY_SORT_KEYS)[number];
+
+export const FINANCE_ENTRY_SORT_DIRECTIONS = ['asc', 'desc'] as const;
+export type FinanceEntrySortDirection = (typeof FINANCE_ENTRY_SORT_DIRECTIONS)[number];
+
 /** A partner's money is either permanent capital or a temporary top-up (a loan). */
 export const FUNDING_KINDS = ['capital', 'loan'] as const;
 export type FundingKind = (typeof FUNDING_KINDS)[number];

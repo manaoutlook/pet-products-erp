@@ -230,6 +230,12 @@ async function openEntriesTab() {
     return user;
 }
 
+/** The most recent ledger request - other requests (partners, summary) may arrive after it. */
+function lastEntriesUrl(stub: FetchStub) {
+    const calls = stub.mock.calls.filter(([url]) => String(url).startsWith('/api/finance/entries'));
+    return String(calls[calls.length - 1]?.[0] ?? '');
+}
+
 afterEach(() => {
     vi.unstubAllGlobals();
     mocks.isAdmin.value = true;
@@ -294,6 +300,112 @@ describe('FinancePage - manual entries', () => {
         await waitFor(() => {
             const last = String(stub.mock.calls[stub.mock.calls.length - 1][0]);
             expect(last).toContain('offset=25');
+        });
+    });
+
+    it('sends the amount range with the request and clears it again', async () => {
+        const stub = renderEntries();
+        const user = await openEntriesTab();
+
+        // The first request already asks for the default order, so the server sorts every page.
+        expect(lastEntriesUrl(stub)).toContain('sortBy=entryDate');
+        expect(lastEntriesUrl(stub)).toContain('sortDir=desc');
+
+        await user.click(screen.getByRole('button', { name: /^filters/i }));
+        fireEvent.change(await screen.findByLabelText('Minimum amount'), {
+            target: { value: '100000' },
+        });
+        fireEvent.change(screen.getByLabelText('Maximum amount'), {
+            target: { value: '600000' },
+        });
+
+        await waitFor(() => {
+            const last = lastEntriesUrl(stub);
+            expect(last).toContain('amountMin=100000.00');
+            expect(last).toContain('amountMax=600000.00');
+            expect(last).toContain('offset=0');
+        });
+
+        // The applied range is visible as a chip, and one click clears every filter. Close the
+        // popover first so its overlay cannot swallow the click.
+        expect(await screen.findByText(/^Amount:/)).toBeInTheDocument();
+        await user.keyboard('{Escape}');
+        fireEvent.click(screen.getByRole('button', { name: /clear all/i }));
+
+        await waitFor(() => expect(screen.queryByText(/^Amount:/)).not.toBeInTheDocument());
+        // Reopening the popover shows both boxes empty again.
+        await user.click(screen.getByRole('button', { name: /^filters/i }));
+        expect(await screen.findByLabelText('Minimum amount')).toHaveValue(null);
+        expect(screen.getByLabelText('Maximum amount')).toHaveValue(null);
+    });
+
+    it('refuses an inverted amount range without blanking the ledger', async () => {
+        const stub = renderEntries();
+        const user = await openEntriesTab();
+
+        await user.click(screen.getByRole('button', { name: /^filters/i }));
+        fireEvent.change(await screen.findByLabelText('Minimum amount'), {
+            target: { value: '900000' },
+        });
+        fireEvent.change(screen.getByLabelText('Maximum amount'), {
+            target: { value: '100000' },
+        });
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(
+            /minimum amount cannot be greater/i,
+        );
+
+        await waitFor(() => {
+            const last = lastEntriesUrl(stub);
+            expect(last).not.toContain('amountMin');
+            expect(last).not.toContain('amountMax');
+        });
+        // The rows already on screen stay there while the operator fixes the range.
+        expect(screen.getByText('FIN-20261119-0001')).toBeInTheDocument();
+    });
+
+    it('sorts on the server when a column heading is used', async () => {
+        const stub = renderEntries();
+        const user = await openEntriesTab();
+
+        await user.click(
+            await screen.findByRole('button', { name: /^amount: not sorted, activate to sort ascending/i }),
+        );
+
+        await waitFor(() => {
+            const last = lastEntriesUrl(stub);
+            expect(last).toContain('sortBy=amount');
+            expect(last).toContain('sortDir=asc');
+            expect(last).toContain('offset=0');
+        });
+
+        await user.click(
+            screen.getByRole('button', { name: /^amount: sorted ascending, activate to sort descending/i }),
+        );
+
+        await waitFor(() => {
+            const last = lastEntriesUrl(stub);
+            expect(last).toContain('sortBy=amount');
+            expect(last).toContain('sortDir=desc');
+        });
+    });
+
+    it('reads the ledger filters and sort from the URL', async () => {
+        window.history.replaceState(
+            null,
+            '',
+            '/?tab=entries&partnerId=1&direction=credit&amountMin=1000&sortBy=amount&sortDir=asc',
+        );
+        const stub = renderEntries();
+        await openEntriesTab();
+
+        await waitFor(() => {
+            const last = lastEntriesUrl(stub);
+            expect(last).toContain('partnerId=1');
+            expect(last).toContain('direction=credit');
+            expect(last).toContain('amountMin=1000.00');
+            expect(last).toContain('sortBy=amount');
+            expect(last).toContain('sortDir=asc');
         });
     });
 });

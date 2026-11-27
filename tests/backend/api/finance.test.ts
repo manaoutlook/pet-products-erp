@@ -828,6 +828,135 @@ describe('financial accounts', () => {
     expect(posted.totals.credits).toBe(500000);
   });
 
+  it('narrows the ledger by partner, heading, method, direction, funding kind and amount range', async () => {
+    const partner = await createFinancePartner({
+      name: 'Chi Lan',
+      createdByUserId: data.users.admin.id,
+    });
+    await postEntry({
+      amount: 100000,
+      category: 'Utilities',
+      description: 'Water bill',
+      paymentMethod: 'CASH',
+    });
+    await postEntry({
+      amount: 900000,
+      category: 'Rent',
+      description: 'Shop rent',
+      paymentMethod: 'BANK_TRANSFER',
+    });
+    await postEntry({
+      entryType: 'income',
+      category: 'Other income',
+      description: 'Scrap sale',
+      amount: 300000,
+      paymentMethod: 'CASH',
+    });
+    await postEntry({
+      entryType: 'partner_deposit',
+      partnerId: partner.id,
+      fundingKind: 'capital',
+      category: 'Capital',
+      description: 'Partner capital',
+      amount: 700000,
+      paymentMethod: 'BANK_TRANSFER',
+    });
+
+    const cashOnly = await listFinanceEntries({ paymentMethod: 'CASH' });
+    expect(cashOnly.total).toBe(2);
+    expect(cashOnly.totals.debits).toBe(100000);
+    expect(cashOnly.totals.credits).toBe(300000);
+
+    const byCategory = await listFinanceEntries({ category: 'Rent' });
+    expect(byCategory.entries).toHaveLength(1);
+    expect(byCategory.totals.debits).toBe(900000);
+
+    const moneyIn = await listFinanceEntries({ direction: 'credit' });
+    expect(moneyIn.total).toBe(2);
+    expect(moneyIn.totals.credits).toBe(1000000);
+    expect(moneyIn.totals.debits).toBe(0);
+
+    const byPartner = await listFinanceEntries({ partnerId: partner.id });
+    expect(byPartner.entries).toHaveLength(1);
+    expect(byPartner.totals.credits).toBe(700000);
+
+    const capital = await listFinanceEntries({ fundingKind: 'capital' });
+    expect(capital.total).toBe(1);
+    const loans = await listFinanceEntries({ fundingKind: 'loan' });
+    expect(loans.total).toBe(0);
+
+    // The bounds include rows touching the edge, and the totals still cover every match.
+    const range = await listFinanceEntries({ amountMin: 300000, amountMax: 700000 });
+    expect(range.total).toBe(2);
+    expect(range.totals.credits).toBe(1000000);
+    expect(range.totals.debits).toBe(0);
+  });
+
+  it('sorts on the server, keeps the totals whole and pages without repeating a row', async () => {
+    await postEntry({ amount: 300000, description: 'Three' });
+    await postEntry({ amount: 100000, description: 'One' });
+    await postEntry({ amount: 200000, description: 'Two' });
+
+    const ascending = await listFinanceEntries({ sortBy: 'amount', sortDir: 'asc' });
+    expect(ascending.entries.map((entry) => entry.amount)).toEqual([100000, 200000, 300000]);
+    expect(ascending.totals.debits).toBe(600000);
+
+    const firstPage = await listFinanceEntries({ sortBy: 'amount', sortDir: 'asc', limit: 1 });
+    const secondPage = await listFinanceEntries({
+      sortBy: 'amount',
+      sortDir: 'asc',
+      limit: 1,
+      offset: 1,
+    });
+    expect(firstPage.entries[0].amount).toBe(100000);
+    expect(secondPage.entries[0].amount).toBe(200000);
+    // Sorting reorders the rows; the totals and the count still describe all three.
+    expect(secondPage.total).toBe(3);
+    expect(secondPage.totals.debits).toBe(600000);
+
+    const descending = await listFinanceEntries({ sortBy: 'amount', sortDir: 'desc' });
+    expect(descending.entries.map((entry) => entry.amount)).toEqual([300000, 200000, 100000]);
+
+    // Same-day rows fall back to the newest id, so paging can never repeat or skip a row.
+    expect((await listFinanceEntries({ limit: 1 })).entries[0].description).toBe('Two');
+  });
+
+  it('sorts partner rows by name and leaves rows without a partner at the bottom', async () => {
+    const chiLan = await createFinancePartner({
+      name: 'Chi Lan',
+      createdByUserId: data.users.admin.id,
+    });
+    const anhBa = await createFinancePartner({
+      name: 'Anh Ba',
+      createdByUserId: data.users.admin.id,
+    });
+    for (const partner of [chiLan, anhBa]) {
+      await postEntry({
+        entryType: 'partner_deposit',
+        partnerId: partner.id,
+        fundingKind: 'capital',
+        category: 'Capital',
+        description: `${partner.name} capital`,
+        amount: 500000,
+      });
+    }
+    await postEntry({ description: 'Rent without a partner' });
+
+    const ascending = await listFinanceEntries({ sortBy: 'partner', sortDir: 'asc' });
+    expect(ascending.entries.map((entry) => entry.partner?.name ?? null)).toEqual([
+      'Anh Ba',
+      'Chi Lan',
+      null,
+    ]);
+
+    const descending = await listFinanceEntries({ sortBy: 'partner', sortDir: 'desc' });
+    expect(descending.entries.map((entry) => entry.partner?.name ?? null)).toEqual([
+      'Chi Lan',
+      'Anh Ba',
+      null,
+    ]);
+  });
+
   /**
    * The printable sheets. Both are read models - they read the same rows the report reads, so
    * these tests check the promises made on paper: an opening balance that carries history in, a

@@ -8,7 +8,7 @@ import {
   purchaseOrders,
   suppliers,
 } from "@db/schema";
-import { and, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import type { DbClient } from "./db-types";
 import { deleteAttachmentFile } from "./attachment-files";
 import { generateFinanceEntryNumber } from "./finance-counter";
@@ -20,7 +20,12 @@ import {
   displayInvoiceStatus,
 } from "../shared/invoice-payment";
 import type { InvoiceStatus } from "../shared/invoice-payment";
-import type { FinanceEntryType, FundingKind } from "../shared/finance";
+import type {
+  FinanceEntrySortDirection,
+  FinanceEntrySortKey,
+  FinanceEntryType,
+  FundingKind,
+} from "../shared/finance";
 import {
   OPENING_BALANCE_CATEGORY,
   PURCHASE_ORDER_EXPENSE_CATEGORY,
@@ -92,9 +97,17 @@ export interface ListFinanceEntriesFilters {
   entryType?: FinanceEntryType;
   status?: "posted" | "voided";
   partnerId?: number;
+  fundingKind?: FundingKind;
+  paymentMethod?: string;
+  category?: string;
+  direction?: "debit" | "credit";
+  amountMin?: number;
+  amountMax?: number;
   search?: string;
   from?: string;
   to?: string;
+  sortBy?: FinanceEntrySortKey;
+  sortDir?: FinanceEntrySortDirection;
   limit?: number;
   offset?: number;
 }
@@ -479,10 +492,46 @@ export async function voidFinanceEntry(input: {
 }
 
 /**
+ * The ORDER BY for the entries table.
+ *
+ * Only the keys in `FINANCE_ENTRY_SORT_KEYS` can reach the column map below, so a request can
+ * never put its own SQL into the sort. The row id is always the last key: without a stable
+ * tie-breaker, two entries with the same date can repeat on page 2 or be skipped entirely.
+ */
+function financeEntryOrderBy(sortBy: FinanceEntrySortKey, sortDir: FinanceEntrySortDirection) {
+  const direction = sortDir === "asc" ? asc : desc;
+  const tieBreaker = desc(financeEntries.id);
+
+  if (sortBy === "partner") {
+    // The correlated column is interpolated so the relational query builder can map it to the
+    // alias it gave the main table; the partner side is a plain table, so it needs no alias.
+    const partnerName = sql`(SELECT name FROM finance_partners WHERE id = ${financeEntries.partnerId})`;
+    // Blanks sink to the bottom whichever direction is used, matching the table controls.
+    return [
+      sortDir === "asc" ? sql`${partnerName} ASC NULLS LAST` : sql`${partnerName} DESC NULLS LAST`,
+      tieBreaker,
+    ];
+  }
+
+  const columns = {
+    entryDate: financeEntries.entryDate,
+    entryNumber: financeEntries.entryNumber,
+    entryType: financeEntries.entryType,
+    category: financeEntries.category,
+    paymentMethod: financeEntries.paymentMethod,
+    amount: financeEntries.amount,
+    status: financeEntries.status,
+  } as const;
+
+  return [direction(columns[sortBy]), tieBreaker];
+}
+
+/**
  * The manual money book, filterable exactly as the screen filters it.
  *
  * The totals cover every matching row, not just the page, so the "credits / debits" line does not
- * change when the operator paginates.
+ * change when the operator paginates. Sorting changes the order of the rows only - never the
+ * totals.
  */
 export async function listFinanceEntries(filters: ListFinanceEntriesFilters = {}) {
   const limit = Math.min(Math.max(filters.limit ?? 50, 1), 500);
@@ -492,6 +541,18 @@ export async function listFinanceEntries(filters: ListFinanceEntriesFilters = {}
   if (filters.entryType) conditions.push(eq(financeEntries.entryType, filters.entryType));
   if (filters.status) conditions.push(eq(financeEntries.status, filters.status));
   if (filters.partnerId) conditions.push(eq(financeEntries.partnerId, filters.partnerId));
+  if (filters.fundingKind) conditions.push(eq(financeEntries.fundingKind, filters.fundingKind));
+  if (filters.paymentMethod) conditions.push(eq(financeEntries.paymentMethod, filters.paymentMethod));
+  if (filters.category) conditions.push(eq(financeEntries.category, filters.category));
+  if (filters.direction) conditions.push(eq(financeEntries.direction, filters.direction));
+  // `amount` is a decimal column, so it is compared as a string; passing a JS number would let
+  // floating point rounding decide which side of the boundary a row falls on.
+  if (filters.amountMin !== undefined) {
+    conditions.push(gte(financeEntries.amount, filters.amountMin.toFixed(2)));
+  }
+  if (filters.amountMax !== undefined) {
+    conditions.push(lte(financeEntries.amount, filters.amountMax.toFixed(2)));
+  }
   if (filters.from) conditions.push(gte(financeEntries.entryDate, assertDate(filters.from, "From date")));
   if (filters.to) conditions.push(lte(financeEntries.entryDate, assertDate(filters.to, "To date")));
   if (filters.search?.trim()) {
@@ -507,12 +568,13 @@ export async function listFinanceEntries(filters: ListFinanceEntriesFilters = {}
   }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
+  const orderBy = financeEntryOrderBy(filters.sortBy ?? "entryDate", filters.sortDir ?? "desc");
 
   const [rows, totalsRows] = await Promise.all([
     db.query.financeEntries.findMany({
       where,
       with: entryRelations,
-      orderBy: [desc(financeEntries.entryDate), desc(financeEntries.id)],
+      orderBy,
       limit,
       offset,
     }),

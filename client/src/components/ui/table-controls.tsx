@@ -134,6 +134,83 @@ export function ColumnHeader({
   );
 }
 
+export interface SortableTableHeadProps {
+  /** Column heading shown in the header. */
+  label: string;
+  /** Shared sort key - must be one the API accepts. */
+  sortKey: string;
+  /** Currently sorted key, or null when the table is on its default order. */
+  activeKey: string | null;
+  /** Direction of the active sort. */
+  direction: "asc" | "desc" | null;
+  /** Called with the column key when the heading is activated. */
+  onSort: (key: string) => void;
+  /** Which end the heading sits on; amount and other numeric columns are right aligned. */
+  align?: "left" | "right";
+  /** Extra classes for the `<th>`. */
+  className?: string;
+}
+
+/**
+ * Header cell for tables whose rows are paged and sorted by the server.
+ *
+ * It looks and reads exactly like `ColumnHeader`, but it owns no state: the page holds the sort and
+ * sends it with the request. That is why there is no per-column filter input here - filtering a
+ * server-paged table one page at a time would silently hide matching rows on other pages.
+ */
+export function SortableTableHead({
+  label,
+  sortKey,
+  activeKey,
+  direction,
+  onSort,
+  align = "left",
+  className,
+}: SortableTableHeadProps) {
+  const active = activeKey === sortKey;
+  const activeDirection = active ? direction : null;
+
+  const sortLabel =
+    activeDirection === "asc"
+      ? `${label}: sorted ascending, activate to sort descending`
+      : activeDirection === "desc"
+        ? `${label}: sorted descending, activate to sort ascending`
+        : `${label}: not sorted, activate to sort ascending`;
+
+  return (
+    <TableHead
+      scope="col"
+      aria-sort={
+        activeDirection === "asc" ? "ascending" : activeDirection === "desc" ? "descending" : undefined
+      }
+      className={cn("align-top", className)}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        aria-label={sortLabel}
+        title={`Sort by ${label}`}
+        className={cn(
+          "-mx-1 flex items-center gap-1 rounded-sm px-1 py-0.5 text-xs font-semibold uppercase tracking-wide",
+          align === "right" && "w-full justify-end",
+          "transition-colors hover:text-foreground",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30",
+          activeDirection ? "text-foreground" : "text-table-header-foreground"
+        )}
+      >
+        <span className="truncate">{label}</span>
+        {activeDirection === "asc" ? (
+          <ArrowUp aria-hidden="true" className="h-3 w-3 shrink-0" />
+        ) : activeDirection === "desc" ? (
+          <ArrowDown aria-hidden="true" className="h-3 w-3 shrink-0" />
+        ) : (
+          <ChevronsUpDown aria-hidden="true" className="h-3 w-3 shrink-0 opacity-40" />
+        )}
+      </button>
+    </TableHead>
+  );
+}
+
 export interface TableControlsBarProps {
   /** Value returned by `useTableControls` for this table. */
   controls: TableControls<any>;

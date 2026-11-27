@@ -9,6 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { SearchInput } from "@/components/ui/search-input";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import { SortableTableHead } from "@/components/ui/table-controls";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -43,6 +47,7 @@ import {
   Banknote,
   CheckCircle2,
   Clock,
+  Filter,
   Landmark,
   Loader2,
   Pencil,
@@ -53,6 +58,7 @@ import {
   Trash2,
   Users,
   Wallet,
+  X,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -68,11 +74,13 @@ import {
   FUNDING_KIND_LABELS,
   INCOME_CATEGORIES,
   OPENING_BALANCE_CATEGORY,
+  FINANCE_ENTRY_SORT_KEYS,
   categoriesForFinanceEntry,
   isFinanceEntryType,
   isPartnerEntryType,
   validatePartnerWithdrawal,
   type FinanceEntryStatus,
+  type FinanceEntrySortKey,
   type FinanceEntryType,
   type FundingKind,
 } from "@shared/finance";
@@ -317,6 +325,20 @@ function monthStartIso() {
   return `${todayIso().slice(0, 7)}-01`;
 }
 
+/**
+ * Reads an amount typed into a filter box.
+ *
+ * Blank means "no bound", so it is `undefined` rather than 0 - a minimum of 0 would still filter.
+ * Negative and non-numeric input is treated as no bound; the fields are guarded by `min="0"` too.
+ */
+function parseAmountBound(raw: string): number | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0) return undefined;
+  return parsed;
+}
+
 interface EntryFormState {
   entryType: FinanceEntryType;
   category: string;
@@ -494,8 +516,35 @@ function FinancePage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [ledgerFrom, setLedgerFrom] = useState("");
   const [ledgerTo, setLedgerTo] = useState("");
+  // The advanced filters live behind the "Filters" popover; they are all "all"/empty when unset.
+  const [partnerFilter, setPartnerFilter] = useState<string>("all");
+  const [fundingKindFilter, setFundingKindFilter] = useState<string>("all");
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [directionFilter, setDirectionFilter] = useState<string>("all");
+  const [amountMin, setAmountMin] = useState("");
+  const [amountMax, setAmountMax] = useState("");
+  // Sorting is a request parameter, not a table-local state: the rows are paged by the server, so
+  // sorting only the 25 rows on screen would make the pager and the totals describe a different
+  // order than the table. Changing it always returns to the first page.
+  const [sort, setSort] = useState<{ key: FinanceEntrySortKey; dir: "asc" | "desc" }>({
+    key: "entryDate",
+    dir: "desc",
+  });
   const [offset, setOffset] = useState(0);
   const limit = 25;
+
+  // One request per pause in typing, not one per keystroke.
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const debouncedAmountMin = useDebouncedValue(amountMin, 300);
+  const debouncedAmountMax = useDebouncedValue(amountMax, 300);
+
+  const minAmount = parseAmountBound(debouncedAmountMin);
+  const maxAmount = parseAmountBound(debouncedAmountMax);
+  const amountRangeError =
+    minAmount !== undefined && maxAmount !== undefined && minAmount > maxAmount
+      ? "The minimum amount cannot be greater than the maximum."
+      : null;
 
   const [entryDialogOpen, setEntryDialogOpen] = useState(false);
   /** The posted entry being corrected; null while recording a new one. */
@@ -538,6 +587,35 @@ function FinancePage() {
       setTypeFilter(nextType);
       setOffset(0);
     }
+    // The same screen links to itself from the report and from the partners tab, so every filter
+    // the ledger understands can be set by the URL.
+    const nextPartner = params.get("partnerId");
+    if (nextPartner && /^\d+$/.test(nextPartner)) setPartnerFilter(nextPartner);
+    const nextFundingKind = params.get("fundingKind");
+    if (nextFundingKind && (FUNDING_KINDS as readonly string[]).includes(nextFundingKind)) {
+      setFundingKindFilter(nextFundingKind);
+    }
+    const nextPaymentMethod = params.get("paymentMethod");
+    if (nextPaymentMethod && (PAYMENT_METHODS as readonly string[]).includes(nextPaymentMethod)) {
+      setPaymentMethodFilter(nextPaymentMethod);
+    }
+    const nextCategory = params.get("category");
+    if (nextCategory) setCategoryFilter(nextCategory);
+    const nextDirection = params.get("direction");
+    if (nextDirection === "debit" || nextDirection === "credit") setDirectionFilter(nextDirection);
+    const nextAmountMin = params.get("amountMin");
+    if (nextAmountMin && parseAmountBound(nextAmountMin) !== undefined) setAmountMin(nextAmountMin);
+    const nextAmountMax = params.get("amountMax");
+    if (nextAmountMax && parseAmountBound(nextAmountMax) !== undefined) setAmountMax(nextAmountMax);
+    const nextSortBy = params.get("sortBy");
+    const nextSortDir = params.get("sortDir");
+    if (
+      nextSortBy &&
+      (FINANCE_ENTRY_SORT_KEYS as readonly string[]).includes(nextSortBy) &&
+      (nextSortDir === "asc" || nextSortDir === "desc")
+    ) {
+      setSort({ key: nextSortBy as FinanceEntrySortKey, dir: nextSortDir });
+    }
   }, [locationSearch]);
 
   const summaryQuery = useQuery<FinanceSummaryResponse>({
@@ -559,20 +637,42 @@ function FinancePage() {
   const entriesQuery = useQuery<FinanceEntriesResponse>({
     queryKey: [
       "/api/finance/entries",
-      search,
+      debouncedSearch,
       typeFilter,
       statusFilter,
       ledgerFrom,
       ledgerTo,
+      partnerFilter,
+      fundingKindFilter,
+      paymentMethodFilter,
+      categoryFilter,
+      directionFilter,
+      amountRangeError ? "invalid-range" : debouncedAmountMin,
+      amountRangeError ? "invalid-range" : debouncedAmountMax,
+      sort.key,
+      sort.dir,
       offset,
     ],
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (search.trim()) params.set("search", search.trim());
+      if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
       if (typeFilter !== "all") params.set("entryType", typeFilter);
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (ledgerFrom) params.set("from", ledgerFrom);
       if (ledgerTo) params.set("to", ledgerTo);
+      if (partnerFilter !== "all") params.set("partnerId", partnerFilter);
+      if (fundingKindFilter !== "all") params.set("fundingKind", fundingKindFilter);
+      if (paymentMethodFilter !== "all") params.set("paymentMethod", paymentMethodFilter);
+      if (categoryFilter !== "all") params.set("category", categoryFilter);
+      if (directionFilter !== "all") params.set("direction", directionFilter);
+      // An inverted range is a typing mistake, not a filter: leave the bounds off rather than let
+      // the API answer 400 and blank the ledger while the operator is still editing.
+      if (!amountRangeError) {
+        if (minAmount !== undefined) params.set("amountMin", minAmount.toFixed(2));
+        if (maxAmount !== undefined) params.set("amountMax", maxAmount.toFixed(2));
+      }
+      params.set("sortBy", sort.key);
+      params.set("sortDir", sort.dir);
       params.set("limit", String(limit));
       params.set("offset", String(offset));
       return readJson(await fetch(`/api/finance/entries?${params}`, { credentials: "include" }));
@@ -592,6 +692,207 @@ function FinancePage() {
     () => partners.find((partner) => String(partner.id) === form.partnerId) ?? null,
     [partners, form.partnerId]
   );
+
+  /**
+   * The headings offered in the category filter.
+   *
+   * Expense headings and income headings are separate lists, so when the type filter is narrowed
+   * only the headings that can actually appear are offered. Partner rows carry no heading at all,
+   * which is why the control disappears for those types.
+   */
+  const ledgerCategoryOptions = useMemo<readonly string[]>(() => {
+    if (typeFilter === "expense") return EXPENSE_CATEGORIES;
+    if (typeFilter === "income") return INCOME_CATEGORIES;
+    if (isFinanceEntryType(typeFilter) && isPartnerEntryType(typeFilter)) return [];
+    return Array.from(new Set([...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES, OPENING_BALANCE_CATEGORY]));
+  }, [typeFilter]);
+
+  const showPartnerFilter =
+    typeFilter === "all" || (isFinanceEntryType(typeFilter) && isPartnerEntryType(typeFilter));
+  // Categories only exist on income and expense rows; an opening balance has a fixed one.
+  const showCategoryFilter = ledgerCategoryOptions.length > 0 && typeFilter !== "opening_balance";
+
+  /** How many of the filters behind the "Filters" button are in use, for the badge. */
+  const advancedFilterCount =
+    (partnerFilter !== "all" ? 1 : 0) +
+    (fundingKindFilter !== "all" ? 1 : 0) +
+    (paymentMethodFilter !== "all" ? 1 : 0) +
+    (categoryFilter !== "all" ? 1 : 0) +
+    (directionFilter !== "all" ? 1 : 0) +
+    (minAmount !== undefined || maxAmount !== undefined ? 1 : 0);
+
+  /** Back to the first page for every filter change - page 3 of the old filter may not exist. */
+  const resetPage = () => setOffset(0);
+
+  const handleTypeFilterChange = (value: string) => {
+    setTypeFilter(value);
+    resetPage();
+    // A partner and an expense heading cannot both be true of one row. Leaving a partner selected
+    // when the operator switches to "Expenses" would silently show zero rows, so the filter that
+    // stopped applying is cleared instead.
+    if (isFinanceEntryType(value) && !isPartnerEntryType(value)) {
+      setPartnerFilter("all");
+      setFundingKindFilter("all");
+    }
+    // ... and the other way round: headings belong to income and expenses only.
+    if (value === "partner_deposit" || value === "partner_withdrawal" || value === "opening_balance") {
+      setCategoryFilter("all");
+    }
+    if (isFinanceEntryType(value) && !categoriesForFinanceEntry(value).includes(categoryFilter)) {
+      setCategoryFilter("all");
+    }
+  };
+
+  /** Clicking a heading flips the direction; a new heading starts ascending. */
+  const handleEntrySort = (key: string) => {
+    const sortKey = key as FinanceEntrySortKey;
+    setSort((current) =>
+      current.key === sortKey
+        ? { key: sortKey, dir: current.dir === "asc" ? "desc" : "asc" }
+        : { key: sortKey, dir: "asc" }
+    );
+    resetPage();
+  };
+
+  const clearAdvancedFilters = () => {
+    setPartnerFilter("all");
+    setFundingKindFilter("all");
+    setPaymentMethodFilter("all");
+    setCategoryFilter("all");
+    setDirectionFilter("all");
+    setAmountMin("");
+    setAmountMax("");
+    resetPage();
+  };
+
+  const clearAllLedgerFilters = () => {
+    setSearch("");
+    setTypeFilter("all");
+    setStatusFilter("all");
+    setLedgerFrom("");
+    setLedgerTo("");
+    clearAdvancedFilters();
+  };
+
+  /** One chip per applied filter, each removable on its own. */
+  const activeFilterChips = useMemo(() => {
+    const chips: Array<{ key: string; label: string; onClear: () => void }> = [];
+    const clearPage = () => setOffset(0);
+
+    if (typeFilter !== "all" && isFinanceEntryType(typeFilter)) {
+      chips.push({
+        key: "type",
+        label: `Type: ${FINANCE_ENTRY_TYPE_LABELS[typeFilter]}`,
+        onClear: () => {
+          setTypeFilter("all");
+          clearPage();
+        },
+      });
+    }
+    if (statusFilter !== "all") {
+      chips.push({
+        key: "status",
+        label: `Status: ${statusFilter === "posted" ? "Posted" : "Voided"}`,
+        onClear: () => {
+          setStatusFilter("all");
+          clearPage();
+        },
+      });
+    }
+    if (ledgerFrom || ledgerTo) {
+      chips.push({
+        key: "dates",
+        label: `Dates: ${ledgerFrom || "any"} to ${ledgerTo || "any"}`,
+        onClear: () => {
+          setLedgerFrom("");
+          setLedgerTo("");
+          clearPage();
+        },
+      });
+    }
+    if (partnerFilter !== "all") {
+      const partnerName = partners.find((partner) => String(partner.id) === partnerFilter)?.name;
+      chips.push({
+        key: "partner",
+        label: `Partner: ${partnerName ?? `#${partnerFilter}`}`,
+        onClear: () => {
+          setPartnerFilter("all");
+          clearPage();
+        },
+      });
+    }
+    if (fundingKindFilter !== "all") {
+      chips.push({
+        key: "fundingKind",
+        label: `Funding: ${FUNDING_KIND_LABELS[fundingKindFilter as FundingKind] ?? fundingKindFilter}`,
+        onClear: () => {
+          setFundingKindFilter("all");
+          clearPage();
+        },
+      });
+    }
+    if (paymentMethodFilter !== "all") {
+      chips.push({
+        key: "paymentMethod",
+        label: `Method: ${PAYMENT_METHOD_LABELS[paymentMethodFilter] ?? paymentMethodFilter}`,
+        onClear: () => {
+          setPaymentMethodFilter("all");
+          clearPage();
+        },
+      });
+    }
+    if (categoryFilter !== "all") {
+      chips.push({
+        key: "category",
+        label: `Category: ${categoryFilter}`,
+        onClear: () => {
+          setCategoryFilter("all");
+          clearPage();
+        },
+      });
+    }
+    if (directionFilter !== "all") {
+      chips.push({
+        key: "direction",
+        label: `Money: ${directionFilter === "credit" ? "in" : "out"}`,
+        onClear: () => {
+          setDirectionFilter("all");
+          clearPage();
+        },
+      });
+    }
+    if (minAmount !== undefined || maxAmount !== undefined) {
+      const range =
+        minAmount !== undefined && maxAmount !== undefined
+          ? `${formatCurrency(minAmount)} to ${formatCurrency(maxAmount)}`
+          : minAmount !== undefined
+            ? `at least ${formatCurrency(minAmount)}`
+            : `up to ${formatCurrency(maxAmount ?? 0)}`;
+      chips.push({
+        key: "amount",
+        label: `Amount: ${range}`,
+        onClear: () => {
+          setAmountMin("");
+          setAmountMax("");
+          clearPage();
+        },
+      });
+    }
+    return chips;
+  }, [
+    typeFilter,
+    statusFilter,
+    ledgerFrom,
+    ledgerTo,
+    partnerFilter,
+    partners,
+    fundingKindFilter,
+    paymentMethodFilter,
+    categoryFilter,
+    directionFilter,
+    minAmount,
+    maxAmount,
+  ]);
 
   const refreshMoney = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/finance"] });
@@ -1523,14 +1824,8 @@ function FinancePage() {
                 placeholder="Search number, description, reference"
               />
             </div>
-            <Select
-              value={typeFilter}
-              onValueChange={(value) => {
-                setTypeFilter(value);
-                setOffset(0);
-              }}
-            >
-              <SelectTrigger className="w-44">
+            <Select value={typeFilter} onValueChange={handleTypeFilterChange}>
+              <SelectTrigger className="w-44" aria-label="Filter by type">
                 <SelectValue placeholder="All types" />
               </SelectTrigger>
               <SelectContent>
@@ -1578,6 +1873,192 @@ function FinancePage() {
               }}
               className="w-40"
             />
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="gap-2">
+                  <Filter className="h-4 w-4" />
+                  Filters
+                  {advancedFilterCount > 0 ? (
+                    <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">
+                      {advancedFilterCount}
+                    </Badge>
+                  ) : null}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-80 space-y-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium">Ledger filters</p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={clearAdvancedFilters}
+                    disabled={advancedFilterCount === 0}
+                  >
+                    Reset
+                  </Button>
+                </div>
+
+                {showPartnerFilter ? (
+                  <div className="space-y-1.5">
+                    <Label>Partner</Label>
+                    <SearchableSelect
+                      aria-label="Filter by partner"
+                      value={partnerFilter === "all" ? null : partnerFilter}
+                      onChange={(value) => {
+                        setPartnerFilter(value ?? "all");
+                        resetPage();
+                      }}
+                      options={partners.map((partner) => ({
+                        value: String(partner.id),
+                        label: partner.name,
+                        description: partner.phone ?? undefined,
+                      }))}
+                      placeholder="All partners"
+                      searchPlaceholder="Search partners..."
+                      emptyMessage="No partners found."
+                      clearLabel="All partners"
+                      className="w-full"
+                    />
+                  </div>
+                ) : null}
+
+                {showPartnerFilter ? (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="entry-filter-funding">Funding kind</Label>
+                    <Select
+                      value={fundingKindFilter}
+                      onValueChange={(value) => {
+                        setFundingKindFilter(value);
+                        resetPage();
+                      }}
+                    >
+                      <SelectTrigger id="entry-filter-funding">
+                        <SelectValue placeholder="All funding" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All funding</SelectItem>
+                        {FUNDING_KINDS.map((kind) => (
+                          <SelectItem key={kind} value={kind}>
+                            {FUNDING_KIND_LABELS[kind]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="entry-filter-method">Payment method</Label>
+                  <Select
+                    value={paymentMethodFilter}
+                    onValueChange={(value) => {
+                      setPaymentMethodFilter(value);
+                      resetPage();
+                    }}
+                  >
+                    <SelectTrigger id="entry-filter-method">
+                      <SelectValue placeholder="All methods" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All methods</SelectItem>
+                      {PAYMENT_METHODS.map((method) => (
+                        <SelectItem key={method} value={method}>
+                          {PAYMENT_METHOD_LABELS[method] ?? method}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {showCategoryFilter ? (
+                  <div className="space-y-1.5">
+                    <Label>Category</Label>
+                    <SearchableSelect
+                      aria-label="Filter by category"
+                      value={categoryFilter === "all" ? null : categoryFilter}
+                      onChange={(value) => {
+                        setCategoryFilter(value ?? "all");
+                        resetPage();
+                      }}
+                      options={ledgerCategoryOptions.map((category) => ({
+                        value: category,
+                        label: category,
+                      }))}
+                      placeholder="All categories"
+                      searchPlaceholder="Search categories..."
+                      emptyMessage="No categories found."
+                      clearLabel="All categories"
+                      className="w-full"
+                    />
+                  </div>
+                ) : null}
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="entry-filter-direction">Money direction</Label>
+                  <Select
+                    value={directionFilter}
+                    onValueChange={(value) => {
+                      setDirectionFilter(value);
+                      resetPage();
+                    }}
+                  >
+                    <SelectTrigger id="entry-filter-direction">
+                      <SelectValue placeholder="Money in and out" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Money in and out</SelectItem>
+                      <SelectItem value="credit">Money in</SelectItem>
+                      <SelectItem value="debit">Money out</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="entry-filter-amount-min">Amount range</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="entry-filter-amount-min"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      placeholder="Min"
+                      aria-label="Minimum amount"
+                      value={amountMin}
+                      onChange={(event) => {
+                        setAmountMin(event.target.value);
+                        setOffset(0);
+                      }}
+                      aria-describedby={amountRangeError ? "entry-filter-amount-error" : undefined}
+                      aria-invalid={amountRangeError ? true : undefined}
+                    />
+                    <span className="text-sm text-muted-foreground">to</span>
+                    <Input
+                      id="entry-filter-amount-max"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      placeholder="Max"
+                      aria-label="Maximum amount"
+                      value={amountMax}
+                      onChange={(event) => {
+                        setAmountMax(event.target.value);
+                        setOffset(0);
+                      }}
+                      aria-describedby={amountRangeError ? "entry-filter-amount-error" : undefined}
+                      aria-invalid={amountRangeError ? true : undefined}
+                    />
+                  </div>
+                  {amountRangeError ? (
+                    <p id="entry-filter-amount-error" role="alert" className="text-xs text-destructive">
+                      {amountRangeError}
+                    </p>
+                  ) : null}
+                </div>
+              </PopoverContent>
+            </Popover>
             {canCreate ? (
               <Button className="ml-auto" onClick={() => openEntryDialog()}>
                 <Plus className="mr-2 h-4 w-4" />
@@ -1585,6 +2066,32 @@ function FinancePage() {
               </Button>
             ) : null}
           </div>
+
+          {activeFilterChips.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-1.5" aria-label="Active entry filters">
+              {activeFilterChips.map((chip) => (
+                <Badge key={chip.key} variant="secondary" className="gap-1 pr-1 font-normal">
+                  {chip.label}
+                  <button
+                    type="button"
+                    onClick={chip.onClear}
+                    aria-label={`Remove filter ${chip.label}`}
+                    className="rounded-sm p-0.5 hover:bg-muted-foreground/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                  >
+                    <X aria-hidden="true" className="h-3 w-3" />
+                  </button>
+                </Badge>
+              ))}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={clearAllLedgerFilters}
+              >
+                Clear all
+              </Button>
+            </div>
+          ) : null}
 
           <div className="flex flex-wrap gap-4 text-sm">
             <span>
@@ -1621,19 +2128,79 @@ function FinancePage() {
                   <p className="text-sm text-muted-foreground">
                     Record an expense, other income, or money a partner put in.
                   </p>
+                  {activeFilterChips.length > 0 || search.trim() ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-3"
+                      onClick={clearAllLedgerFilters}
+                    >
+                      <X className="mr-2 h-4 w-4" />
+                      Clear filters
+                    </Button>
+                  ) : null}
                 </div>
               ) : (
                 <Table className="table-actions-sticky min-w-[1100px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Number</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Partner</TableHead>
-                      <TableHead>Method</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                      <TableHead>Status</TableHead>
+                      <SortableTableHead
+                        label="Number"
+                        sortKey="entryNumber"
+                        activeKey={sort.key}
+                        direction={sort.dir}
+                        onSort={handleEntrySort}
+                      />
+                      <SortableTableHead
+                        label="Date"
+                        sortKey="entryDate"
+                        activeKey={sort.key}
+                        direction={sort.dir}
+                        onSort={handleEntrySort}
+                      />
+                      <SortableTableHead
+                        label="Type"
+                        sortKey="entryType"
+                        activeKey={sort.key}
+                        direction={sort.dir}
+                        onSort={handleEntrySort}
+                      />
+                      <SortableTableHead
+                        label="Category"
+                        sortKey="category"
+                        activeKey={sort.key}
+                        direction={sort.dir}
+                        onSort={handleEntrySort}
+                      />
+                      <SortableTableHead
+                        label="Partner"
+                        sortKey="partner"
+                        activeKey={sort.key}
+                        direction={sort.dir}
+                        onSort={handleEntrySort}
+                      />
+                      <SortableTableHead
+                        label="Method"
+                        sortKey="paymentMethod"
+                        activeKey={sort.key}
+                        direction={sort.dir}
+                        onSort={handleEntrySort}
+                      />
+                      <SortableTableHead
+                        label="Amount"
+                        sortKey="amount"
+                        activeKey={sort.key}
+                        direction={sort.dir}
+                        onSort={handleEntrySort}
+                        align="right"
+                      />
+                      <SortableTableHead
+                        label="Status"
+                        sortKey="status"
+                        activeKey={sort.key}
+                        direction={sort.dir}
+                        onSort={handleEntrySort}
+                      />
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
