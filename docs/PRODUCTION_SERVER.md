@@ -934,13 +934,56 @@ sudo certbot renew --dry-run
 The `--redirect` option adds the 80 → 443 redirect. `COOKIE_SECURE=true` from
 Step 5.2 now applies to a real HTTPS connection; without TLS nobody could log in.
 
+> **`certbot --nginx` edits `/etc/nginx/sites-available/smart-erp` in place** — it
+> adds `listen 443 ssl`, the two `ssl_certificate*` lines and a 80 → 443 redirect
+> block. The file on the server therefore no longer matches
+> `deploy/nginx-smart-erp.conf` in the repo (that copy is the pre-TLS version).
+> **Never re-copy the template over the live file** — it silently deletes the SSL
+> config and the site drops back to plain HTTP. `deploy-server.sh` does not touch
+> nginx (verified), so a normal redeploy is safe; if you *do* edit the vhost later,
+> edit `/etc/nginx/sites-available/smart-erp`, then `sudo nginx -t && sudo systemctl reload nginx`.
+
+Optional polish — Ubuntu 24.04 ships nginx 1.24, where HTTP/2 is a server-level
+directive. `certbot` writes plain `listen 443 ssl`, so the site runs HTTP/1.1 only
+(`curl -w '%{http_version}'` reports `1.1`). To enable multiplexing for the SPA's
+many asset requests:
+
+```bash
+sudo sed -i '/listen 443 ssl/a\\    http2 on;' /etc/nginx/sites-available/smart-erp
+sudo nginx -t && sudo systemctl reload nginx
+curl -s -o /dev/null -w 'http_version=%{http_version}\n' https://erp.smartlife-vn.com/
+```
+
 ### 9.4 Verify from outside
+
+Expected results, all checkable in one pass:
 
 ```bash
 # from your Mac
-curl -s https://erp.smartlife-vn.com/api/health
+curl -s  https://erp.smartlife-vn.com/api/health          # {"status":"ok","db":"up",...}
+curl -sI http://erp.smartlife-vn.com/ | grep -i ^location  # Location: https://erp.smartlife-vn.com/
+curl -sI https://erp.smartlife-vn.com/ | grep -i strict     # Strict-Transport-Security: max-age=31536000
+curl -s -o /dev/null -w '%{http_code}\n' https://erp.smartlife-vn.com/api/auth/me   # 401
 open https://erp.smartlife-vn.com
 ```
+
+The certificate itself — the chain must validate (`0 (ok)`) and TLS 1.1 must be
+refused (`tlsv1 alert protocol version`), which is what a modern `ssl_protocols`
+line buys you:
+
+```bash
+printf 'Q\n' | openssl s_client -connect 103.126.162.131:443 -servername erp.smartlife-vn.com 2>&1 \
+  | grep -E 'subject=|issuer=|Protocol|Verify return code'
+printf 'Q\n' | openssl s_client -connect 103.126.162.131:443 -servername erp.smartlife-vn.com -tls1_1 2>&1 \
+  | grep -i 'alert protocol version'
+```
+
+If `curl` says `SSL certificate problem` here but the browser is fine, check the
+clock on your Mac — an expired/forward-dated certificate is almost always a clock.
+
+No `Upgrade`/`Connection` headers are needed in the vhost: the app has no
+websockets and no SSE (checked — `socket.io` appears nowhere in `package.json` or
+`server/`), so plain request/response proxying is complete.
 
 ---
 
@@ -990,8 +1033,13 @@ that is expected until Step 10.5.
 `rclone` was installed in Step 1.1. Confirm:
 
 ```bash
-rclone version        # v1.65 or newer on Ubuntu 24.04
+rclone version        # 24.04 ships v1.60.1 - that is fine, do not chase v1.65+
 ```
+
+`backup.sh` uses `rclone copy`, `rclone delete --include/--min-age` and
+`rclone lsf --format sp`, all present since ~v1.50. Only `rclone copy`'s
+`--transfers`/`--stats` flags need anything newer than 1.40, so the distro build
+is enough.
 
 
 ### 10.4 Connect OneDrive (one-time, from a headless server)
@@ -1136,16 +1184,39 @@ still exists, and the script exits non-zero (cron then mails you if
 
 ### 10.8 Restore drill: prove a backup is restorable
 
+Run it with the real `DATABASE_URL` — never type a password placeholder into this
+block (a literal `CHANGE_ME…` string connects nowhere and looks like a permissions
+error):
+
 ```bash
-# create a scratch database, restore into it, count, drop it
+cd /opt/SmartERP
+set -a; . ./.env; set +a
+
+# 1. scratch database owned by erp
 sudo -u postgres createdb -O erp smart_erp_restoretest
+
+# 2. restore into it (same 16.11 pg_restore that wrote the -Fc archive)
+DUMP=$(ls -t backups/db_*.dump | head -1); echo "restoring $DUMP"
 pg_restore --no-owner --no-privileges --exit-on-error \
-  -d "postgresql://erp:CHANGE_ME_long_random_password@127.0.0.1:5432/smart_erp_restoretest" \
-  /opt/SmartERP/backups/db_YYYYMMDD.dump
-psql "postgresql://erp:CHANGE_ME_long_random_password@127.0.0.1:5432/smart_erp_restoretest" \
-  -c "select count(*) from invoices;"
+  -d "${DATABASE_URL%/*}/smart_erp_restoretest" "$DUMP"
+
+# 3. counts must match production
+RESTORE_URL="${DATABASE_URL%/*}/smart_erp_restoretest"
+for t in users products inventory invoices; do
+  printf '%-10s restore=%s prod=%s\n' "$t" \
+    "$(psql "$RESTORE_URL" -Atc "select count(*) from $t")" \
+    "$(psql "$DATABASE_URL" -Atc "select count(*) from $t")"
+done
+
+# 4. clean up
 sudo -u postgres dropdb smart_erp_restoretest
 ```
+
+`${DATABASE_URL%/*}/smart_erp_restoretest` swaps the database name and keeps the
+credentials, so no password is ever retyped. Both `pg_dump` and `pg_restore` on
+the server are 16.11, so `-Fc` archives round-trip with no version trap — the
+18 → 16 `archive version 1.16` failure only bites when a newer `pg_dump` writes a
+file that an older `pg_restore` reads (see 7A.1).
 
 A backup you have never restored is a guess, not a backup.
 
