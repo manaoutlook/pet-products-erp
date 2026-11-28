@@ -604,8 +604,16 @@ cd /opt/SmartERP
 set -a; source ./.env; set +a
 
 gunzip -c /tmp/smart_erp_prod_YYYYMMDD_HHMM.sql.gz \
+  | grep -v '^SET transaction_timeout' \
   | psql "$DATABASE_URL" -v ON_ERROR_STOP=1
 ```
+
+`grep -v '^SET transaction_timeout'` is not optional when the dump came from a
+**17/18** client: `pg_dump` 18 writes `SET transaction_timeout = 0;` (a GUC added
+in PG 17) near the top of the file, and the PG 16 server answers
+`ERROR: unrecognized configuration parameter "transaction_timeout"` — with
+`ON_ERROR_STOP=1` the restore aborts there, before the first table. Dropping that
+one `SET` line changes nothing about the data.
 
 `ON_ERROR_STOP=1` is the plain-SQL equivalent of `--exit-on-error`: without it
 `psql` prints `ERROR:` lines and keeps going, leaving a half-restored database
@@ -633,6 +641,26 @@ npm run db:push
 If the dump came from the same commit this prints **"No changes detected"**. If
 the code is newer, it adds the missing tables/columns. It is interactive and asks
 before anything destructive — read the prompt.
+
+Two outputs that look alarming but are not:
+
+- **`[✓] Changes applied` on every run**, even when you have not changed anything.
+  `drizzle-kit` compares its own generated constraint names against Postgres's
+  truncated ones (identifiers are capped at 63 characters, and names like
+  `sales_transaction_items_sales_transaction_id_sales_transactions_id_fk` are
+  longer), so it drops and recreates those FKs each time. Confirm it is not
+  duplicating anything:
+  ```bash
+  psql "$DATABASE_URL" -Atc "select count(*) from pg_constraint where conrelid='transfer_request_items'::regclass;"
+  # must be the same number before and after a push (3 for that table)
+  ```
+- **`NOTICE: identifier "…_fk" will be truncated to "…"`** — Postgres telling you
+  it shortened the name. Harmless, and it is the cause of the bullet above. Do not
+  "fix" it by renaming constraints by hand.
+
+Never accept a prompt that offers to drop a column or a table on a restored
+production database — that prompt means the code and the dump disagree, which you
+want to investigate, not confirm.
 
 ## 7B — You are starting with an empty database
 
@@ -672,10 +700,15 @@ du -sh /opt/SmartERP/uploads
 ls /opt/SmartERP/uploads
 ```
 
-Expected from the current production database: `users=14`, `products=56`,
-`tables=40` (per `PRODUCTION.md`), and the uploads folders
+Expected: the numbers must equal what the Mac reports for the same queries. As of
+the 2026-11-28 dump: `users=15`, `products=61`, `invoices=1`, `inventory=105`,
+`tables=46`, and the uploads folders
 `products/ delivery-notes/ invoices/ inventory-imports/ attachments/` present with
-non-zero sizes.
+non-zero sizes (105 files, ~15 MB here).
+
+> Older revisions of this guide said `users=14, products=56, tables=40` — copy
+> those numbers only as an order of magnitude. What matters is *Mac == server*, and
+> that `tables` is not `0`.
 
 ---
 
@@ -685,19 +718,31 @@ non-zero sizes.
 
 ```bash
 cd /opt/SmartERP
-NODE_ENV=development npm run build
+NODE_ENV=development NODE_OPTIONS=--max-old-space-size=896 npm run build
 ls -la dist/            # dist/index.js (server) + dist/public/ (client)
 ```
 
 `npm run build` = `vite build && esbuild server/index.ts …` (see `package.json`).
 It needs the devDependencies from Step 6; that is why the variable is set.
 
-If the build is OOM-killed (`Killed` with no vite summary), check `dmesg | tail`
-for `Out of memory`, then retry with a heap cap:
-
-```bash
-NODE_ENV=development NODE_OPTIONS=--max-old-space-size=768 npm run build
-```
+> **`NODE_OPTIONS=--max-old-space-size=896` is required on a 1 GB VPS, not a
+> fallback.** V8 sizes its heap from installed RAM — roughly 470-500 MB here — and
+> `vite build` of this client exceeds it within a minute:
+>
+> ```
+> FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory
+> ...
+> Aborted (core dumped)
+> ```
+>
+> The 2 GB swap from Step 1.5 is what makes 896 MB safe. Because part of the heap
+> can live in swap, the build takes **2-3 minutes** and looks stalled at
+> `transforming...` — that is normal, do not `Ctrl-C`. A successful run ends with
+> `dist/index.js  <n>kb` followed by `⚡ Done in <n>ms` from esbuild.
+>
+> Do not "cancel" a previous run with `pkill -f "vite build"` over ssh: the pattern
+> also matches the ssh command line itself and kills your own session before the
+> restart happens. Use `pgrep -af vite` to find the PID and kill that number.
 
 ### 8.2 Install the service unit
 
@@ -1269,6 +1314,7 @@ rclone size onedrive:SmartERP-backups       # off-site copy still growing as exp
 | Login form posts but nothing happens, `429` in the console | login limiter: 10 failures / 15 min per IP (`server/rate-limit.ts`) | wait 15 min, check `journalctl` for the offending IP |
 | UI edits show up under the **wrong** database in DBeaver | a shell-exported `DATABASE_URL` won over `.env` (dotenv does not override) | `sudo systemctl show smart-erp -p Environment`, and restart only via systemd — never `node dist/index.js` by hand |
 | `npm ci` / `vite build` killed → `Killed` | 1 GB RAM without swap | enable swap (Step 1.5), retry with `NODE_OPTIONS=--max-old-space-size=768` |
+| `FATAL ERROR: Ineffective mark-compacts near heap limit … JavaScript heap out of memory` + `Aborted (core dumped)` during `vite build` | V8 default heap ≈ half of RAM (~470 MB) on a 1 GB box | set `NODE_OPTIONS=--max-old-space-size=896` (Step 8.1); it is the documented default, not an optional tweak |
 | `pg_restore: error: relation "users" already exists` | the database was not empty (e.g. `db:push` ran first) | drop/recreate the DB and restore again |
 | `pg_restore: error: unsupported version (1.16) in file header` | the `-Fc` dump was made by a `pg_dump` newer than the server's `pg_restore` (e.g. Postgres.app 18 → server 16) | re-dump as plain SQL (`-Fp … \| gzip`) and restore with `psql -v ON_ERROR_STOP=1`, or dump with a 16 client |
 | `NOTICE: empty string is not a valid password, clearing password` then `password authentication failed` | `ALTER ROLE … PASSWORD '$VAR'` ran with `$VAR` empty (the `.env` was not sourced in that shell, or a mangled multi-line paste dropped the assignment) | set a fresh password with a `${VAR:?}` guard (Step 3.2) and re-sync `.env`; the old password is gone, not recoverable |
