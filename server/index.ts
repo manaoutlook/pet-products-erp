@@ -11,6 +11,7 @@ import { resyncUnsignedDeliveredOrders } from "./sales-orders";
 import { setupVite, serveStatic, log } from "./vite";
 import { errorHandler } from "./error-handler";
 import { apiLimiter } from "./rate-limit";
+import { APP_ENV_VAR, environmentInfo } from "@shared/environment";
 
 // `tsx watch` and `node dist/index.js` both end silently when the process dies
 // from an unhandled error, and under `tsx watch` the supervisor then just sits
@@ -73,6 +74,24 @@ app.get("/api/health", async (_req, res) => {
       message: error instanceof Error ? error.message : String(error),
     });
   }
+});
+
+// Which deployment is answering? Answers the corner badge and the login banner.
+//
+// AI Agent Note: unauthenticated on purpose - the login screen has to show it before
+// any session exists - and read from this process's own `.env` rather than from the
+// build, because the same `dist/` is deployed to staging and to production.
+// `host` is the Host header nginx forwarded, so the answer shows the address the user
+// actually typed (`localhost:5002` and `erp.smartlife-vn.com` cannot be confused).
+// An unset/typo'd APP_ENV answers `unknown`; the client renders that as a red badge
+// rather than assuming this is production.
+app.get("/api/environment", (req, res) => {
+  const info = environmentInfo(process.env[APP_ENV_VAR]);
+  res.json({
+    environment: info.name,
+    host: req.get("host") ?? null,
+    nodeEnv: process.env.NODE_ENV ?? null,
+  });
 });
 
 app.use((req, res, next) => {

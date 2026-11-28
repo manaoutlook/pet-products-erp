@@ -2,6 +2,7 @@ import { ReactNode, useLayoutEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import Sidebar from "./Sidebar";
 import { CompanyHeader } from "@/components/company/CompanyHeader";
+import { EnvironmentBadge } from "./EnvironmentBadge";
 import { useCompanyInfo } from "@/hooks/use-company";
 import { usePermissions } from "@/hooks/use-permissions";
 
@@ -49,6 +50,8 @@ function MainLayout({ children }: MainLayoutProps) {
           // The band is shown to everyone, but the "complete the profile" link only leads
           // somewhere for a role that may actually open the Company Profile screen.
           editable={hasPermission("companyProfile", "read")}
+          // Top-right of the only bar every screen shares: "which system am I on?".
+          trailing={<EnvironmentBadge />}
         />
         {children}
       </main>

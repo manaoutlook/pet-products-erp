@@ -454,6 +454,10 @@ DATABASE_URL=postgresql://erp:CHANGE_ME_long_random_password@127.0.0.1:5432/smar
 # ---- Runtime ----
 NODE_ENV=production
 PORT=5001
+# Which deployment this is. Renders the top-right badge, the login banner and the
+# tab-title prefix ("STAGING · Smart ERP"). Unset shows a red "ENV?" badge - the app
+# never assumes production. See 5.3 below.
+APP_ENV=production
 
 # ---- Security ----
 # 64 hex chars from `openssl rand -hex 32`. Production refuses to boot without it.
@@ -485,7 +489,49 @@ unset TMP P
 psql "$DATABASE_URL" -c "select current_database();"      # smart_erp_prod
 ```
 
-### 5.3 The one trap that already bit this project
+### 5.3 Which system is this? `APP_ENV`
+
+Three environments share this codebase: a developer checkout on a laptop, the local
+staging instance on the Mac (port 5002), and this production server. So the UI answers
+"where am I?" without anyone reading a URL, in three places fed by the same value:
+
+| Where | Production | Staging / Development | `APP_ENV` unset |
+| --- | --- | --- | --- |
+| Top-right badge, every screen | grey `PROD` | amber `STAGE` / blue `DEV` | red `ENV?` |
+| Login screen, above the form | one quiet line | tinted "not the live system" panel | red panel asking for `APP_ENV` |
+| Browser tab title | `Smart ERP` | `STAGING · Smart ERP` | `ENV UNKNOWN · Smart ERP` |
+| Window top edge | none | amber (staging) / blue (dev) strip | red strip |
+
+The answer is asked of the **running server** (`GET /api/environment`, unauthenticated
+because the login screen needs it), not baked into the bundle: the same `npm run build`
+output is deployed to more than one host, so a `VITE_*` constant would say
+"production" on staging too. `shared/environment.ts` holds the labels and colours for
+both sides; `client/src/components/Layout/EnvironmentBadge.tsx` renders them.
+
+Verify from anywhere:
+
+```bash
+curl -s https://erp.smartlife-vn.com/api/environment
+# {"environment":"production","host":"erp.smartlife-vn.com","nodeEnv":"production"}
+```
+
+`host` is echoed from the request's `Host` header, i.e. the address the browser actually
+used — that is what makes `localhost:5002` and `erp.smartlife-vn.com` impossible to
+confuse in a screenshot.
+
+> **Unset is not "production".** A missing or misspelled `APP_ENV` renders the red `ENV?`.
+> A staging box that says "Production" is merely annoying; a production box that says
+> "Staging" invites a "test" deletion against the real books, so the app refuses to guess.
+> Set the variable and `sudo systemctl restart smart-erp` — a restart is enough, no rebuild.
+
+Allowed values: `production`, `staging`, `development` (aliases `prod`/`live`,
+`stage`/`stg`/`uat`, `dev`/`local`). Anything else is `unknown`.
+
+On staging the prefix also reaches printed statements, because the ledger printer uses
+`document.title` as its heading — intended: a staging printout should never look like a
+real document.
+
+### 5.4 The one trap that already bit this project
 
 `server/index.ts` starts with `import "dotenv/config"`, and **dotenv does not
 override a variable that already exists in the environment** (documented in
@@ -1250,6 +1296,7 @@ still exists, and the script exits non-zero (cron then mails you if
 | `ERROR no rclone config at …` | the token lives in `root`'s home — rerun 10.4 as `deploy` |
 | `ERROR rclone is not installed` | `sudo apt install -y rclone` |
 | `401 Unauthorized` / `directory not found` | token expired or revoked → redo 10.4 (a) |
+| login rejected with `login failed for username: admin` right after a 7A restore | the dump carries the old hash, `admin123` was never seeded — reset with `node deploy/reset-admin-password.mjs admin` (11.4b) |
 | `quota exceeded` | OneDrive full: `rclone about onedrive:`, then lower `BACKUP_REMOTE_KEEP_DAYS` |
 | `ERROR off-site dump size mismatch: local=223207B remote=223207\n-1B` | rclone 1.60's `lsf` lists directories too, so a `-1` row lands in the size column — fixed in `backup.sh` with `--files-only`; `git pull` to get it |
 | `error: Your local changes to deploy/backup.sh would be overwritten by merge` | `chmod +x` turned 100644 into 100755. `git config core.fileMode false`, `git pull --ff-only`, then `chmod +x deploy/*.sh` again (the pull resets the bit) |
@@ -1551,6 +1598,7 @@ rclone size onedrive:SmartERP-backups       # off-site copy still growing as exp
 | `EACCES: permission denied, mkdir '/opt/SmartERP/uploads/products'` | `uploads/` created by root | `sudo chown -R deploy:deploy /opt/SmartERP/uploads` |
 | `Error: SESSION_SECRET must be set in production` | `.env` missing the key or `EnvironmentFile` not loaded | fix Step 5, then `daemon-reload` + restart |
 | App answers on 5002 instead of 5001 | something else holds 5001 and `server/index.ts` walks forward | `sudo ss -ltnp \| grep 500` and free the port |
+| Top-right badge is a red `ENV?`, login says "Environment unknown" | `APP_ENV` missing or misspelled in the server's `.env` (this is the safe default, not a bug) | add `APP_ENV=production` (or `staging`) to `/opt/SmartERP/.env`, `sudo systemctl restart smart-erp`; `curl -s localhost:5001/api/environment` confirms |
 
 Logs, always:
 

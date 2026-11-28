@@ -1,4 +1,5 @@
 import { Link } from "wouter";
+import type { ReactNode } from "react";
 import { AlertTriangle, Building2, CheckCircle2 } from "lucide-react";
 import {
   COMPANY_FIELDS,
@@ -100,6 +101,14 @@ interface CompanyHeaderProps {
   loadError?: unknown;
   /** Hide the "complete the profile" affordance on read-only screens. */
   editable?: boolean;
+  /**
+   * Extra chrome for the top-right corner, rendered before the letterhead status.
+   *
+   * `MainLayout` passes the environment badge here: the band is the only top bar every
+   * screen shares, so this is where "which system am I on?" belongs. Kept as a slot so
+   * this component stays about the letterhead and the badge keeps its own tests.
+   */
+  trailing?: ReactNode;
   className?: string;
 }
 
@@ -114,6 +123,7 @@ export function CompanyHeader({
   isLoading = false,
   loadError,
   editable = true,
+  trailing,
   className,
 }: CompanyHeaderProps) {
   const missing = missingCompanyFields(company);
@@ -146,6 +156,7 @@ export function CompanyHeader({
         </div>
 
         <div className="flex items-center gap-2 text-caption">
+          {trailing}
           {unknown ? (
             <span
               className={cn(
