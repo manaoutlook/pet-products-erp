@@ -1011,8 +1011,8 @@ One cron entry at **03:00 server time** runs `deploy/backup.sh`, which writes:
 
 The dumps are small (a few MB); the file tree is not. That is why the database is
 versioned 30 deep in the cloud while `uploads/` is mirrored once (adds and updates
-only, never deletes) — on a 5 GB OneDrive plan, 14 daily tarballs of product photos
-alone would fill it.
+only, never deletes) — a rolling 14-deep tarball history would store the same
+bytes 14 times for no benefit, and blow a small OneDrive quota outright.
 
 ### 10.2 Install the script
 
@@ -1020,6 +1020,11 @@ alone would fill it.
 chmod +x /opt/SmartERP/deploy/backup.sh /opt/SmartERP/deploy-server.sh
 mkdir -p /opt/SmartERP/backups
 ```
+
+The repo stores these scripts as `100644`; `git pull` resets the bit when a script
+changes upstream, so re-run the `chmod +x` after any pull that touches
+`deploy/*.sh` (otherwise cron fails with `Permission denied` and only the log says
+so).
 
 Run it once locally before adding the cloud leg:
 
@@ -1084,16 +1089,35 @@ shred -u ~/onedrive-token.json ~/onedrive-authorize.txt 2>/dev/null \
 **b) On the server** — create the remote non-interactively from that file:
 
 ```bash
-rclone config create onedrive onedrive token \
-  "$(cat /tmp/onedrive-token.json)" --non-interactive
-rclone config show onedrive | head -3      # token = {"access_token":…}  (long, that is normal)
+mkdir -p ~/.config/rclone && chmod 700 ~/.config/rclone
+# the drive id is not in the token; ask Microsoft Graph for it
+AT=$(python3 -c 'import json;print(json.load(open("/tmp/onedrive-token.json"))["access_token"])')
+curl -s -H "Authorization: Bearer $AT" \
+  'https://graph.microsoft.com/v1.0/me/drive?$select=id,driveType'
+# -> {"@odata.context":…,"id":"5CADCF647610268E","driveType":"personal"}
+
+{ echo '[onedrive]'
+  echo 'type = onedrive'
+  printf 'token = %s\n' "$(cat /tmp/onedrive-token.json)"
+  echo 'drive_id = 5CADCF647610268E'
+  echo 'drive_type = personal'
+} > ~/.config/rclone/rclone.conf
+chmod 600 ~/.config/rclone/rclone.conf
 shred -u /tmp/onedrive-token.json 2>/dev/null || rm -f /tmp/onedrive-token.json
-rclone lsd onedrive:                       # must list your folders, not 401
+rclone lsd onedrive:                       # must list your folders, not an error
 ```
 
-`config create` fills in the defaults (rclone's own app registration, `drive_type
-= personal`) and, if the account has several drives, picks the `personal` one.
-If `rclone lsd onedrive:` errors, fall back to the interactive wizard in (b2).
+> **Why not `rclone config create … --non-interactive`?** On the rclone 1.60 that
+> Ubuntu 24.04 ships it still asks the `config_refresh_token` ("Already have a
+> token - refresh?") question and dumps `"State": "*oauth-confirm,choose_type,,"`
+> instead of writing the remote — `--non-interactive` does not suppress that
+> peering. Worse, once a `token` is present but `drive_id`/`drive_type` are missing
+> it fails with `unable to get drive_id and drive_type - if you are upgrading from
+> older versions of rclone, please run rclone config and re-configure this backend`.
+> Writing the four-line config file skips both traps.
+
+`config create` is still fine for other backends once they have no peering question,
+and the interactive wizard in (b2) remains the fallback.
 
 **b2) Interactive alternative** — `rclone config`, when the non-interactive
 create is not enough:
@@ -1125,7 +1149,7 @@ Answer like this; for any prompt not listed, press Enter for the default:
 ```bash
 rclone lsd onedrive:                 # your OneDrive folders
 rclone mkdir onedrive:SmartERP-backups
-rclone about onedrive:               # quota: OneDrive personal is 5 GB
+rclone about onedrive:               # quota: free personal = 5 GB, Microsoft 365 = 1 TB
 echo hello > /tmp/rclone-test.txt
 rclone copy /tmp/rclone-test.txt onedrive:SmartERP-backups/
 rclone lsf onedrive:SmartERP-backups/
@@ -1183,6 +1207,19 @@ crontab -e      # as the deploy user
 0 3 * * * /opt/SmartERP/deploy/backup.sh >> /opt/SmartERP/logs/backup.log 2>&1
 ```
 
+The same entry without an editor — idempotent, safe to re-run:
+
+```bash
+{ crontab -l 2>/dev/null | grep -v 'deploy/backup.sh' || true; } > /tmp/ct
+echo '0 3 * * * /opt/SmartERP/deploy/backup.sh >> /opt/SmartERP/logs/backup.log 2>&1' >> /tmp/ct
+crontab /tmp/ct && rm -f /tmp/ct
+crontab -l
+```
+
+The `|| true` is load-bearing: `grep -v` exits **1** when the crontab is empty, and
+inside a `set -e`/`pipefail` one-liner that aborts the block *before* `crontab`
+ever runs — the entry silently does not get installed and `crontab -l` stays empty.
+
 Notes:
 
 - Cron uses the **server's** timezone. Step 1.1 set `Asia/Ho_Chi_Minh`; confirm with
@@ -1214,6 +1251,9 @@ still exists, and the script exits non-zero (cron then mails you if
 | `ERROR rclone is not installed` | `sudo apt install -y rclone` |
 | `401 Unauthorized` / `directory not found` | token expired or revoked → redo 10.4 (a) |
 | `quota exceeded` | OneDrive full: `rclone about onedrive:`, then lower `BACKUP_REMOTE_KEEP_DAYS` |
+| `ERROR off-site dump size mismatch: local=223207B remote=223207\n-1B` | rclone 1.60's `lsf` lists directories too, so a `-1` row lands in the size column — fixed in `backup.sh` with `--files-only`; `git pull` to get it |
+| `error: Your local changes to deploy/backup.sh would be overwritten by merge` | `chmod +x` turned 100644 into 100755. `git config core.fileMode false`, `git pull --ff-only`, then `chmod +x deploy/*.sh` again (the pull resets the bit) |
+| `rclone config create …` prints `"State": "*oauth-confirm,choose_type,,"` instead of writing the remote | rclone 1.60 still peers on `config_refresh_token`; write `~/.config/rclone/rclone.conf` by hand instead (10.4 b) |
 
 ### 10.8 Restore drill: prove a backup is restorable
 
@@ -1290,8 +1330,9 @@ to. That is harmless — the reverse (a row pointing at a missing file) cannot h
 
 ### 10.10 Disk and quota watch
 
-25 GB on the server and 5 GB on a personal OneDrive are both plenty for this
-workload, but uploads only grow:
+25 GB on the server is plenty, and `rclone about onedrive:` reported **1.14 TiB
+total / 428 GiB used** on the connected account (a free personal account would be
+5 GB instead). Uploads only grow, so keep an eye on it if the quota is small:
 
 ```bash
 df -h /                                        # server disk
