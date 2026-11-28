@@ -1381,7 +1381,9 @@ should see; permissions come from `shared/permissions.ts`.
 
 ### 11.4 Security immediately after the first login
 
-1. Change the default `admin` / `admin123` password (Administration → Users).
+1. If you restored a dump (7A), `admin` already carries your real password — verify
+   it works, then change it anyway if it is the one you have been sharing around.
+   Only a **fresh, empty** install (no dump) has the seeded `admin` / `admin123`.
 2. Create one user per person instead of sharing `admin` — the stock ledger and
    invoice actions record the acting user.
 3. In DBeaver, connect over an SSH tunnel and confirm the data matches what the
