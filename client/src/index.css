@@ -339,6 +339,28 @@
     text-rendering: optimizeLegibility;
   }
 
+  /*
+   * Which deployment is this window showing? A coloured strip along the very top edge,
+   * set by `EnvironmentBadge` / `EnvironmentNotice` through `documentElement.dataset.env`
+   * (see `shared/environment.ts`).
+   *
+   * It duplicates the corner badge on purpose: the badge is small and lives next to the
+   * letterhead warning, the strip is impossible to miss in a screenshot. Production gets
+   * no strip at all - the absence of colour is the signal, which keeps the live system
+   * calm and makes any non-production window look different at a glance.
+   */
+  html[data-env="staging"] body {
+    border-top: 4px solid hsl(var(--warning));
+  }
+
+  html[data-env="development"] body {
+    border-top: 4px solid hsl(var(--info));
+  }
+
+  html[data-env="unknown"] body {
+    border-top: 4px solid hsl(var(--destructive));
+  }
+
   /* Unified heading scale — every page/section heading inherits the same
      colour + weight treatment, so screens never drift apart. */
   h1 {

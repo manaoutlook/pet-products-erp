@@ -2,7 +2,14 @@ import type { Config } from "tailwindcss";
 
 export default {
   darkMode: ["class"],
-  content: ["./client/index.html", "./client/src/**/*.{js,jsx,ts,tsx}"],
+  content: [
+    "./client/index.html",
+    "./client/src/**/*.{js,jsx,ts,tsx}",
+    // `shared/` holds class strings too (`shared/environment.ts` carries the environment
+    // badge/banner palette, shared by server and browser). Unscanned, Tailwind would
+    // purge those colours and the badge would render unstyled in the built bundle.
+    "./shared/**/*.{js,jsx,ts,tsx}",
+  ],
   theme: {
     extend: {
       colors: {

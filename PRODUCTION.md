@@ -1,26 +1,39 @@
-# Production instance — SmartERP-prod
+# Staging instance — SmartERP-prod (now the staging box)
 
 This folder is a **second checkout** of the same repository. It shares git history
 with the development checkout (`../pet-products-erp`) but has its own runtime
-state. Nothing here is committed; production never commits.
+state. Nothing here is committed; this instance never commits.
 
+> **This checkout is STAGING, not production.** The live system is the Ubuntu VPS
+> (`https://erp.smartlife-vn.com`, folder `/opt/SmartERP`, systemd unit `smart-erp`).
+> What used to be called "local production" on port 5002 is now the **staging
+> instance**: same code, its own database, `APP_ENV=staging` in `.env`, so every
+> screen shows a `STAGE` badge, an amber strip along the window's top edge and a
+> `STAGING · Smart ERP` tab title, and the login screen says plainly that it is not
+> the live system. Folder name and `*_prod.sh` script names are historical — the
+> table below keeps them so the commands still work.
+>
 > **Scope.** This document describes the *single-Mac, two-checkout* setup: dev on
-> port 5001, "production" on 5002, both on `localhost`. The live production
-> environment is now the **Ubuntu VPS**, where the application folder is
-> `/opt/SmartERP` and the app runs under systemd — install it with
+> port 5001, staging on 5002, both on `localhost`. The live production environment
+> is the VPS — install it with
 > [`docs/PRODUCTION_SERVER.md`](docs/PRODUCTION_SERVER.md) (Steps 1 → 12).
 > Everything below about the *data-import order*, *emptying the transactions* and
 > the *`DATABASE_URL` precedence trap* still applies on the server; only the ports,
 > scripts and folder paths differ.
 
-| | Development | Production |
-| --- | --- | --- |
-| Folder | `../pet-products-erp` | `../SmartERP-prod` (this one) |
-| URL | http://localhost:5001 | **http://localhost:5002** |
-| Database | `smart_erp` | **`smart_erp_prod`** |
-| `NODE_ENV` | `development` | `production` (`dist/index.js` serves the built client) |
-| Start | `npm run dev` (`start_app.sh`) | `./start_prod.sh` |
-| Sync | `git push` | `git fetch` + reset (see `deploy.sh`) |
+| | Development | Staging (this one) | Production |
+| --- | --- | --- | --- |
+| Folder | `../pet-products-erp` | `../SmartERP-prod` | VPS `/opt/SmartERP` |
+| URL | http://localhost:5001 | **http://localhost:5002** | **https://erp.smartlife-vn.com** |
+| Database | `smart_erp` | **`smart_erp_prod`** | `smart_erp_prod` on the VPS |
+| `APP_ENV` | `development` | `staging` | `production` |
+| `NODE_ENV` | `development` | `production` (`dist/index.js` serves the built client) | `production` |
+| Start | `npm run dev` (`start_app.sh`) | `./start_prod.sh` | `systemctl restart smart-erp` |
+| Sync | `git push` | `git fetch` + reset (see `deploy.sh`) | one-way release, see `docs/PRODUCTION_SERVER.md` 12.1 |
+
+`APP_ENV` is what the badge, the login banner and the tab title read (see
+`docs/PRODUCTION_SERVER.md` §5.3). Leaving it unset shows a red `ENV?` badge rather
+than pretending to be production — set it, then restart the instance.
 
 Local-only state that git does not manage: `.env`, `uploads/`, `dist/`,
 `node_modules/`, `logs/`, `.prod.pid`, and the three `*_prod.sh` scripts.
