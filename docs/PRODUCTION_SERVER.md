@@ -1389,6 +1389,25 @@ should see; permissions come from `shared/permissions.ts`.
 3. In DBeaver, connect over an SSH tunnel and confirm the data matches what the
    UI shows.
 
+### 11.4b Locked out of every account
+
+`admin`'s password after a 7A dump restore is whatever the dump carried, **not**
+`admin123` (that is only seeded on an empty install). If nobody can get in, reset a
+password straight in the database — the script hashes exactly like `server/auth.ts`
+(`scrypt` envelope `hash.salt`), so the row passes the real login:
+
+```bash
+cd /opt/SmartERP
+node deploy/reset-admin-password.mjs admin          # generates a strong password and prints it once
+node deploy/reset-admin-password.mjs admin 'MyChoice1!'   # or set one you pick
+node deploy/reset-admin-password.mjs nobody          # lists the existing usernames if you forgot
+```
+
+Then log in over HTTPS and change it in **Administration → Users**. It reads
+`DATABASE_URL` from the environment or from `.env`, so no `psql` quoting games.
+`bcrypt` is in `package.json` but is *not* what login verifies — a bcrypt row can
+never log in, which is why this script re-uses the scrypt envelope.
+
 ### 11.5 End-to-end business smoke test
 
 Do one of each, then verify the *files* exist on the server, not just the rows:
