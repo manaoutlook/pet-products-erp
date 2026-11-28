@@ -18,6 +18,16 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# AI Agent Note - do NOT remove this. V8 sizes its heap from installed RAM (~470-500 MB
+# on this 1 GB VPS) and `vite build` for this client exceeds that within a minute:
+#   FATAL ERROR: Ineffective mark-compacts near heap limit ... Aborted (core dumped)
+# Docs 8.1 calls 896 "required, not a fallback"; the 2 GB swap from Step 1.5 is what
+# makes it safe. Without it this script dies *during* `vite build`, after `emptyOutDir`
+# has already cleared `dist/public` - which leaves the running service with no client
+# assets until someone rebuilds: the site goes blank, not just "deploy failed".
+# Respect a caller's value if they set one explicitly.
+export NODE_OPTIONS=${NODE_OPTIONS:---max-old-space-size=896}
+
 BRANCH=${1:-main}
 SERVICE=${SMART_ERP_SERVICE:-smart-erp}
 
@@ -38,6 +48,7 @@ set +a
 npm run db:push
 
 echo "==> Building"
+echo "    NODE_OPTIONS=$NODE_OPTIONS"
 NODE_ENV=development npm run build
 
 echo "==> Restarting $SERVICE"

@@ -1502,11 +1502,19 @@ cd /opt/SmartERP
 git fetch origin && git reset --hard origin/main
 NODE_ENV=development npm ci
 source ./.env && npm run db:push
-NODE_ENV=development npm run build
+NODE_ENV=development NODE_OPTIONS=--max-old-space-size=896 npm run build
 sudo systemctl restart smart-erp
 ```
 
 Notes:
+
+- The script exports `NODE_OPTIONS=--max-old-space-size=896` itself (unless you set it
+  first). It has to: on this 1 GB box `vite build` OOMs at V8's default heap, and
+  because `vite.config.ts` uses `emptyOutDir: true`, that failure happens **after**
+  `dist/public` has been emptied — the running service is then left with no client
+  assets and the site blanks, rather than the deploy merely stopping. If you ever see
+  a blank page with `/api/health` still fine, `npm run build` never completed: rebuild,
+  the database and `.env` are untouched.
 
 - `.env` and `uploads/` are gitignored, so `git reset --hard` cannot destroy them.
 - `db:push` prompts before destructive changes; run the script in an interactive
@@ -1588,7 +1596,8 @@ rclone size onedrive:SmartERP-backups       # off-site copy still growing as exp
 | Login form posts but nothing happens, `429` in the console | login limiter: 10 failures / 15 min per IP (`server/rate-limit.ts`) | wait 15 min, check `journalctl` for the offending IP |
 | UI edits show up under the **wrong** database in DBeaver | a shell-exported `DATABASE_URL` won over `.env` (dotenv does not override) | `sudo systemctl show smart-erp -p Environment`, and restart only via systemd — never `node dist/index.js` by hand |
 | `npm ci` / `vite build` killed → `Killed` | 1 GB RAM without swap | enable swap (Step 1.5), retry with `NODE_OPTIONS=--max-old-space-size=768` |
-| `FATAL ERROR: Ineffective mark-compacts near heap limit … JavaScript heap out of memory` + `Aborted (core dumped)` during `vite build` | V8 default heap ≈ half of RAM (~470 MB) on a 1 GB box | set `NODE_OPTIONS=--max-old-space-size=896` (Step 8.1); it is the documented default, not an optional tweak |
+| `FATAL ERROR: Ineffective mark-compacts near heap limit … JavaScript heap out of memory` + `Aborted (core dumped)` during `vite build` | V8 default heap ≈ half of RAM (~470 MB) on a 1 GB box | set `NODE_OPTIONS=--max-old-space-size=896` (Step 8.1); it is the documented default, not an optional tweak. `deploy-server.sh` exports it — if you still hit this, you ran `npm run build` by hand |
+| Site is blank/white but `/api/health` answers, and `ls dist/public` is empty | a failed `vite build`: `emptyOutDir: true` wipes `dist/public` *before* compiling, so the OOM above leaves the service with no client assets | rebuild (`NODE_OPTIONS=--max-old-space-size=896 npm run build`) and restart; nothing in `.env`, `uploads/` or the database was touched |
 | `pg_restore: error: relation "users" already exists` | the database was not empty (e.g. `db:push` ran first) | drop/recreate the DB and restore again |
 | `pg_restore: error: unsupported version (1.16) in file header` | the `-Fc` dump was made by a `pg_dump` newer than the server's `pg_restore` (e.g. Postgres.app 18 → server 16) | re-dump as plain SQL (`-Fp … \| gzip`) and restore with `psql -v ON_ERROR_STOP=1`, or dump with a 16 client |
 | `NOTICE: empty string is not a valid password, clearing password` then `password authentication failed` | `ALTER ROLE … PASSWORD '$VAR'` ran with `$VAR` empty (the `.env` was not sourced in that shell, or a mangled multi-line paste dropped the assignment) | set a fresh password with a `${VAR:?}` guard (Step 3.2) and re-sync `.env`; the old password is gone, not recoverable |
