@@ -1578,13 +1578,25 @@ common way to spend twenty minutes on `connection refused`:
 
 ```bash
 # terminal 1 on the Mac - prints nothing while it works; leave it open
-ssh -N -L 5433:127.0.0.1:5432 -o ServerAliveInterval=30 deploy@103.126.162.131
+ssh -N -L 5433:127.0.0.1:5432 -o ServerAliveInterval=30 -o ExitOnForwardFailure=yes \
+  deploy@103.126.162.131
 
 # terminal 2 on the Mac - prove the tunnel before blaming DBeaver
 lsof -nP -iTCP:5433 -sTCP:LISTEN
 psql "postgresql://erp:<DB_PASSWORD>@localhost:5433/smart_erp_prod" \
   -c "select current_database(), inet_server_addr(), inet_server_port()"
 ```
+
+`ssh -N` with no output and no shell prompt **is** the working state — it is not hanging.
+`-o ExitOnForwardFailure=yes` is there so a busy local 5433 makes ssh exit and say so
+instead of connecting without the forward.
+
+Read the failure message before changing anything: `connection refused` means the tunnel
+(the port is not open locally); `FATAL: password authentication failed for user "erp"`
+means the tunnel is fine and the credentials are not — run the `psql` line above with the
+same string to tell a DBeaver password-field problem (typo, stale saved password, a
+`password` property on the Driver properties tab) from a genuinely different role
+password (`sudo -u postgres psql -c "select rolname, rolpassword is not null from pg_authid"`).
 
 `inet_server_addr()` is the test that matters: `103.126.162.131` means you reached the
 server; `127.0.0.1` (or an error) means you are looking at the Mac's own Postgres, i.e.
