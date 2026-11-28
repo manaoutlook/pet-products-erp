@@ -286,6 +286,12 @@ psql --version          # psql (PostgreSQL) 16.x
 ### 3.2 Create the role and the (empty) database
 
 Pick a long password and keep it — it goes into `.env` in Step 5 and nowhere else.
+Generate it in **hex**, not base64: `/`, `+`, `=` and `@` would have to be
+URL-encoded inside `DATABASE_URL`.
+
+```bash
+openssl rand -hex 24        # e.g. 9f3c…  <- use this below AND in Step 5
+```
 
 ```bash
 sudo -u postgres psql <<'SQL'
