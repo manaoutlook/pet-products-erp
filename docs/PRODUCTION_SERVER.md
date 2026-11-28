@@ -1593,8 +1593,23 @@ the dev database. `5433` on the Mac side exists so that this cannot happen by ac
 
 DBeaver: Main tab → Host `localhost`, Port `5433`, Database `smart_erp_prod`, User `erp`,
 plus **Read-only connection** ticked (or driver property
-`default_transaction_read_only=true`). Better still, connect as a read-only role rather
-than the application's own `erp` role, which may `UPDATE` and `DELETE` real invoices:
+`default_transaction_read_only=true`). Fill those four boxes and leave the **URL** field
+alone — DBeaver builds it from them. The URL field takes a *JDBC* URL only,
+`jdbc:postgresql://localhost:5433/smart_erp_prod`; pasting the libpq form
+(`postgresql://erp:…@localhost:5433/smart_erp_prod`, the one `psql` uses) fails with
+`Invalid JDBC URL: postgresql://…` because it has nowhere to put `user:password@`. Two
+different strings for two different tools.
+
+On the Mac the GUI list then looks like this — same database name, different port, so
+label them:
+
+| DBeaver connection | Host:port | What it is |
+| --- | --- | --- |
+| `STAGING (this Mac :5432)` | `localhost:5432` | the `../SmartERP-prod` checkout's `smart_erp_prod` |
+| `PROD (VPS via tunnel :5433)` | `localhost:5433` | `/opt/SmartERP`'s `smart_erp_prod`, tunnel open |
+
+Better still, connect as a read-only role rather than the application's own `erp` role,
+which may `UPDATE` and `DELETE` real invoices:
 
 ```sql
 -- once, as the postgres superuser
