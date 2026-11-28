@@ -1566,14 +1566,50 @@ need the production password, and never run `db:push` against `smart_erp_prod`.
 
 ## 12.4 Looking at production data read-only
 
+Postgres listens on `127.0.0.1:5432` on the server only — the port is closed to the
+internet, so "connect from DBeaver" always means "through an SSH tunnel". The same
+database therefore has two different addresses, and mixing them up is the single most
+common way to spend twenty minutes on `connection refused`:
+
+| Where you run it | Host | Port | Tunnel needed |
+| --- | --- | --- | --- |
+| On the VPS (an `ssh` shell, prompt `deploy@…:/opt/SmartERP$`) | `127.0.0.1` | `5432` | no |
+| On your Mac — `psql`, DBeaver, any GUI | `localhost` | `5433` | yes, `ssh -L` first |
+
 ```bash
-# in one terminal
-ssh -N -L 5433:127.0.0.1:5432 deploy@103.126.162.131
+# terminal 1 on the Mac - prints nothing while it works; leave it open
+ssh -N -L 5433:127.0.0.1:5432 -o ServerAliveInterval=30 deploy@103.126.162.131
+
+# terminal 2 on the Mac - prove the tunnel before blaming DBeaver
+lsof -nP -iTCP:5433 -sTCP:LISTEN
+psql "postgresql://erp:<DB_PASSWORD>@localhost:5433/smart_erp_prod" \
+  -c "select current_database(), inet_server_addr(), inet_server_port()"
 ```
 
-Then point DBeaver at `localhost:5433`, database `smart_erp_prod`, user `erp`,
-**read-only connection**. This is how you inspect real data without opening a
-single port on the internet.
+`inet_server_addr()` is the test that matters: `103.126.162.131` means you reached the
+server; `127.0.0.1` (or an error) means you are looking at the Mac's own Postgres, i.e.
+the dev database. `5433` on the Mac side exists so that this cannot happen by accident —
+`localhost:5432` is the Mac's local Postgres.
+
+DBeaver: Main tab → Host `localhost`, Port `5433`, Database `smart_erp_prod`, User `erp`,
+plus **Read-only connection** ticked (or driver property
+`default_transaction_read_only=true`). Better still, connect as a read-only role rather
+than the application's own `erp` role, which may `UPDATE` and `DELETE` real invoices:
+
+```sql
+-- once, as the postgres superuser
+CREATE ROLE erp_ro LOGIN PASSWORD '<new password>';
+GRANT CONNECT ON DATABASE smart_erp_prod TO erp_ro;
+GRANT USAGE ON SCHEMA public TO erp_ro;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO erp_ro;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO erp_ro;
+```
+
+DBeaver can also hold the tunnel itself (connection → **SSH** tab: host
+`103.126.162.131`, user `deploy`, your key; then the Main tab uses `localhost:5432`), so
+there is one less window to leave open. Never copy `/opt/SmartERP/.env`'s
+`DATABASE_URL` into a GUI: `…@127.0.0.1:5432/…` is correct *on the server* and points at
+your Mac's database everywhere else.
 
 ## 12.5 Housekeeping you will want monthly
 
