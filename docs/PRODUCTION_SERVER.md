@@ -1051,23 +1051,52 @@ is enough.
 rclone cannot open a browser on the VPS, so the Microsoft sign-in happens **on your
 Mac** and only the resulting token is copied across.
 
-**a) On your Mac** — install rclone and authorize:
+**a) On your Mac** — install rclone and authorize, **writing the token to a file**
+instead of copying it off the screen. A ~2 KB single-line JSON is the single
+easiest thing in this guide to corrupt with a stray paste or a wrapper that
+replays an old buffer, and a truncated token produces a `401` that looks like a
+permissions bug:
 
 ```bash
-brew install rclone
-rclone authorize "onedrive"
+brew install rclone                     # Mac side only, to get a browser
+rclone authorize "onedrive" 2>&1 | tee ~/onedrive-authorize.txt
 ```
 
 A browser opens: sign in with the Microsoft account whose OneDrive should hold the
-backups, accept the permissions, and the terminal prints a block like
+backups, accept the permissions. The terminal then prints
 
 ```
----> {"access_token":"…","token_type":"Bearer","refresh_token":"…","expiry":"…"} <---
+Paste the following into your remote machine --->
+{"access_token":"…","token_type":"Bearer","refresh_token":"…","expiry":"…"}
+<---End paste
 ```
 
-Copy that JSON (the `{…}` part only) — you paste it in step (b).
+Extract **only** the JSON line and send it to the server — no copy/paste:
 
-**b) On the server** — start the remote definition:
+```bash
+grep -o '{"access_token".*}' ~/onedrive-authorize.txt | tail -1 > ~/onedrive-token.json
+wc -c ~/onedrive-token.json        # a few hundred to ~2 KB; 0 means authorize failed
+scp ~/onedrive-token.json deploy@103.126.162.131:/tmp/
+shred -u ~/onedrive-token.json ~/onedrive-authorize.txt 2>/dev/null \
+  || rm -f ~/onedrive-token.json ~/onedrive-authorize.txt
+```
+
+**b) On the server** — create the remote non-interactively from that file:
+
+```bash
+rclone config create onedrive onedrive token \
+  "$(cat /tmp/onedrive-token.json)" --non-interactive
+rclone config show onedrive | head -3      # token = {"access_token":…}  (long, that is normal)
+shred -u /tmp/onedrive-token.json 2>/dev/null || rm -f /tmp/onedrive-token.json
+rclone lsd onedrive:                       # must list your folders, not 401
+```
+
+`config create` fills in the defaults (rclone's own app registration, `drive_type
+= personal`) and, if the account has several drives, picks the `personal` one.
+If `rclone lsd onedrive:` errors, fall back to the interactive wizard in (b2).
+
+**b2) Interactive alternative** — `rclone config`, when the non-interactive
+create is not enough:
 
 ```bash
 rclone config
