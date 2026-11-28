@@ -214,6 +214,7 @@ closing the root session.
 ### 1.4 Firewall and fail2ban
 
 ```bash
+sudo -v                          # proves deploy's password works for sudo - do not skip
 ufw allow OpenSSH
 ufw allow 80/tcp
 ufw allow 443/tcp
@@ -222,6 +223,10 @@ ufw status verbose
 systemctl enable --now fail2ban
 fail2ban-client status sshd
 ```
+
+Keep a **second SSH session open** whenever you touch `ufw` or `sshd`, and test
+`ssh deploy@…` again afterwards — an enabled firewall without the OpenSSH rule drops
+port 22 silently (connection *times out* rather than being refused).
 
 Port **5432 stays closed** and is never opened in this design. The database is
 reached only from `localhost`.
@@ -427,6 +432,18 @@ COOKIE_SECURE=true
 ```bash
 chmod 600 .env
 ls -l .env          # -rw------- deploy deploy
+```
+
+Check for placeholders before going any further — a `.env` that *works* with a
+copied placeholder password is worse than one that fails:
+
+```bash
+grep -nE 'CHANGE_ME|THE_NEW|YOUR_|paste_|_here' .env      # must print nothing
+set -a; source ./.env; set +a
+TMP="${DATABASE_URL#*://}"; TMP="${TMP%%@*}"; P="${TMP#*:}"
+echo "user=${TMP%%:*}  pass-length=${#P}"                 # user=erp  pass-length=48
+unset TMP P
+psql "$DATABASE_URL" -c "select current_database();"      # smart_erp_prod
 ```
 
 ### 5.3 The one trap that already bit this project
