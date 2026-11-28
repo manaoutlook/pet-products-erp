@@ -858,6 +858,20 @@ there — so the zone is edited **inside cPanel**, not at a separate DNS provide
    dig +short erp.smartlife-vn.com A @ns1.snetel.net   # -> 103.126.162.131
    ```
 
+> **`dig` works but `curl`/`ping`/Safari still say `Unknown host`?** That is the
+> Mac's own cache, not DNS. `dig` queries the nameserver directly; macOS
+> `mDNSResponder` keeps its own answer, and this zone's SOA minimum is `86400`, so
+> a negative answer taken before the record existed can stick for hours. Flush it:
+> ```bash
+> sudo dscacheutil -flushcache && sudo killall -HUP mDNSResponder
+> ```
+> To test the server immediately without touching DNS, force the address:
+> ```bash
+> curl -s --resolve erp.smartlife-vn.com:80:103.126.162.131 http://erp.smartlife-vn.com/api/health
+> ```
+> A stale cache on your laptop has no effect on `certbot` — it resolves from the
+> server.
+
 > **Do not click `+ Add Website` / "Subdomains" for `erp`.** That creates a
 > *website on the cPanel server* and writes an A record pointing at `50.6.231.22`
 > — the wrong machine for this app. If it has already happened:
