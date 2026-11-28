@@ -105,7 +105,11 @@ if [ -n "$REMOTE" ]; then
   echo "$(ts) off-site: verifying tonight's dump arrived with the right size"
   name=$(basename "$DB_FILE")
   local_bytes=$(wc -c < "$DB_FILE" | tr -d ' ')
-  remote_bytes=$(rclone lsf "$REMOTE" --include "$name" --format sp | cut -d';' -f1)
+  # --files-only matters: on rclone 1.60 `lsf` still lists directories under the
+  # remote, so the size column also contains a -1 row for `uploads` and the string
+  # comparison fails with `local=223207B remote=223207\n-1B`.
+  remote_bytes=$(rclone lsf "$REMOTE" --include "$name" --files-only --format sp \
+    | cut -d';' -f1 | head -1 | tr -d '[:space:]')
   if [ "$remote_bytes" != "$local_bytes" ]; then
     echo "$(ts) ERROR off-site dump size mismatch: local=${local_bytes}B remote=${remote_bytes:-missing}B"
     exit 1
