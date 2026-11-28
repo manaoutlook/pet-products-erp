@@ -64,6 +64,26 @@ terminal passes `# keep it…` as extra arguments and fails with
 
 Everything in this guide that runs *on the server* is unaffected.
 
+### Paste multi-line blocks into a real terminal, not a web/GUI console
+
+If a command block is pasted into a browser-based console or a terminal wrapper
+that decorates the prompt, every pasted line can arrive **with prompt text glued
+in front of it**, so bash tries to run things like
+
+```
+-bash: deploy'61861:opt/SmartERP$' (see below for file content): No such file or directory
+-bash: 1:DATABASE_URL=postgresql://erp:...: No such file or directory
+```
+
+Symptoms to watch for: lines from an *earlier* paste being re-executed, variables
+arriving empty (which is how a password can be silently cleared), and a command
+seeming to "half run". When that happens:
+
+- run blocks **one line at a time**, or paste multi-line blocks only after
+  `ssh deploy@103.126.162.131` from Terminal.app/iTerm2, and
+- re-check any state a mangled command may have touched. A line that vanished is
+  harmless; a line that ran with an empty variable is not.
+
 ---
 
 # Step 1 — Prepare the server
@@ -298,12 +318,31 @@ URL-encoded inside `DATABASE_URL`.
 openssl rand -hex 24        # e.g. 9f3c…  <- use this below AND in Step 5
 ```
 
+Set it through a variable — never inline, and never with a possibly-empty one:
+
 ```bash
-sudo -u postgres psql <<'SQL'
-CREATE ROLE erp LOGIN PASSWORD 'CHANGE_ME_long_random_password';
+# paste the hex from above between the quotes (no spaces)
+DBPW='9f3c...'
+
+sudo -u postgres psql -v ON_ERROR_STOP=1 <<SQL
+CREATE ROLE erp LOGIN PASSWORD '${DBPW:?DBPW is empty - paste the hex value}';
 CREATE DATABASE smart_erp_prod OWNER erp;
 SQL
+unset DBPW
 ```
+
+`${DBPW:?…}` makes the command **fail** instead of silently setting an empty
+password. If you ever see
+
+```
+NOTICE:  empty string is not a valid password, clearing password
+ALTER ROLE
+```
+
+the variable was empty (usually because `set -a; source ./.env` did not run in
+that shell, so `$PGPASS` expanded to nothing) and the role now has **no**
+password — every connection fails with `password authentication failed`. Recover
+with `ALTER ROLE erp PASSWORD '<value>'` using a variable guard as above.
 
 Notes:
 
@@ -1232,6 +1271,7 @@ rclone size onedrive:SmartERP-backups       # off-site copy still growing as exp
 | `npm ci` / `vite build` killed → `Killed` | 1 GB RAM without swap | enable swap (Step 1.5), retry with `NODE_OPTIONS=--max-old-space-size=768` |
 | `pg_restore: error: relation "users" already exists` | the database was not empty (e.g. `db:push` ran first) | drop/recreate the DB and restore again |
 | `pg_restore: error: unsupported version (1.16) in file header` | the `-Fc` dump was made by a `pg_dump` newer than the server's `pg_restore` (e.g. Postgres.app 18 → server 16) | re-dump as plain SQL (`-Fp … \| gzip`) and restore with `psql -v ON_ERROR_STOP=1`, or dump with a 16 client |
+| `NOTICE: empty string is not a valid password, clearing password` then `password authentication failed` | `ALTER ROLE … PASSWORD '$VAR'` ran with `$VAR` empty (the `.env` was not sourced in that shell, or a mangled multi-line paste dropped the assignment) | set a fresh password with a `${VAR:?}` guard (Step 3.2) and re-sync `.env`; the old password is gone, not recoverable |
 | `psql` printed `ERROR:` lines but exited 0 during the restore | `ON_ERROR_STOP` not set | truncate and restore again with `-v ON_ERROR_STOP=1`; check `\dt` count before proceeding |
 | `drizzle-kit: command not found` | `npm ci` ran with `NODE_ENV=production` and pruned devDependencies | `NODE_ENV=development npm ci` |
 | Uploaded pictures 404 | `WorkingDirectory` is not `/opt/SmartERP`, so `uploads/` resolves elsewhere | fix the unit, `daemon-reload`, restart |
