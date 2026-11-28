@@ -949,10 +949,14 @@ directive. `certbot` writes plain `listen 443 ssl`, so the site runs HTTP/1.1 on
 many asset requests:
 
 ```bash
-sudo sed -i '/listen 443 ssl/a\\    http2 on;' /etc/nginx/sites-available/smart-erp
+sudo perl -0pi -e 's/(listen 443 ssl;)/$1\n    http2 on;/' /etc/nginx/sites-available/smart-erp
 sudo nginx -t && sudo systemctl reload nginx
 curl -s -o /dev/null -w 'http_version=%{http_version}\n' https://erp.smartlife-vn.com/
 ```
+
+(`perl` rather than `sed`: the `a\`-append form differs between GNU and BSD sed and
+silently appends a stray backslash. The pattern matches Certbot's
+`listen 443 ssl;` line, including when it carries a `# managed by Certbot` comment.)
 
 ### 9.4 Verify from outside
 
