@@ -838,6 +838,33 @@ dig +short erp.smartlife-vn.com      # -> 103.126.162.131
 Do not continue until that prints `103.126.162.131`. A wrong/absent A record is the
 single most common cause of `certbot` failing with "no valid IP addresses found".
 
+#### If the zone lives in cPanel (smartlife-vn.com on `ns1..ns4.snetel.net`)
+
+`ns1.snetel.net` and `ns2.snetel.net` both resolve to the cPanel host
+(`50.6.231.22`), and `app`/`b2b.smartlife-vn.com` are plain A records pointing
+there — so the zone is edited **inside cPanel**, not at a separate DNS provider.
+
+1. In cPanel, type **`Zone Editor`** in the top search box and open it (it is not
+   in the left sidebar on the Jupiter theme).
+2. Find the row for `smartlife-vn.com` → **Manage**.
+3. Click **+ Add Record**:
+   - **Type**: `A`
+   - **Name**: `erp`   (cPanel shows it as `erp.smartlife-vn.com.` after saving)
+   - **Record**: `103.126.162.131`
+   - **TTL**: `300`
+4. **Save Record**. The change is live within seconds because `ns1`/`ns2` serve it
+   directly; verify against the authoritative server, not a public resolver:
+   ```bash
+   dig +short erp.smartlife-vn.com A @ns1.snetel.net   # -> 103.126.162.131
+   ```
+
+> **Do not click `+ Add Website` / "Subdomains" for `erp`.** That creates a
+> *website on the cPanel server* and writes an A record pointing at `50.6.231.22`
+> — the wrong machine for this app. If it has already happened:
+> delete the subdomain under **Websites & Apps → Domains**, then set the `A`
+> record by hand in Zone Editor as above. certbot would otherwise validate against
+> the cPanel box and fail with `Invalid response … 404`.
+
 ### 9.2 Install nginx and the site
 
 ```bash
