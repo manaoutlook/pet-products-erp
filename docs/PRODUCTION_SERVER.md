@@ -512,11 +512,30 @@ dependency order. `db:push` first would make the restore fail with
 ### 7A.1 On the Mac — take a consistent dump
 
 ```bash
-pg_dump --version                 # must be 16.x or newer than the server's
-pg_dump -h localhost -U postgres -Fc smart_erp_prod \
-  -f /tmp/smart_erp_prod_$(date +%Y%m%d_%H%M).dump
-ls -lh /tmp/smart_erp_prod_*.dump
+pg_dump --version                 # 16.x is ideal; a newer client is fine for plain SQL
 ```
+
+> **Version trap — `-Fc` archives do not travel upward.** A custom-format archive
+> carries an archive-format version (`pg_dump` 18 writes `1.16`) and the server's
+> `pg_restore` 16 refuses it with `unsupported version (1.16) in file header`.
+> Postgres.app ships only `latest` (18 here), so dump **plain SQL** — it has no
+> archive header and restores with any `psql`:
+
+```bash
+pg_dump -h localhost -U postgres -Fp --no-owner --no-privileges smart_erp_prod \
+  | gzip > /tmp/smart_erp_prod_$(date +%Y%m%d_%H%M).sql.gz
+ls -lh /tmp/smart_erp_prod_*.sql.gz
+gunzip -c /tmp/smart_erp_prod_*.sql.gz | head -20      # sanity check the SQL text
+```
+
+`--no-owner` / `--no-privileges` are the plain-SQL equivalent of the `pg_restore`
+flags used below: no `OWNER TO postgres`, no `GRANT`s that reference roles which
+do not exist on the server.
+
+If you specifically need `-Fc` (e.g. for `--data-only` partial restores), use a
+**16** client for the dump — `brew install postgresql@16` and run
+`/opt/homebrew/opt/postgresql@16/bin/pg_dump …`, or
+`docker run --rm postgres:16 pg_dump -h host.docker.internal -U postgres -Fc …`.
 
 Stop using the Mac instance for real work from this point; anything entered on
 the Mac after this dump does not exist on the server.
@@ -525,7 +544,7 @@ the Mac after this dump does not exist on the server.
 
 ```bash
 # the dump
-scp /tmp/smart_erp_prod_YYYYMMDD_HHMM.dump deploy@103.126.162.131:/tmp/
+scp /tmp/smart_erp_prod_YYYYMMDD_HHMM.sql.gz deploy@103.126.162.131:/tmp/
 
 # the uploads (product pictures, signed delivery notes, archived invoices,
 # attachments, inventory imports) - the database only stores their paths.
@@ -545,14 +564,26 @@ reprinted.
 cd /opt/SmartERP
 set -a; source ./.env; set +a
 
-pg_restore --no-owner --no-privileges --exit-on-error \
-  -d "$DATABASE_URL" /tmp/smart_erp_prod_YYYYMMDD_HHMM.dump
+gunzip -c /tmp/smart_erp_prod_YYYYMMDD_HHMM.sql.gz \
+  | psql "$DATABASE_URL" -v ON_ERROR_STOP=1
 ```
 
-`--no-owner` makes every object owned by `erp` (the role doing the restore) instead
-of the Mac's `postgres`, which does not exist on this server.
-`--exit-on-error` stops at the first problem instead of leaving a half-restored
-database.
+`ON_ERROR_STOP=1` is the plain-SQL equivalent of `--exit-on-error`: without it
+`psql` prints `ERROR:` lines and keeps going, leaving a half-restored database
+that looks fine until a page 500s.
+
+**Verify the restore before moving on:**
+
+```bash
+psql "$DATABASE_URL" -c '\dt' | tail -3                 # table count
+psql "$DATABASE_URL" -Atc 'select count(*) from users;'
+psql "$DATABASE_URL" -Atc 'select count(*) from products;'
+psql "$DATABASE_URL" -c 'delete from user_sessions;'    # sessions do not survive a new SESSION_SECRET
+```
+
+The row counts must match what the Mac reports for the same tables (run the same
+`select count(*)` locally). A silent `0` means you restored into the wrong
+database — check `psql "$DATABASE_URL" -Atc 'select current_database();'` again.
 
 ### 7A.4 On the server — reconcile the schema with the code
 
@@ -1200,6 +1231,8 @@ rclone size onedrive:SmartERP-backups       # off-site copy still growing as exp
 | UI edits show up under the **wrong** database in DBeaver | a shell-exported `DATABASE_URL` won over `.env` (dotenv does not override) | `sudo systemctl show smart-erp -p Environment`, and restart only via systemd — never `node dist/index.js` by hand |
 | `npm ci` / `vite build` killed → `Killed` | 1 GB RAM without swap | enable swap (Step 1.5), retry with `NODE_OPTIONS=--max-old-space-size=768` |
 | `pg_restore: error: relation "users" already exists` | the database was not empty (e.g. `db:push` ran first) | drop/recreate the DB and restore again |
+| `pg_restore: error: unsupported version (1.16) in file header` | the `-Fc` dump was made by a `pg_dump` newer than the server's `pg_restore` (e.g. Postgres.app 18 → server 16) | re-dump as plain SQL (`-Fp … \| gzip`) and restore with `psql -v ON_ERROR_STOP=1`, or dump with a 16 client |
+| `psql` printed `ERROR:` lines but exited 0 during the restore | `ON_ERROR_STOP` not set | truncate and restore again with `-v ON_ERROR_STOP=1`; check `\dt` count before proceeding |
 | `drizzle-kit: command not found` | `npm ci` ran with `NODE_ENV=production` and pruned devDependencies | `NODE_ENV=development npm ci` |
 | Uploaded pictures 404 | `WorkingDirectory` is not `/opt/SmartERP`, so `uploads/` resolves elsewhere | fix the unit, `daemon-reload`, restart |
 | `EACCES: permission denied, mkdir '/opt/SmartERP/uploads/products'` | `uploads/` created by root | `sudo chown -R deploy:deploy /opt/SmartERP/uploads` |
