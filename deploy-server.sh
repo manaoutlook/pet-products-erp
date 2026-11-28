@@ -49,7 +49,28 @@ npm run db:push
 
 echo "==> Building"
 echo "    NODE_OPTIONS=$NODE_OPTIONS"
+# AI Agent Note - the snapshot/restore around the build is not decoration. `vite build`
+# empties `dist/public` (vite.config.ts: emptyOutDir) *before* it compiles, so an OOM or
+# any other failure mid-build leaves the running service with no client assets: the site
+# goes blank / nginx answers 502 while `dist/index.js` is still fine. Copy the working
+# build aside and put it back if this one produces no index.html, then the worst case is
+# "deploy did not happen" instead of "production is down".
+rm -rf dist/public.prev
+if [ -f dist/public/index.html ]; then
+  cp -a dist/public dist/public.prev
+  RESTORE_PREV=1
+fi
+restore_previous_build() {
+  if [ "${RESTORE_PREV:-0}" = "1" ] && [ ! -f dist/public/index.html ]; then
+    echo "==> Build produced no dist/public/index.html - restoring the previous client build"
+    rm -rf dist/public
+    mv dist/public.prev dist/public
+  fi
+}
+trap restore_previous_build EXIT
 NODE_ENV=development npm run build
+trap - EXIT
+rm -rf dist/public.prev
 
 echo "==> Restarting $SERVICE"
 sudo systemctl restart "$SERVICE"

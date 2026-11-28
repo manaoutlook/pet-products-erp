@@ -1512,9 +1512,12 @@ Notes:
   first). It has to: on this 1 GB box `vite build` OOMs at V8's default heap, and
   because `vite.config.ts` uses `emptyOutDir: true`, that failure happens **after**
   `dist/public` has been emptied — the running service is then left with no client
-  assets and the site blanks, rather than the deploy merely stopping. If you ever see
-  a blank page with `/api/health` still fine, `npm run build` never completed: rebuild,
-  the database and `.env` are untouched.
+  assets and the site blanks, rather than the deploy merely stopping.
+- The script also snapshots `dist/public` to `dist/public.prev` before building and
+  puts it back if the build leaves no `index.html` (any failure, not just the OOM). A
+  broken build therefore means "the deploy did not happen", not "production is down."
+  If you ever see a blank page with `/api/health` still fine, `npm run build` was run
+  by hand: rebuild — the database and `.env` are untouched.
 
 - `.env` and `uploads/` are gitignored, so `git reset --hard` cannot destroy them.
 - `db:push` prompts before destructive changes; run the script in an interactive
@@ -1597,7 +1600,8 @@ rclone size onedrive:SmartERP-backups       # off-site copy still growing as exp
 | UI edits show up under the **wrong** database in DBeaver | a shell-exported `DATABASE_URL` won over `.env` (dotenv does not override) | `sudo systemctl show smart-erp -p Environment`, and restart only via systemd — never `node dist/index.js` by hand |
 | `npm ci` / `vite build` killed → `Killed` | 1 GB RAM without swap | enable swap (Step 1.5), retry with `NODE_OPTIONS=--max-old-space-size=768` |
 | `FATAL ERROR: Ineffective mark-compacts near heap limit … JavaScript heap out of memory` + `Aborted (core dumped)` during `vite build` | V8 default heap ≈ half of RAM (~470 MB) on a 1 GB box | set `NODE_OPTIONS=--max-old-space-size=896` (Step 8.1); it is the documented default, not an optional tweak. `deploy-server.sh` exports it — if you still hit this, you ran `npm run build` by hand |
-| Site is blank/white but `/api/health` answers, and `ls dist/public` is empty | a failed `vite build`: `emptyOutDir: true` wipes `dist/public` *before* compiling, so the OOM above leaves the service with no client assets | rebuild (`NODE_OPTIONS=--max-old-space-size=896 npm run build`) and restart; nothing in `.env`, `uploads/` or the database was touched |
+| Site is blank/white but `/api/health` answers, and `ls dist/public` is empty | a failed `vite build`: `emptyOutDir: true` wipes `dist/public` *before* compiling, so the OOM above leaves the service with no client assets | rebuild (`NODE_OPTIONS=--max-old-space-size=896 npm run build`) and restart; nothing in `.env`, `uploads/` or the database was touched. `deploy-server.sh` now snapshots `dist/public` and restores it on a failed build, so this only happens to a hand-typed build |
+| nginx answers `502 Bad Gateway` right after a restart | the unit is restarting: `serveStatic` (server/vite.ts) throws `Could not find the build directory` when `dist/public` is gone, and `Restart=always` turns that into a loop | `sudo systemctl status smart-erp` + `sudo journalctl -u smart-erp -n 50`; if it is the missing build directory, `npm run build` and `sudo systemctl restart smart-erp` |
 | `pg_restore: error: relation "users" already exists` | the database was not empty (e.g. `db:push` ran first) | drop/recreate the DB and restore again |
 | `pg_restore: error: unsupported version (1.16) in file header` | the `-Fc` dump was made by a `pg_dump` newer than the server's `pg_restore` (e.g. Postgres.app 18 → server 16) | re-dump as plain SQL (`-Fp … \| gzip`) and restore with `psql -v ON_ERROR_STOP=1`, or dump with a 16 client |
 | `NOTICE: empty string is not a valid password, clearing password` then `password authentication failed` | `ALTER ROLE … PASSWORD '$VAR'` ran with `$VAR` empty (the `.env` was not sourced in that shell, or a mangled multi-line paste dropped the assignment) | set a fresh password with a `${VAR:?}` guard (Step 3.2) and re-sync `.env`; the old password is gone, not recoverable |
