@@ -1,0 +1,46 @@
+# SmartERP - production service on the Ubuntu VPS.
+#
+# Install (see docs/PRODUCTION_SERVER.md, Step 8):
+#   sudo cp /opt/SmartERP/deploy/smart-erp.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now smart-erp
+#
+# AI Agent Note - three lines below are load-bearing and must not be "tidied":
+#   * WorkingDirectory  : every upload path is path.resolve(process.cwd(), "uploads")
+#                         (server/index.ts, product-images.ts, delivery-note-documents.ts,
+#                         invoice-documents.ts, attachment-files.ts). Another cwd = broken files.
+#   * EnvironmentFile   : dotenv does not override variables already in the environment,
+#                         so DATABASE_URL/SESSION_SECRET must be exported before node starts.
+#                         This is the server-side equivalent of `set -a; source ./.env` in
+#                         start_prod.sh.
+#   * Restart=always    : server/index.ts exits(1) on unhandled rejections, by design.
+
+[Unit]
+Description=SmartERP production application
+Documentation=file:///opt/SmartERP/docs/PRODUCTION_SERVER.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/opt/SmartERP
+EnvironmentFile=/opt/SmartERP/.env
+ExecStart=/usr/bin/node dist/index.js
+
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=smart-erp
+
+# Modest hardening; nothing here touches /opt/SmartERP or the network.
+NoNewPrivileges=true
+PrivateTmp=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

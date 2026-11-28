@@ -139,6 +139,8 @@ docs/                  design system + implementation runbooks
 ## Documentation
 
 - [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md) - design tokens, themed primitives, do/don't
+- [`docs/PRODUCTION_SERVER.md`](docs/PRODUCTION_SERVER.md) - **production install on the Ubuntu VPS**: app + Postgres on one host, nginx + TLS, systemd, nightly local + OneDrive backups (Step 1 → Step 12)
+- [`PRODUCTION.md`](PRODUCTION.md) - the older single-Mac two-checkout runbook (kept for the data-import and "empty the transactions" procedures)
 - [`docs/impl/README.md`](docs/impl/README.md) - index of the P0 hardening runbooks
 - [`docs/impl/99-backlog-p1-p2.md`](docs/impl/99-backlog-p1-p2.md) - remaining P1/P2 work
 - [`migrations/README.md`](migrations/README.md) - why `db:push` owns the schema

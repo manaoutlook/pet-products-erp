@@ -4,6 +4,15 @@ This folder is a **second checkout** of the same repository. It shares git histo
 with the development checkout (`../pet-products-erp`) but has its own runtime
 state. Nothing here is committed; production never commits.
 
+> **Scope.** This document describes the *single-Mac, two-checkout* setup: dev on
+> port 5001, "production" on 5002, both on `localhost`. The live production
+> environment is now the **Ubuntu VPS**, where the application folder is
+> `/opt/SmartERP` and the app runs under systemd — install it with
+> [`docs/PRODUCTION_SERVER.md`](docs/PRODUCTION_SERVER.md) (Steps 1 → 12).
+> Everything below about the *data-import order*, *emptying the transactions* and
+> the *`DATABASE_URL` precedence trap* still applies on the server; only the ports,
+> scripts and folder paths differ.
+
 | | Development | Production |
 | --- | --- | --- |
 | Folder | `../pet-products-erp` | `../SmartERP-prod` (this one) |
