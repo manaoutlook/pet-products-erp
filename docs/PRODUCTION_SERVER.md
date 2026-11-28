@@ -861,6 +861,26 @@ posts up to 10 MB of JSON — `server/index.ts:42`).
 `app.set("trust proxy", 1)` is already on in production (`server/auth.ts:219`), so
 the login limiter sees real client IPs, not nginx's.
 
+**Verify the vhost before DNS exists** — send the `Host` header by hand; the
+response comes from nginx → Node, not from a DNS lookup:
+
+```bash
+curl -s -o /dev/null -w 'vhost /  -> %{http_code}\n' -H 'Host: erp.smartlife-vn.com' http://127.0.0.1/
+curl -s -H 'Host: erp.smartlife-vn.com' http://127.0.0.1/api/health
+echo
+```
+
+From your Mac, the same request against the bare IP proves the **provider**
+firewall (VinaHost panel, separate from `ufw`) lets port 80 in — test this before
+`certbot`, which fails with a confusing `Timeout during connect` otherwise:
+
+```bash
+curl -s -H 'Host: erp.smartlife-vn.com' http://103.126.162.131/api/health
+```
+
+Both should print `{"status":"ok","db":"up",...}`. If the loopback copy works and
+the IP copy does not, the problem is in the VinaHost firewall, not in this guide.
+
 ### 9.3 Certificates
 
 ```bash
